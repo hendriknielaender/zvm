@@ -1,10 +1,5 @@
 const std = @import("std");
-
-fn listVersions() []const u8 {
-    // In a real-world scenario, you'd fetch this from the Zig GitHub releases page or API.
-    // Here's a mockup.
-    return "0.8.0, 0.9.0, 1.0.0";
-}
+const versions = @import("./versions.zig");
 
 fn installVersion() void {
     // Mockup: Just create a directory for the version.
@@ -25,8 +20,14 @@ fn currentVersion() []const u8 {
 }
 
 pub fn main() !void {
-    const versions = listVersions();
-    std.debug.print("Available versions: {s}\n", .{versions});
+    var allocator = std.heap.page_allocator;
+
+    const versionsList = try versions.list(allocator);
+    defer versionsList.deinit();
+
+    for (versionsList.items) |version| {
+        std.debug.print("Available version: {s}\n", .{version});
+    }
 
     installVersion();
 
