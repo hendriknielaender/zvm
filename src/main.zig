@@ -1,24 +1,37 @@
 const std = @import("std");
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // don't forget to flush!
+fn listVersions() []const u8 {
+    // In a real-world scenario, you'd fetch this from the Zig GitHub releases page or API.
+    // Here's a mockup.
+    return "0.8.0, 0.9.0, 1.0.0";
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn installVersion() void {
+    // Mockup: Just create a directory for the version.
+}
+
+fn useVersion() void {
+    // Switch to the specified version for the current session
+    // In practice, modify the PATH environment variable.
+}
+
+fn setDefault() void {
+    // Mockup: Intentionally does nothing.
+}
+
+fn currentVersion() []const u8 {
+    // Mockup: Intentionally does nothing.
+    return "1.0.0";
+}
+
+pub fn main() !void {
+    const versions = listVersions();
+    std.debug.print("Available versions: {s}\n", .{versions});
+
+    installVersion();
+
+    setDefault();
+
+    const current = currentVersion();
+    std.debug.print("Current version: {s}\n", .{current});
 }
