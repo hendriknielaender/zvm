@@ -11,7 +11,7 @@ const VERSION = "0.0.0";
 const params = [_]clap.Param(clap.Help){
     clap.parseParam("-v, --verbose              Show headers & status code") catch unreachable,
     clap.parseParam("-c, --color                Turns on ANSI color") catch unreachable,
-    //clap.parseParam("-ls, --list                List all zig versions") catch unreachable,
+    clap.parseParam("-l, --list                 List all zig versions") catch unreachable,
     clap.parseParam("-i, --install <STR>        Installs zig version") catch unreachable,
     clap.parseParam("--use <ANSWER>             Use zig version") catch unreachable,
     clap.parseParam("--default <ANSWER>         Set default zig version") catch unreachable,
@@ -40,13 +40,6 @@ fn currentVersion() []const u8 {
 pub fn main() !void {
     var allocator = std.heap.page_allocator;
 
-    const versionsList = try versions.list(allocator);
-    defer versionsList.deinit();
-
-    for (versionsList.items) |version| {
-        std.debug.print("Available version: {s}\n", .{version});
-    }
-
     installVersion();
 
     setDefault();
@@ -73,6 +66,16 @@ pub fn main() !void {
     };
     defer res.deinit();
 
-    if (res.args.help != 0)
+    if (res.args.help != 0) {
         debug.print("--help\n", .{});
+    }
+
+    // Check if --list or -ls flag is set
+    if (res.args.list != 0) {
+        const versionsList = try versions.list(allocator);
+        defer versionsList.deinit();
+        for (versionsList.items) |version| {
+            std.debug.print("{s}\n", .{version});
+        }
+    }
 }
