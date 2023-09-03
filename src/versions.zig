@@ -1,11 +1,7 @@
 const std = @import("std");
 
-const GitHubReleaseResponse = struct {
-    tag_name: ?[]const u8,
-};
-
 pub fn list(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    const url = "https://api.github.com/repos/ziglang/zig/releases";
+    const url = "https://ziglang.org/download/index.json";
     const uri = std.Uri.parse(url) catch unreachable;
 
     // Initialize HTTP client
@@ -21,21 +17,25 @@ pub fn list(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
     // Check if request was successful
     try std.testing.expect(req.response.status == .ok);
 
-    // Read the response body 256kb buffer allocation
+    // Read the response body with 256kb buffer allocation
     var buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
     const read_len = try req.readAll(buffer[0..]);
 
-    // Parse the JSON data into parsed_data
-    const parsed_data = try std.json.parseFromSlice([]GitHubReleaseResponse, allocator, buffer[0..read_len], .{ .ignore_unknown_fields = true });
-    const releases = parsed_data.value;
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, buffer[0..read_len], .{});
+    defer parsed.deinit();
+    const root = parsed.value;
 
-    var tagNames = std.ArrayList([]const u8).init(allocator);
+    // Initialize array list to hold versions
+    var versions = std.ArrayList([]const u8).init(allocator);
 
-    for (releases) |release| {
-        if (release.tag_name) |tag| {
-            try tagNames.append(tag);
-        }
+    var it = root.object.iterator();
+    while (it.next()) |entry| {
+        const key_ptr = entry.key_ptr;
+        const key = key_ptr.*;
+
+        const key_copy = try allocator.dupe(u8, key);
+        try versions.append(key_copy);
     }
 
-    return tagNames;
+    return versions;
 }
