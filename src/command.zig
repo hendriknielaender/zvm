@@ -1,4 +1,5 @@
 const std = @import("std");
+const versions = @import("versions.zig");
 
 pub const Command = enum {
     List,
@@ -8,13 +9,14 @@ pub const Command = enum {
     Unknown,
 };
 
-pub fn handleCommands(cmd: Command) !void {
+pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
+    std.debug.print("Handling command: {}\n", .{cmd});
     switch (cmd) {
         Command.List => {
             try handleList();
         },
         Command.Install => {
-            try installVersion();
+            try installVersion(params);
         },
         Command.Use => {
             try useVersion();
@@ -29,13 +31,21 @@ pub fn handleCommands(cmd: Command) !void {
 }
 
 fn handleList() !void {
-    std.debug.print("Handling 'list' command.\n", .{});
-    // Your install code here
+    var allocator = std.heap.page_allocator;
+    const versionsList = try versions.list(allocator);
+    defer versionsList.deinit();
+    for (versionsList.items) |version| {
+        std.debug.print("{s}\n", .{version});
+    }
 }
 
-fn installVersion() !void {
-    std.debug.print("Handling 'install' command.\n", .{});
-    // Your install code here
+fn installVersion(params: ?[]const u8) !void {
+    if (params) |version| {
+        std.debug.print("Installing version: {s}\n", .{version});
+        // Your install code here
+    } else {
+        std.debug.print("Please specify a version to install.\n", .{});
+    }
 }
 
 fn useVersion() !void {
