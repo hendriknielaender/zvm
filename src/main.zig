@@ -1,5 +1,4 @@
 const std = @import("std");
-const versions = @import("./versions.zig");
 const Command = @import("command.zig").Command;
 const handleCommands = @import("command.zig").handleCommands;
 
@@ -21,29 +20,29 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
+    std.debug.print("Received args: {any}\n", .{args});
+
     const cmd_data = try parseArgs(args);
-    try handleCommands(cmd_data.cmd, cmd_data.params); // Pass the members of cmd_data as individual arguments
+    try handleCommands(cmd_data.cmd, cmd_data.params);
 }
 
-/// Parses command line arguments to generate a CommandData struct.
 fn parseArgs(args: []const []const u8) !CommandData {
     const options = getAvailableCommands();
-    return findCommandInArgs(args, &options) orelse CommandData{ .cmd = Command.Unknown, .params = null };
+    if (args.len < 2) return CommandData{ .cmd = Command.Unknown, .params = null };
+    return findCommandInArgs(args[1..], options) orelse CommandData{ .cmd = Command.Unknown, .params = null };
 }
 
-/// Returns a list of available command options.
-fn getAvailableCommands() [3]CommandOption {
-    return [3]CommandOption{
+fn getAvailableCommands() []const CommandOption {
+    return &[_]CommandOption{
         CommandOption{ .short_handle = "ls", .handle = "list", .cmd = Command.List },
         CommandOption{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
         CommandOption{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
     };
 }
 
-/// Finds and returns the command specified in the command line arguments.
 fn findCommandInArgs(args: []const []const u8, options: []const CommandOption) ?CommandData {
-    var i: usize = 0; // Manually manage the index
-    for (args[1..]) |arg| {
+    var i: usize = 0;
+    for (args) |arg| {
         for (options) |option| {
             if ((option.short_handle != null and std.mem.eql(u8, arg, option.short_handle.?)) or
                 std.mem.eql(u8, arg, option.handle))
@@ -52,7 +51,7 @@ fn findCommandInArgs(args: []const []const u8, options: []const CommandOption) ?
                 return CommandData{ .cmd = option.cmd, .params = params };
             }
         }
-        i += 1; // Increment the index manually
+        i += 1; // Manually increment the index
     }
     return null;
 }

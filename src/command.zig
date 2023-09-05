@@ -1,5 +1,6 @@
 const std = @import("std");
 const versions = @import("versions.zig");
+const install = @import("install.zig");
 
 pub const Command = enum {
     List,
@@ -41,8 +42,9 @@ fn handleList() !void {
 
 fn installVersion(params: ?[]const u8) !void {
     if (params) |version| {
-        std.debug.print("Installing version: {s}\n", .{version});
+        std.debug.print("Installing version: {any}\n", .{version});
         // Your install code here
+        try install.fromVersion(version);
     } else {
         std.debug.print("Please specify a version to install.\n", .{});
     }
