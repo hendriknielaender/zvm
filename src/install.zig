@@ -45,28 +45,45 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8) !?Versi
     while (it.next()) |entry| {
         const key_ptr = entry.key_ptr;
         const key = key_ptr.*;
-        std.debug.print("requested_version: {any}\n", .{requested_version});
-        std.debug.print("key: {s} requested_version: {s}\n", .{ key, requested_version });
 
-        std.debug.print("eql {}\n", .{std.mem.eql(u8, key, requested_version)});
+        std.debug.print("check version eql: {}\n", .{std.mem.eql(u8, key, requested_version)});
         if (std.mem.eql(u8, key, requested_version)) {
             // Found the requested version
             // Assuming the value associated with the version key is an object containing the fields we want
-            const value_ptr = entry.value_ptr;
-            const value = value_ptr.*;
 
-            const version_data = value.object;
+            // Initialize fields with null.
+            var date: ?[]const u8 = null;
+            var tarball: ?[]const u8 = null;
+            var shasum: ?[]const u8 = null;
 
-            std.debug.print("version_data:{}", .{version_data});
-            // Extract fields and populate the Version struct
+            var valObj = entry.value_ptr.*.object.iterator();
+            while (valObj.next()) |value| {
+                std.debug.print("Key {any}\n", .{value.key_ptr.*});
+                std.debug.print("Value {any}\n", .{value.value_ptr.*.string});
+                //std.debug.print("Value data: {any}\n", .{value});
+                if (std.mem.eql(u8, value.key_ptr.*, "date")) {
+                    date = value.value_ptr.*.string;
+                } else if (std.mem.eql(u8, value.key_ptr.*, "tarball")) {
+                    tarball = value.value_ptr.*.string;
+                } else if (std.mem.eql(u8, value.key_ptr.*, "shasum")) {
+                    shasum = value.value_ptr.*.string;
+                }
+            }
+            // Validate that we found all the required fields.
+            if (date == null or tarball == null or shasum == null) {
+                return Error.MissingExpectedFields;
+            }
+
+            // Create the Version struct.
             return Version{
                 .name = try allocator.dupe(u8, requested_version),
-                .date = try allocator.dupe(u8, ""),
-                .tarball = try allocator.dupe(u8, ""),
-                .shasum = try allocator.dupe(u8, ""),
+                .date = try allocator.dupe(u8, date.?),
+                .tarball = try allocator.dupe(u8, tarball.?),
+                .shasum = try allocator.dupe(u8, shasum.?),
             };
         }
     }
+
     return null;
 }
 
