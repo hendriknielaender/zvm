@@ -16,7 +16,7 @@ const Error = error{
     MissingExpectedFields,
 };
 
-fn fetchVersionData(allocator: Allocator, requested_version: []const u8) !?Version {
+fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
     const url = "https://ziglang.org/download/index.json";
     const uri = std.Uri.parse(url) catch unreachable;
 
@@ -43,14 +43,9 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8) !?Versi
 
     var it = root.object.iterator();
     while (it.next()) |entry| {
-        const key_ptr = entry.key_ptr;
-        const key = key_ptr.*;
-
-        std.debug.print("check version eql: {}\n", .{std.mem.eql(u8, key, requested_version)});
-        if (std.mem.eql(u8, key, requested_version)) {
-            // Found the requested version
-            // Assuming the value associated with the version key is an object containing the fields we want
-
+        // const key_ptr = entry.key_ptr;
+        // const key = key_ptr.*;
+        if (std.mem.eql(u8, entry.key_ptr.*, requested_version)) {
             // Initialize fields with null.
             var date: ?[]const u8 = null;
             var tarball: ?[]const u8 = null;
@@ -58,17 +53,21 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8) !?Versi
 
             var valObj = entry.value_ptr.*.object.iterator();
             while (valObj.next()) |value| {
-                std.debug.print("Key {any}\n", .{value.key_ptr.*});
-                std.debug.print("Value {any}\n", .{value.value_ptr.*.string});
-                //std.debug.print("Value data: {any}\n", .{value});
                 if (std.mem.eql(u8, value.key_ptr.*, "date")) {
                     date = value.value_ptr.*.string;
-                } else if (std.mem.eql(u8, value.key_ptr.*, "tarball")) {
-                    tarball = value.value_ptr.*.string;
-                } else if (std.mem.eql(u8, value.key_ptr.*, "shasum")) {
-                    shasum = value.value_ptr.*.string;
+                } else if (std.mem.eql(u8, value.key_ptr.*, sub_key)) {
+                    const nestedObjConst = value.value_ptr.*.object.iterator();
+                    var nestedObj = nestedObjConst;
+                    while (nestedObj.next()) |nestedValue| {
+                        if (std.mem.eql(u8, nestedValue.key_ptr.*, "tarball")) {
+                            tarball = nestedValue.value_ptr.*.string;
+                        } else if (std.mem.eql(u8, nestedValue.key_ptr.*, "shasum")) {
+                            shasum = nestedValue.value_ptr.*.string;
+                        }
+                    }
                 }
             }
+
             // Validate that we found all the required fields.
             if (date == null or tarball == null or shasum == null) {
                 return Error.MissingExpectedFields;
@@ -89,9 +88,11 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8) !?Versi
 
 pub fn fromVersion(version: []const u8) !void {
     var allocator = std.heap.page_allocator;
-    const version_data = try fetchVersionData(allocator, version);
+    const version_data = try fetchVersionData(allocator, version, "x86_64-macos");
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
+        std.debug.print("Install tarball {s}\n", .{data.tarball orelse ""});
+        std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
     } else {
         return Error.UnsupportedVersion;
     }
