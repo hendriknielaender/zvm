@@ -1,4 +1,6 @@
 const std = @import("std");
+const hash = @import("hash.zig");
+const download = @import("download.zig");
 const tar = @import("tar.zig");
 const Allocator = std.mem.Allocator;
 const io = std.io;
@@ -93,36 +95,6 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
     return null;
 }
 
-fn downloadAndVerify(allocator: Allocator, url: []const u8, expectedHash: []const u8) !void {
-    const uri = std.Uri.parse(url) catch unreachable;
-
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
-    defer req.deinit();
-    try req.start();
-    try req.wait();
-
-    try std.testing.expect(req.response.status == .ok);
-
-    var sha256 = crypto.hash.sha2.Sha256.init(.{});
-
-    var buffer: [1024]u8 = undefined;
-    while (true) {
-        const read_len = try req.read(buffer[0..]);
-        if (read_len == 0) break;
-        sha256.update(buffer[0..read_len]);
-    }
-
-    var hash_result: [32]u8 = undefined;
-    sha256.final(&hash_result);
-
-    if (!std.mem.eql(u8, &hash_result, expectedHash)) {
-        return Error.HashMismatch;
-    }
-}
-
 pub fn fromVersion(version: []const u8) !void {
     var allocator = std.heap.page_allocator;
     const version_data = try fetchVersionData(allocator, version, "x86_64-macos");
@@ -132,7 +104,12 @@ pub fn fromVersion(version: []const u8) !void {
         std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
 
         // Download and verify
-        try downloadAndVerify(allocator, data.tarball.?, data.shasum.?);
+        const content = try download.content(allocator, data.tarball.?);
+        const computedHash: [32]u8 = hash.computeSHA256(content);
+        std.debug.print("Computed hash {s}\n", .{computedHash});
+        if (!hash.verifyHash(computedHash, data.shasum.?)) {
+            return error.HashMismatch;
+        }
 
         // Extract tarball
         try tar.extractTarball("zig.tar.gz", "/usr/local/zvm/");
