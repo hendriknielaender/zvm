@@ -1,6 +1,11 @@
 const std = @import("std");
+const tar = @import("tar.zig");
 const Allocator = std.mem.Allocator;
-const json = @import("std").json;
+const io = std.io;
+const json = std.json;
+const fs = std.fs;
+const crypto = std.crypto;
+const os = std.os;
 
 const Version = struct {
     name: []const u8,
@@ -14,6 +19,8 @@ const Error = error{
     UnsupportedVersion,
     JSONParsingFailed,
     MissingExpectedFields,
+    FileError,
+    HashMismatch,
 };
 
 fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
@@ -86,6 +93,36 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
     return null;
 }
 
+fn downloadAndVerify(allocator: Allocator, url: []const u8, expectedHash: []const u8) !void {
+    const uri = std.Uri.parse(url) catch unreachable;
+
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
+    defer req.deinit();
+    try req.start();
+    try req.wait();
+
+    try std.testing.expect(req.response.status == .ok);
+
+    var sha256 = crypto.hash.sha2.Sha256.init(.{});
+
+    var buffer: [1024]u8 = undefined;
+    while (true) {
+        const read_len = try req.read(buffer[0..]);
+        if (read_len == 0) break;
+        sha256.update(buffer[0..read_len]);
+    }
+
+    var hash_result: [32]u8 = undefined;
+    sha256.final(&hash_result);
+
+    if (!std.mem.eql(u8, &hash_result, expectedHash)) {
+        return Error.HashMismatch;
+    }
+}
+
 pub fn fromVersion(version: []const u8) !void {
     var allocator = std.heap.page_allocator;
     const version_data = try fetchVersionData(allocator, version, "x86_64-macos");
@@ -93,6 +130,12 @@ pub fn fromVersion(version: []const u8) !void {
         std.debug.print("Install {s}\n", .{data.name});
         std.debug.print("Install tarball {s}\n", .{data.tarball orelse ""});
         std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
+
+        // Download and verify
+        try downloadAndVerify(allocator, data.tarball.?, data.shasum.?);
+
+        // Extract tarball
+        try tar.extractTarball("zig.tar.gz", "/usr/local/zvm/");
     } else {
         return Error.UnsupportedVersion;
     }
