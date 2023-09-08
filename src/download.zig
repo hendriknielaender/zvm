@@ -1,4 +1,6 @@
 const std = @import("std");
+const progress = @import("progress.zig");
+const tar = @import("tar.zig");
 
 var gpa: std.mem.Allocator = undefined;
 
@@ -18,6 +20,9 @@ pub fn content(allocator: std.mem.Allocator, url: []const u8) !void {
     try req.wait();
 
     try std.testing.expect(req.response.status == .ok);
+
+    const totalSize = req.response.content_length orelse 0;
+
     // Check what we have.
     var downloads = try openOrCreateZvmDir();
     defer downloads.close();
@@ -33,13 +38,12 @@ pub fn content(allocator: std.mem.Allocator, url: []const u8) !void {
 
     const extract_dir = try downloads.openDir(".tmp", .{});
     // Use a buffered reader to work around a bug in the tls implementation.
-    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
+    //var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, req.reader());
 
     // Download and extract at the same time.
-    var xz = try std.compress.xz.decompress(gpa, br.reader());
+    var xz = try std.compress.xz.decompress(gpa, req.reader());
     defer xz.deinit();
-    try std.tar.pipeToFileSystem(extract_dir, xz.reader(), .{ .mode_mode = .ignore });
-
+    try tar.pipeToFileSystemWithProgress(extract_dir, xz.reader(), .{ .mode_mode = .ignore, .strip_components = 0 }, totalSize);
     var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     _ = try std.fmt.bufPrint(buffer[0..], ".tmp/{s}", .{"yoyo"});
 }

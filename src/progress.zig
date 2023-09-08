@@ -3,7 +3,7 @@ const std = @import("std");
 
 const ProgressBarLength = 20;
 
-pub fn printBar(current: usize, total: usize) void {
+pub fn print(current: usize, total: usize) void {
     const percentage = (current * 100) / total;
     const filledBlocks = (current * ProgressBarLength) / total;
 
