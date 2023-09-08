@@ -1,7 +1,6 @@
 const std = @import("std");
 const hash = @import("hash.zig");
 const download = @import("download.zig");
-const tar = @import("tar.zig");
 const Allocator = std.mem.Allocator;
 const io = std.io;
 const json = std.json;
@@ -104,15 +103,13 @@ pub fn fromVersion(version: []const u8) !void {
         std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
 
         // Download and verify
-        const content = try download.content(allocator, data.tarball.?);
-        const computedHash: [32]u8 = hash.computeSHA256(content);
-        std.debug.print("Computed hash {s}\n", .{computedHash});
-        if (!hash.verifyHash(computedHash, data.shasum.?)) {
-            return error.HashMismatch;
-        }
+        _ = try download.content(allocator, data.tarball.?);
+        //const computedHash: [32]u8 = hash.computeSHA256(content);
+        //std.debug.print("Computed hash {s}\n", .{computedHash});
+        //if (!hash.verifyHash(computedHash, data.shasum.?)) {
+        //  return error.HashMismatch;
+        //}
 
-        // Extract tarball
-        try tar.extractTarball("zig.tar.gz", "/usr/local/zvm/");
     } else {
         return Error.UnsupportedVersion;
     }
