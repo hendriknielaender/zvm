@@ -1,4 +1,6 @@
 zig-cache
 zig-out
 
-libs/clap/*
+.DS_Store
+
+

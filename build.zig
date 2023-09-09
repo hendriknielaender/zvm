@@ -23,6 +23,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.linkLibC();
+    exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" }); // Adjust this path based on your system
+    exe.linkSystemLibrary("archive"); // libarchive
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

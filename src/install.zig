@@ -103,7 +103,7 @@ pub fn fromVersion(version: []const u8) !void {
         std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
 
         // Download and verify
-        _ = try download.content(allocator, data.tarball.?);
+        _ = try download.content(allocator, data.name, data.tarball.?);
         //const computedHash: [32]u8 = hash.computeSHA256(content);
         //std.debug.print("Computed hash {s}\n", .{computedHash});
         //if (!hash.verifyHash(computedHash, data.shasum.?)) {
