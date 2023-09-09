@@ -1,23 +1,22 @@
 const std = @import("std");
-const Target = std.Target;
+const builtin = @import("builtin");
 const progress = @import("progress.zig");
 const tarC = @import("c/tar.zig");
 
 var gpa: std.mem.Allocator = undefined;
 const archive_ext = "tar.xz";
 
-const arch = switch (Target.Cpu.Arch.x86_64) {
+const arch = switch (builtin.cpu.arch) {
     .x86_64 => "x86_64",
     .aarch64 => "aarch64",
     .riscv64 => "riscv64",
     else => @compileError("Unsupported CPU Architecture"),
 };
 
-const os = switch (Target.Os.Tag.macos) {
+const os = switch (builtin.os.tag) {
     .linux => "linux",
     .macos => "macos",
-    .windows => "windows",
-    else => @compileError("Unsupported OS"),
+    else => @compileError("Unsupported OS"), // Windows too
 };
 const url_platform = os ++ "-" ++ arch;
 
@@ -38,63 +37,102 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
 
     try std.testing.expect(req.response.status == .ok);
 
-    //const totalSize = req.response.content_length orelse 0;
+    var zvm_dir = try openOrCreateZvmDir();
+    defer zvm_dir.close();
 
-    // Check what we have.
-    var downloads = try openOrCreateZvmDir();
-    defer downloads.close();
+    std.debug.print("Downloading: {s}", .{url_platform});
 
-    std.log.info("Downloading: {s}", .{"x86"});
-    downloads.makeDir(".tmp") catch |err| switch (err) {
-        error.PathAlreadyExists => {
-            try downloads.deleteTree(".tmp");
-            try downloads.makeDir(".tmp");
-        },
-        else => return err,
-    };
-
-    const friendlyname = try std.mem.concat(allocator, u8, &.{ "zvm-", "test", ".", archive_ext });
+    const friendlyname = try std.mem.concat(allocator, u8, &.{ "zig-", url_platform, "-", version, ".", archive_ext });
     defer allocator.free(friendlyname);
 
-    const extract_dir = try downloads.openDir(".tmp", .{});
-    const data = try req.reader().readAllAlloc(allocator, 2 << 50);
-    defer allocator.free(data);
-    try extract_dir.writeFile(friendlyname, data);
+    const totalSize = req.response.content_length orelse 0;
+    var downloadedBytes: usize = 0;
 
-    // Download and extract at the same time.
-    //var xz = try std.compress.xz.decompress(gpa, req.reader());
-    //defer xz.deinit();
-    //try tar.pipeToFileSystemWithProgress(extract_dir, xz.reader(), .{ .mode_mode = .ignore, .strip_components = 0 }, totalSize);
-    const fpstr = try extract_dir.realpathAlloc(allocator, friendlyname);
+    const file_stream = try zvm_dir.createFile(friendlyname, .{});
+    defer file_stream.close();
+
+    while (true) {
+        var buffer: [8192]u8 = undefined;
+        const bytes_read = try req.reader().read(buffer[0..]);
+        if (bytes_read == 0) break;
+
+        downloadedBytes += bytes_read;
+        progress.print(downloadedBytes, totalSize * 2, 0); // Multiply by 2 to effectively use only 50% of progress bar.
+        try file_stream.writeAll(buffer[0..bytes_read]);
+    }
+
+    // Download and extract.
+    const fpstr = try zvm_dir.realpathAlloc(allocator, friendlyname);
     defer allocator.free(fpstr);
+    std.debug.print("fpstr: \n {s}\n", .{fpstr});
 
     _ = try tarC.extractTarXZ(fpstr);
-    // use std.tar.pipeToFileSystem() in the future, currently very slow
+    // TODO: use std.tar.pipeToFileSystem() in the future, currently very slow
 
     // libarchive can't set dest path so it extracts to cwd
     // rename here moves the extracted folder to the correct path
-    // (cwd)/zig-linux-x86_64-0.11.0 -> ~/.zigd/versions/0.11.0
+    // (cwd)/zig-linux-x86_64-0.11.0 -> ~/zvm/versions/0.11.0
     const fx = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ url_platform, version });
     defer allocator.free(fx);
 
+    // Generate the version folder path
     const user_home = std.os.getenv("HOME") orelse ".";
-    const paths = &[_][]const u8{ user_home, "zvm" };
-    const zvm_path = try std.fs.path.join(allocator, paths);
+    const paths = &[_][]const u8{ user_home, ".zvm", "versions", version };
+    const version_path = try std.fs.path.join(allocator, paths);
 
-    const newFilePath = try std.fs.path.join(allocator, &[_][]const u8{ zvm_path, fx });
-    defer allocator.free(newFilePath);
+    // Check if the version folder exists
+    const openDirOptions = .{ .access_sub_paths = true, .no_follow = false };
+    const potentialDir = std.fs.cwd().openDir(version_path, openDirOptions);
+    if (potentialDir) |_| {
+        // Directory for the version exists, prompt user for reinstallation
+        std.debug.print("Version {s} already exists. Do you want to reinstall it? (yes/no) ", .{version});
 
-    std.debug.print("Renaming '{s}' to '{s}'\n", .{ fx, newFilePath });
-    try std.fs.cwd().rename(fx, newFilePath);
+        var buffer: [4]u8 = undefined;
+        _ = try std.io.getStdIn().read(buffer[0..]);
+        if (std.mem.eql(u8, buffer[0..3], "yes")) {
+            std.debug.print("Installing version {s}...\n", .{version});
+            try std.fs.cwd().deleteTree(version_path);
+        } else {
+            std.debug.print("Aborting...\n", .{});
+            return;
+        }
+    } else |err| {
+        // Handle the error here, if needed.
+        switch (err) {
+            error.FileNotFound => {
+                // Directory doesn't exist, which might be expected in this case.
+            },
+            else => {
+                // Some other unexpected error occurred.
+                std.debug.print("Error opening directory: {}\n", .{err});
+                return err;
+            },
+        }
+    }
 
-    var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    _ = try std.fmt.bufPrint(buffer[0..], ".tmp/{s}", .{"yoyo"});
+    const _zvmver = try std.fs.path.join(allocator, &.{ user_home, ".zvm", "versions" });
+    defer allocator.free(_zvmver);
+
+    const lastp = try std.fs.path.join(allocator, &.{ _zvmver, version });
+    defer allocator.free(lastp);
+
+    // create .zvm/versions if it doesn't exist
+    std.fs.makeDirAbsolute(_zvmver) catch {};
+
+    std.debug.print("Renaming '{s}' to '{s}'\n", .{ fx, lastp });
+
+    if (std.fs.cwd().rename(fx, lastp)) |_| {
+        std.debug.print("Successfully renamed {s} to {s}\n", .{ fx, lastp });
+    } else |err| {
+        std.debug.print("Failed to rename {s} to {s}.\n \n Error: {any}\n", .{ fx, lastp, err });
+    }
+    //return try std.fs.path.join(allocator, &.{ lastp, "zig" });
 }
 
 fn openOrCreateZvmDir() !std.fs.Dir {
-    const allocator = std.heap.page_allocator; // or another allocator you prefer
+    const allocator = std.heap.page_allocator;
     const user_home = std.os.getenv("HOME") orelse ".";
-    const paths = &[_][]const u8{ user_home, "zvm" };
+    const paths = &[_][]const u8{ user_home, ".zvm" };
     const zvm_path = try std.fs.path.join(allocator, paths);
 
     std.debug.print("Trying to open or create path: {s}\n", .{zvm_path});
@@ -107,7 +145,7 @@ fn openOrCreateZvmDir() !std.fs.Dir {
     if (potentialDir) |dir| {
         return dir;
     } else |err| switch (err) {
-        error.BadPathName => {
+        error.FileNotFound => {
             std.debug.print("Attempting to create directory: {s}\n", .{zvm_path});
 
             // Make directory
