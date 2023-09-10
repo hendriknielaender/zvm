@@ -1,24 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const architecture = @import("architecture.zig");
 const progress = @import("progress.zig");
 const tarC = @import("c/tar.zig");
 
 var gpa: std.mem.Allocator = undefined;
-const archive_ext = "tar.xz";
 
-const arch = switch (builtin.cpu.arch) {
-    .x86_64 => "x86_64",
-    .aarch64 => "aarch64",
-    .riscv64 => "riscv64",
-    else => @compileError("Unsupported CPU Architecture"),
-};
-
-const os = switch (builtin.os.tag) {
-    .linux => "linux",
-    .macos => "macos",
-    else => @compileError("Unsupported OS"), // Windows too
-};
-const url_platform = os ++ "-" ++ arch;
+const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !void {
     const uri = std.Uri.parse(url) catch unreachable;
@@ -40,9 +28,11 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     var zvm_dir = try openOrCreateZvmDir();
     defer zvm_dir.close();
 
-    std.debug.print("Downloading: {s}", .{url_platform});
+    //const friendlyname = try std.mem.concat(allocator, u8, .{ "zig-", url_platform, "-", version, ".", archive_ext });
+    const platform = try architecture.detect(builtin.os.tag, builtin.cpu.arch);
+    std.debug.print("Downloading: {s}", .{platform});
+    const friendlyname = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
 
-    const friendlyname = try std.mem.concat(allocator, u8, &.{ "zig-", url_platform, "-", version, ".", archive_ext });
     defer allocator.free(friendlyname);
 
     const totalSize = req.response.content_length orelse 0;
@@ -72,7 +62,7 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     // libarchive can't set dest path so it extracts to cwd
     // rename here moves the extracted folder to the correct path
     // (cwd)/zig-linux-x86_64-0.11.0 -> ~/zvm/versions/0.11.0
-    const fx = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ url_platform, version });
+    const fx = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, version });
     defer allocator.free(fx);
 
     // Generate the version folder path
