@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const architecture = @import("architecture.zig");
 const progress = @import("progress.zig");
+const set = @import("set.zig");
 const tarC = @import("c/tar.zig");
 
 var gpa: std.mem.Allocator = undefined;
@@ -116,7 +117,8 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     } else |err| {
         std.debug.print("Failed to rename {s} to {s}.\n \n Error: {any}\n", .{ fx, lastp, err });
     }
-    //return try std.fs.path.join(allocator, &.{ lastp, "zig" });
+
+    try set.zigVersion(version);
 }
 
 fn openOrCreateZvmDir() !std.fs.Dir {
