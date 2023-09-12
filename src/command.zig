@@ -1,6 +1,7 @@
 const std = @import("std");
 const versions = @import("versions.zig");
 const install = @import("install.zig");
+const set = @import("set.zig");
 
 pub const Command = enum {
     List,
@@ -20,7 +21,7 @@ pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
             try installVersion(params);
         },
         Command.Use => {
-            try useVersion();
+            try useVersion(params);
         },
         Command.Default => {
             try setDefault();
@@ -43,16 +44,19 @@ fn handleList() !void {
 fn installVersion(params: ?[]const u8) !void {
     if (params) |version| {
         std.debug.print("Installing version: {any}\n", .{version});
-        // Your install code here
         try install.fromVersion(version);
     } else {
         std.debug.print("Please specify a version to install.\n", .{});
     }
 }
 
-fn useVersion() !void {
-    std.debug.print("Handling 'use' command.\n", .{});
-    // Your use code here
+fn useVersion(params: ?[]const u8) !void {
+    if (params) |version| {
+        std.debug.print("Set version: {any}\n", .{version});
+        try set.zigVersion(version);
+    } else {
+        std.debug.print("Please specify a version.\n", .{});
+    }
 }
 
 fn setDefault() !void {

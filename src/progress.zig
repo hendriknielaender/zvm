@@ -3,8 +3,8 @@ const std = @import("std");
 
 const ProgressBarLength = 20;
 
-pub fn print(current: usize, total: usize, offset_percentage: usize) void {
-    const true_percentage = ((current * 100) / total) + offset_percentage;
+pub fn print(current: usize, total: usize) void {
+    const true_percentage = ((current * 100) / total);
     const filledBlocks = (true_percentage * ProgressBarLength) / 100;
 
     std.debug.print("[", .{});
