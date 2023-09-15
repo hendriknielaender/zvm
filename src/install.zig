@@ -99,8 +99,8 @@ pub fn fromVersion(version: []const u8) !void {
     const version_data = try fetchVersionData(allocator, version, "x86_64-macos");
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
-        std.debug.print("Install tarball {s}\n", .{data.tarball orelse ""});
-        std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
+        //std.debug.print("Install tarball {s}\n", .{data.tarball orelse ""});
+        //std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
 
         // Download and verify
         _ = try download.content(allocator, data.name, data.tarball.?);

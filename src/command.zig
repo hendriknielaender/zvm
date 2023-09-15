@@ -43,7 +43,6 @@ fn handleList() !void {
 
 fn installVersion(params: ?[]const u8) !void {
     if (params) |version| {
-        std.debug.print("Installing version: {any}\n", .{version});
         try install.fromVersion(version);
     } else {
         std.debug.print("Please specify a version to install.\n", .{});

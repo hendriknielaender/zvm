@@ -2,8 +2,6 @@ const std = @import("std");
 const Command = @import("command.zig").Command;
 const handleCommands = @import("command.zig").handleCommands;
 
-const VERSION = "0.0.0";
-
 const CommandData = struct {
     cmd: Command,
     params: ?[]const u8,
@@ -19,8 +17,6 @@ pub fn main() !void {
     const allocator = std.heap.page_allocator;
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-
-    std.debug.print("Received args: {any}\n", .{args});
 
     const cmd_data = try parseArgs(args);
     try handleCommands(cmd_data.cmd, cmd_data.params);
@@ -51,7 +47,7 @@ fn findCommandInArgs(args: []const []const u8, options: []const CommandOption) ?
                 return CommandData{ .cmd = option.cmd, .params = params };
             }
         }
-        i += 1; // Manually increment the index
+        i += 1;
     }
     return null;
 }
