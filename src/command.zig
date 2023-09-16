@@ -1,7 +1,7 @@
 const std = @import("std");
 const versions = @import("versions.zig");
 const install = @import("install.zig");
-const set = @import("set.zig");
+const alias = @import("alias.zig");
 
 pub const Command = enum {
     List,
@@ -12,7 +12,6 @@ pub const Command = enum {
 };
 
 pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
-    std.debug.print("Handling command: {}\n", .{cmd});
     switch (cmd) {
         Command.List => {
             try handleList();
@@ -52,7 +51,7 @@ fn installVersion(params: ?[]const u8) !void {
 fn useVersion(params: ?[]const u8) !void {
     if (params) |version| {
         std.debug.print("Set version: {any}\n", .{version});
-        try set.zigVersion(version);
+        try alias.setZigVersion(version);
     } else {
         std.debug.print("Please specify a version.\n", .{});
     }
