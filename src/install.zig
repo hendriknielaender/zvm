@@ -1,6 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const hash = @import("hash.zig");
 const download = @import("download.zig");
+const architecture = @import("architecture.zig");
 const Allocator = std.mem.Allocator;
 const io = std.io;
 const json = std.json;
@@ -96,11 +98,11 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
 
 pub fn fromVersion(version: []const u8) !void {
     var allocator = std.heap.page_allocator;
-    const version_data = try fetchVersionData(allocator, version, "x86_64-macos");
+    const arch = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = true }) orelse unreachable;
+    defer allocator.free(arch);
+    const version_data = try fetchVersionData(allocator, version, arch);
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
-        //std.debug.print("Install tarball {s}\n", .{data.tarball orelse ""});
-        //std.debug.print("Install shasum {s}\n", .{data.shasum orelse ""});
 
         // Download and verify
         _ = try download.content(allocator, data.name, data.tarball.?);

@@ -22,7 +22,7 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
 
     if (checkExistingVersion(version_folder_path)) {
         std.debug.print("→ Version {s} is already installed.\n", .{version});
-        std.debug.print("Do you want to reinstall? (\x1b[1mY\x1bes/\x1b[1mN\x1bo): ", .{});
+        std.debug.print("Do you want to reinstall? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{});
 
         if (!confirmUserChoice()) {
             //TODO: ask if version should be set
@@ -69,7 +69,8 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     var zvm_dir = try openOrCreateZvmDir();
     defer zvm_dir.close();
 
-    const platform = try architecture.detect(builtin.os.tag, builtin.cpu.arch);
+    const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = false }) orelse unreachable;
+    defer allocator.free(platform);
     std.debug.print("→ Downloading Zig version {s} for platform {s}...\n", .{ version, platform });
 
     const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });

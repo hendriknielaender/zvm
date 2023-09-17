@@ -44,16 +44,15 @@ fn installVersion(params: ?[]const u8) !void {
     if (params) |version| {
         try install.fromVersion(version);
     } else {
-        std.debug.print("Please specify a version to install.\n", .{});
+        std.debug.print("Error: Please specify a version to install using 'install <version>'.\n", .{});
     }
 }
 
 fn useVersion(params: ?[]const u8) !void {
     if (params) |version| {
-        std.debug.print("Set version: {any}\n", .{version});
         try alias.setZigVersion(version);
     } else {
-        std.debug.print("Please specify a version.\n", .{});
+        std.debug.print("Error: Please specify a version to use with 'use <version>'.\n", .{});
     }
 }
 
