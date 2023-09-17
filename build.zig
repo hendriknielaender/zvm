@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -15,6 +17,9 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    const options = b.addOptions();
+    options.addOption(std.SemanticVersion, "zvm_version", version);
+
     const exe = b.addExecutable(.{
         .name = "zvm",
         // In this case the main source file is merely a path, however, in more
@@ -22,12 +27,13 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
-        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+        .version = version,
     });
     exe.linkLibC();
     exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" }); // Adjust this path based on your system
     exe.linkSystemLibrary("archive"); // libarchive
 
+    exe.addOptions("options", options);
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).

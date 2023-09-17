@@ -3,11 +3,14 @@ const versions = @import("versions.zig");
 const install = @import("install.zig");
 const alias = @import("alias.zig");
 
+const options = @import("options");
+
 pub const Command = enum {
     List,
     Install,
     Use,
     Default,
+    Version,
     Unknown,
 };
 
@@ -24,6 +27,9 @@ pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
         },
         Command.Default => {
             try setDefault();
+        },
+        Command.Version => {
+            try getVersion();
         },
         Command.Unknown => {
             try handleUnknown();
@@ -59,6 +65,11 @@ fn useVersion(params: ?[]const u8) !void {
 fn setDefault() !void {
     std.debug.print("Handling 'default' command.\n", .{});
     // Your default code here
+}
+
+fn getVersion() !void {
+    std.debug.print("Handling '--version' command.\n", .{});
+    std.debug.print("'version' {}.\n", .{options.zvm_version});
 }
 
 fn handleUnknown() !void {
