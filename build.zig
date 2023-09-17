@@ -22,6 +22,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
     });
     exe.linkLibC();
     exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" }); // Adjust this path based on your system
