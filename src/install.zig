@@ -98,9 +98,9 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
 
 pub fn fromVersion(version: []const u8) !void {
     var allocator = std.heap.page_allocator;
-    const arch = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = true }) orelse unreachable;
-    defer allocator.free(arch);
-    const version_data = try fetchVersionData(allocator, version, arch);
+    const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = true }) orelse unreachable;
+    defer allocator.free(platform);
+    const version_data = try fetchVersionData(allocator, version, platform);
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
 
