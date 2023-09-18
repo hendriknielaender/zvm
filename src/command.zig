@@ -68,8 +68,7 @@ fn setDefault() !void {
 }
 
 fn getVersion() !void {
-    std.debug.print("Handling '--version' command.\n", .{});
-    std.debug.print("'version' {}.\n", .{options.zvm_version});
+    std.debug.print("zvm {}\n", .{options.zvm_version});
 }
 
 fn handleUnknown() !void {
