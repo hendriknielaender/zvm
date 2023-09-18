@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
@@ -30,7 +31,11 @@ pub fn build(b: *std.Build) void {
         .version = version,
     });
     exe.linkLibC();
-    exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" }); // Adjust this path based on your system
+
+    if (builtin.os.tag == std.Target.Os.Tag.macos) {
+        exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" });
+    }
+
     exe.linkSystemLibrary("archive"); // libarchive
 
     exe.addOptions("options", options);
