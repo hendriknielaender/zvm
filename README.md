@@ -2,8 +2,8 @@
   ⚡ Zig Version Manager (<code>zvm</code>)
 </h1>
 <div align="center">⚡ Fast and simple zig version manager</div>
-
-`zvm` is a command-line tool that allows you to easily install, manage, and switch between multiple versions of Zig.
+<br><br>
+zvm is a command-line tool that allows you to easily install, manage, and switch between multiple versions of Zig.
 
 ## Features
 
