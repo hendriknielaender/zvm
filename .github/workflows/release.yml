@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       
+      - name: Install libarchive
+        run: apt install libarchive-dev
+      
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -29,6 +32,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: Install libarchive
+        run: brew install libarchive
       
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
