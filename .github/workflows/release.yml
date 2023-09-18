@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
+
+      - name: Build release for Linux
+        run: zig build -Drelease-safe -Dtarget=x86_64-linux
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: zvm-linux
+          path: zig-out/bin
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
+
+      - name: Build release for Linux
+        run: zig build -Drelease-safe -Dtarget=x86_64-macos
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: zvm-macos
+          path: zig-out/bin
+
+  create-release:
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: zvm-linux
+        path: artifacts/
+        
+    - name: Upload Release Asset Linux
+      id: upload-release-asset-linux
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/zvm-linux
+        asset_name: zvm-linux
+        asset_content_type: application/octet-stream
+
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: zvm-macos
+        path: artifacts/
+        
+    - name: Upload Release Asset Macos
+      id: upload-release-asset-macos
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./artifacts/zvm-macos
+        asset_name: zvm-macos
+        asset_content_type: application/octet-stream
