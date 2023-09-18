@@ -11,6 +11,7 @@ pub const Command = enum {
     Use,
     Default,
     Version,
+    Help,
     Unknown,
 };
 
@@ -30,6 +31,9 @@ pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
         },
         Command.Version => {
             try getVersion();
+        },
+        Command.Help => {
+            try displayHelp();
         },
         Command.Unknown => {
             try handleUnknown();
@@ -71,6 +75,29 @@ fn getVersion() !void {
     std.debug.print("zvm {}\n", .{options.zvm_version});
 }
 
+fn displayHelp() !void {
+    const help_message =
+        \\Usage:
+        \\    zvm <command> [args]
+        \\
+        \\Commands:
+        \\    ls, list       List the versions of Zig available to zvm.
+        \\    i, install     Install the specified version of Zig.
+        \\    use            Use the specified version of Zig.
+        \\    --version      Display the currently active Zig version.
+        \\    --default      Set a specified Zig version as the default for new shells.
+        \\    --help         Display this help message.
+        \\
+        \\Example:
+        \\    zvm install 0.8.0  Install Zig version 0.8.0.
+        \\    zvm use 0.8.0      Switch to using Zig version 0.8.0.
+        \\
+        \\For additional information and contributions, please visit the GitHub repository.
+    ;
+
+    std.debug.print(help_message, .{});
+}
+
 fn handleUnknown() !void {
-    std.debug.print("Unknown command. Use '--help' for usage information.\n", .{});
+    std.debug.print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
 }

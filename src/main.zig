@@ -34,6 +34,7 @@ fn getAvailableCommands() []const CommandOption {
         CommandOption{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
         CommandOption{ .short_handle = null, .handle = "use", .cmd = Command.Use },
         CommandOption{ .short_handle = null, .handle = "--version", .cmd = Command.Version },
+        CommandOption{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
         CommandOption{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
     };
 }
