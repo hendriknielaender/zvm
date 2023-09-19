@@ -18,7 +18,9 @@ jobs:
         run: make libarchive
 
       - name: Install lzma
-        run: sudo apt-get install liblzma-dev
+        run: |
+          sudo apt-get install liblzma-dev
+          dpkg -L liblzma-dev
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -38,6 +40,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: submodule update
+        run: git submodule update --init --recursive
 
       - name: Install libarchive
         run: make libarchive
