@@ -30,7 +30,7 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
             return;
         }
 
-        //try std.fs.cwd().deleteTree(version_path);
+        try std.fs.cwd().deleteTree(version_folder_path);
     } else {
         std.debug.print("→ Version {s} is not installed. Beginning download...\n", .{version});
     }

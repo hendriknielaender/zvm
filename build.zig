@@ -32,11 +32,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
 
-    if (builtin.os.tag == std.Target.Os.Tag.macos) {
-        exe.addIncludePath(.{ .path = "/usr/local/Cellar/libarchive/3.7.1/include" });
-    } else {
-        exe.addIncludePath(.{ .path = "/usr/share" });
-    }
+    exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
 
     exe.linkSystemLibrary("archive"); // libarchive
 
