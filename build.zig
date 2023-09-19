@@ -32,9 +32,12 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
 
+    //exe.addIncludePath(.{ .path = "src/deps/libarchive" });
     exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
     exe.addLibraryPath(.{ .path = "src/deps" });
+    exe.addLibraryPath(.{ .path = "/usr/local/lib" });
     exe.linkSystemLibrary("archive"); // libarchive
+    exe.linkSystemLibrary("lzma"); // liblzma
 
     exe.addOptions("options", options);
     // This declares intent for the executable to be installed into the
