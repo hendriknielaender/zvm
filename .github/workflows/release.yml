@@ -44,15 +44,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-        # Download and extract xz
-        curl -O -L https://tukaani.org/xz/xz-5.4.4.tar.gz
-        tar -xzf xz-5.4.4.tar.gz
+          # Download and extract xz
+          curl -O -L https://tukaani.org/xz/xz-5.4.4.tar.gz
+          tar -xzf xz-5.4.4.tar.gz
 
-        # Build and install xz
-        cd xz-5.4.4
-        ./configure --prefix=/usr/local
-        make
-        sudo make install
+           # Build and install xz
+          cd xz-5.4.4
+          ./configure --prefix=/usr/local
+          make
+          sudo make install
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
