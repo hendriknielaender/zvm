@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install libarchive
-        run: sudo apt-get update && sudo apt-get install -y libarchive-dev
+        run: make libarchive
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -34,10 +34,7 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install libarchive
-        run: brew install libarchive
-
-      - name: Set libarchive
-        run: echo 'export PATH="/usr/local/opt/libarchive/bin:$PATH"' >> /Users/runner/.bash_profile
+        run: make libarchive
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
