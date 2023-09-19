@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Install libarchive
         run: sudo apt-get update && sudo apt-get install -y libarchive-dev
 
       - name: Check libarchive path
-        run: whereis libarchive
-      
+        run: whereis libarchive-dev && pkg-config --libs libarchive
+
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -38,7 +38,10 @@ jobs:
 
       - name: Install libarchive
         run: brew install libarchive
-      
+
+      - name: Set libarchive
+        run: echo 'export PATH="/usr/local/opt/libarchive/bin:$PATH"' >> /Users/runner/.bash_profile
+
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -67,13 +70,13 @@ jobs:
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
+
     - name: Download Linux artifact
       uses: actions/download-artifact@v2
       with:
         name: zvm-linux
         path: artifacts/
-        
+
     - name: Upload Release Asset Linux
       id: upload-release-asset-linux
       uses: actions/upload-release-asset@v1
@@ -88,7 +91,7 @@ jobs:
       with:
         name: zvm-macos
         path: artifacts/
-        
+
     - name: Upload Release Asset Macos
       id: upload-release-asset-macos
       uses: actions/upload-release-asset@v1
