@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: submodule update
+        run: git submodule update --init --recursive
+
       - name: Install libarchive
         run: make libarchive
 
