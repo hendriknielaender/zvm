@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
 
     exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
-
+    exe.addLibraryPath(.{ .path = "src/deps" });
     exe.linkSystemLibrary("archive"); // libarchive
 
     exe.addOptions("options", options);
