@@ -12,17 +12,14 @@ zvm is a command-line tool that allows you to easily install, manage, and switch
 - Switch between installed Zig versions.
 - Set a default Zig version.
 
-## Installation
 
-1. Clone this repository:
-```bash
-   git clone https://github.com/hendriknielaender/zvm.git
-```
+## Install
 
-1. Navigate to the cloned directory and build the project:
+To install zvm with Homebrew, aka. `brew`, run the following commands:
+
 ```bash
-  cd zvm
-  zig build
+brew tap hendriknielaender/zvm
+brew install zvm
 ```
 
 ## Usage
