@@ -32,10 +32,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkLibC();
 
-    //exe.addIncludePath(.{ .path = "src/deps/libarchive" });
     exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
     exe.addLibraryPath(.{ .path = "src/deps" });
-    exe.addLibraryPath(.{ .path = "usr/lib" });
+    exe.addLibraryPath(.{ .path = "/usr/lib" });
     exe.linkSystemLibrary("archive"); // libarchive
     exe.linkSystemLibrary("lzma"); // liblzma
 
