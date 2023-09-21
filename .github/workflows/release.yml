@@ -17,6 +17,14 @@ jobs:
       - name: Install libarchive
         run: make libarchive
 
+      - name: Check glibc version
+        run: |
+          ldd --version
+
+      - name: Check for gnu_dev_makedev in glibc
+        run: |
+          nm -D /lib/x86_64-linux-gnu/libc.so.6 | grep gnu_dev_makedev
+
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
@@ -49,7 +57,7 @@ jobs:
         with:
           version: 0.11.0
 
-      - name: Build release for Linux
+      - name: Build release for MacOS
         run: zig build -Dtarget=x86_64-macos
 
       - name: Archive production artifacts
