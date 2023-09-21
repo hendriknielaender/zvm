@@ -51,6 +51,6 @@ CPUS ?= $(CPU_COUNT)
 libarchive:
 	cd $(ZVM_DEPS_DIR)/libarchive; \
 	./build/autogen.sh; \
-	CFLAGS="$(CFLAGS)" $(CCACHE_CC_FLAG) ./configure --disable-shared --enable-static  --with-pic --with-lzma  --disable-bsdtar   --disable-bsdcat --disable-rpath --enable-posix-regex-lib  --without-xml2  --without-expat --without-openssl; \
+	CFLAGS="$(CFLAGS)" $(CCACHE_CC_FLAG) ./configure --disable-shared --enable-static  --with-pic  --disable-bsdtar   --disable-bsdcat --disable-rpath --enable-posix-regex-lib  --without-xml2  --without-expat --without-openssl  --without-iconv --without-zlib; \
 	make -j${CPUS}; \
 	cp ./.libs/libarchive.a $(ZVM_DEPS_OUT_DIR)/libarchive.a;

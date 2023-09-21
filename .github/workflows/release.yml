@@ -40,7 +40,9 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Install libarchive
-        run: make libarchive
+        run: |
+          brew install automake autoconf
+          make libarchive
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
