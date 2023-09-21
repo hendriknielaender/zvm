@@ -29,6 +29,8 @@ zvm install <version>   # Install a specified Zig version
 zvm use <version>       # Switch to a specified Zig version for the current session
 zvm default <version>   # Set a specified version as the default
 zvm current             # Display the currently active Zig version
+zvm --help              # Displays help information
+zvm --version           # Display zvm version
 ```
 
 ## Contributing
