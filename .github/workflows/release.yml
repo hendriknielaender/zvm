@@ -20,6 +20,9 @@ jobs:
       - name: Check glibc version
         run: |
           ldd --version
+          sudo apt-get upgrade libc6
+          ldd --version
+          nm -D src/deps/libarchive.a | grep gnu_dev_makedev
 
       - name: Check for gnu_dev_makedev in glibc
         run: |
