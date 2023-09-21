@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const architecture = @import("architecture.zig");
 const progress = @import("progress.zig");
 const alias = @import("alias.zig");
-const tarC = @import("c/tar.zig");
+const lib = @import("libarchive/libarchive.zig");
 
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
@@ -96,7 +96,7 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const file_path = try zvm_dir.realpathAlloc(allocator, file_name);
     defer allocator.free(file_path);
 
-    _ = try tarC.extractTarXZ(file_path);
+    _ = try lib.extractTarXZ(file_path);
     // TODO: use std.tar.pipeToFileSystem() in the future, currently very slow
 
     // libarchive can't set dest path so it extracts to cwd
