@@ -15,18 +15,7 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Install libarchive
-        run: make libarchive
-
-      - name: Check glibc version
-        run: |
-          ldd --version
-          sudo apt-get upgrade libc6
-          ldd --version
-          nm -D src/deps/libarchive.a | grep gnu_dev_makedev
-
-      - name: Check for gnu_dev_makedev in glibc
-        run: |
-          nm -D /lib/x86_64-linux-gnu/libc.so.6 | grep gnu_dev_makedev
+        run: sudo apt-get install libarchive-dev
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
