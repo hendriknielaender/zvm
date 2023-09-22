@@ -79,12 +79,15 @@ jobs:
         name: zvm-macos
         path: artifacts/
 
+    - name: List artifacts
+      run: ls -la /home/runner/work/zvm/zvm/artifacts
+
     - name: Create and Upload Release
       uses: ncipollo/release-action@v1
       with:
         artifacts: "artifacts/zvm-linux,artifacts/zvm-macos"
         tag: ${{ github.ref }}
-        name: Release ${{ github.ref }}
+        name: ${{ github.ref_name }}
         draft: false
         prerelease: false
         allowUpdates: true
