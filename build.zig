@@ -35,6 +35,7 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
     exe.addLibraryPath(.{ .path = "src/deps" });
     exe.addLibraryPath(.{ .path = "/usr/lib/x86_64-linux-gnu" });
+    exe.addLibraryPath(.{ .path = "/usr/local/lib" });
     exe.linkSystemLibrary("archive"); // libarchive
     exe.linkSystemLibrary("lzma"); // liblzma
 

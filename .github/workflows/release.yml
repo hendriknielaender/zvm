@@ -15,12 +15,7 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Install libarchive
-        run: make libarchive
-
-      - name: Install lzma
-        run: |
-          sudo apt-get install liblzma-dev
-          dpkg -L liblzma-dev
+        run: sudo apt-get install libarchive-dev
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
@@ -28,13 +23,16 @@ jobs:
           version: 0.11.0
 
       - name: Build release for Linux
-        run: zig build -Dtarget=x86_64-linux
+        run: zig build -Dtarget=x86_64-linux -p zig-out-linux-x86_64
+
+      - name: Tarball Linux artifact
+        run: tar -czvf zvm-linux-x86_64.tar.gz -C zig-out-linux-x86_64/bin zvm
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: zvm-linux
-          path: zig-out/bin
+          name: zvm-linux-tar
+          path: zvm-linux-x86_64.tar.gz
 
   build-macos:
     runs-on: macos-latest
@@ -45,75 +43,58 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Install libarchive
-        run: make libarchive
-
-      - name: Install dependencies
         run: |
-          # Download and extract xz
-          curl -O -L https://tukaani.org/xz/xz-5.4.4.tar.gz
-          tar -xzf xz-5.4.4.tar.gz
-
-           # Build and install xz
-          cd xz-5.4.4
-          ./configure --prefix=/usr/local
-          make
-          sudo make install
+          brew install automake autoconf
+          make libarchive
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
 
-      - name: Build release for Linux
-        run: zig build -Dtarget=x86_64-macos
+      - name: Build release for MacOS
+        run: zig build -Dtarget=x86_64-macos -p zig-out-macos-x86_64
+
+      - name: Tarball MacOS artifact
+        run: tar -czvf zvm-macos-x86_64.tar.gz -C zig-out-macos-x86_64/bin zvm
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: zvm-macos
-          path: zig-out/bin
+          name: zvm-macos-tar
+          path: zvm-macos-x86_64.tar.gz
 
   create-release:
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Download Linux artifact tarball
+      uses: actions/download-artifact@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        name: zvm-linux-tar
+        path: artifacts/
+
+    - name: Download MacOS artifact tarball
+      uses: actions/download-artifact@v2
+      with:
+        name: zvm-macos-tar
+        path: artifacts/
+
+    - name: List artifacts
+      run: ls -la /home/runner/work/zvm/zvm/artifacts
+
+    - name: Create and Upload Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "artifacts/zvm-linux-x86_64.tar.gz,artifacts/zvm-macos-x86_64.tar.gz"
+        tag: ${{ github.ref }}
+        name: ${{ github.ref_name }}
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Download Linux artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: zvm-linux
-        path: artifacts/
-
-    - name: Upload Release Asset Linux
-      id: upload-release-asset-linux
-      uses: actions/upload-release-asset@v1
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/zvm-linux
-        asset_name: zvm-linux
-        asset_content_type: application/octet-stream
-
-    - name: Download Linux artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: zvm-macos
-        path: artifacts/
-
-    - name: Upload Release Asset Macos
-      id: upload-release-asset-macos
-      uses: actions/upload-release-asset@v1
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/zvm-macos
-        asset_name: zvm-macos
-        asset_content_type: application/octet-stream
+        allowUpdates: true
+        token: ${{ secrets.GITHUB_TOKEN }}
