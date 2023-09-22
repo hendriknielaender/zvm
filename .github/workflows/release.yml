@@ -61,17 +61,11 @@ jobs:
   create-release:
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
     - name: Download Linux artifact
       uses: actions/download-artifact@v2
@@ -79,26 +73,18 @@ jobs:
         name: zvm-linux
         path: artifacts/
 
-    - name: Upload Release Asset Linux
-      id: upload-release-asset-linux
-      uses: actions/upload-release-asset@v1
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/zvm-linux
-        asset_name: zvm-linux
-        asset_content_type: application/octet-stream
-
-    - name: Download Linux artifact
+    - name: Download MacOS artifact
       uses: actions/download-artifact@v2
       with:
         name: zvm-macos
         path: artifacts/
 
-    - name: Upload Release Asset Macos
-      id: upload-release-asset-macos
-      uses: actions/upload-release-asset@v1
+    - name: Create and Upload Release
+      uses: ncipollo/release-action@v1
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/zvm-macos
-        asset_name: zvm-macos
-        asset_content_type: application/octet-stream
+        artifacts: "artifacts/zvm-linux,artifacts/zvm-macos"
+        tag: ${{ github.ref }}
+        name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+        token: ${{ secrets.GITHUB_TOKEN }}
