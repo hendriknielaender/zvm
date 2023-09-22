@@ -22,6 +22,12 @@ brew tap hendriknielaender/zvm
 brew install zvm
 ```
 
+Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
+
+```bash
+export PATH="$HOME/.zvm/current:$PATH"
+```
+
 ## Usage
 ```bash
 zvm list                # List all available Zig versions
