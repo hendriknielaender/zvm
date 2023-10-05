@@ -37,7 +37,7 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
     // Make the HTTP request
     var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start();
+    try req.start(.{});
     try req.wait();
 
     // Check if request was successful
