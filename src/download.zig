@@ -61,7 +61,7 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start();
+    try req.start(.{});
     try req.wait();
 
     try std.testing.expect(req.response.status == .ok);
