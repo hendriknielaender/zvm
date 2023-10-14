@@ -11,7 +11,7 @@ pub fn list(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
     // Make the HTTP request
     var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start(.{});
+    try req.start();
     try req.wait();
 
     // Check if request was successful

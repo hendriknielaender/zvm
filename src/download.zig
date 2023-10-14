@@ -25,9 +25,16 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
         std.debug.print("Do you want to reinstall? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{});
 
         if (!confirmUserChoice()) {
-            //TODO: ask if version should be set
-            std.debug.print("Aborting...\n", .{});
-            return;
+            // Ask if the version should be set as the default
+            std.debug.print("Do you want to set version {s} as the default? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{version});
+            if (confirmUserChoice()) {
+                try alias.setZigVersion(version);
+                std.debug.print("Version {s} has been set as the default.\n", .{version});
+                return;
+            } else {
+                std.debug.print("Aborting...\n", .{});
+                return;
+            }
         }
 
         try std.fs.cwd().deleteTree(version_folder_path);
@@ -52,7 +59,8 @@ fn checkExistingVersion(version_path: []const u8) bool {
 fn confirmUserChoice() bool {
     var buffer: [4]u8 = undefined;
     _ = std.io.getStdIn().read(buffer[0..]) catch return false;
-    return std.mem.eql(u8, buffer[0..1], "y") or std.mem.eql(u8, buffer[0..3], "yes") or std.mem.eql(u8, buffer[0..1], "n");
+
+    return std.ascii.toLower(buffer[0]) == 'y';
 }
 
 fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8) !void {
@@ -61,7 +69,7 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start(.{});
+    try req.start();
     try req.wait();
 
     try std.testing.expect(req.response.status == .ok);
