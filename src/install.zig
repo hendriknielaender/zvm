@@ -106,10 +106,15 @@ pub fn fromVersion(version: []const u8) !void {
 
         // Download and verify
         const content = try download.content(allocator, data.name, data.tarball.?);
-        const computedHash: [32]u8 = hash.computeSHA256(content);
-        std.debug.print("Computed hash {s}\n", .{computedHash});
-        if (!hash.verifyHash(computedHash, data.shasum.?)) {
-            return error.HashMismatch;
+        if (content) |actual_content| {
+            const computedHash: [32]u8 = hash.computeSHA256(&actual_content);
+            std.debug.print("Computed hash {s}\n", .{computedHash});
+            if (!hash.verifyHash(computedHash, data.shasum.?)) {
+                return error.HashMismatch;
+            }
+        } else {
+            // TODO: handle null case, this is not an error
+            return error.FileError;
         }
     } else {
         return Error.UnsupportedVersion;

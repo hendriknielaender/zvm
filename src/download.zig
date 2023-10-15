@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const crypto = @import("std").crypto;
+const sha2 = @import("std").crypto.hash.sha2;
 const architecture = @import("architecture.zig");
 const progress = @import("progress.zig");
 const alias = @import("alias.zig");
@@ -94,7 +94,7 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
 
-    var sha256 = crypto.sha256.Sha256.init();
+    var sha256 = sha2.Sha256.init(.{});
 
     while (true) {
         var buffer: [8192]u8 = undefined;
@@ -135,7 +135,9 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         return null;
     }
 
-    return sha256.final();
+    var result: [32]u8 = undefined; // 32 bytes for SHA-256
+    sha256.final(&result);
+    return result;
 }
 
 fn openOrCreateZvmDir() !std.fs.Dir {
