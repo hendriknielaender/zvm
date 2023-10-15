@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const crypto = @import("std").crypto;
 const architecture = @import("architecture.zig");
 const progress = @import("progress.zig");
 const alias = @import("alias.zig");
@@ -12,7 +13,7 @@ fn getZvmPathSegment(segment: []const u8) ![]u8 {
     return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ user_home, ".zvm", segment });
 }
 
-pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !void {
+pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
     const uri = std.Uri.parse(url) catch unreachable;
     const version_folder_name = try std.fmt.allocPrint(allocator, "versions/{s}", .{version});
     defer allocator.free(version_folder_name);
@@ -30,10 +31,10 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
             if (confirmUserChoice()) {
                 try alias.setZigVersion(version);
                 std.debug.print("Version {s} has been set as the default.\n", .{version});
-                return;
+                return null;
             } else {
                 std.debug.print("Aborting...\n", .{});
-                return;
+                return null;
             }
         }
 
@@ -45,9 +46,11 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     const version_path = try getZvmPathSegment("versions");
     defer allocator.free(version_path);
 
-    try downloadAndExtract(allocator, uri, version_path, version);
+    const computedHash = try downloadAndExtract(allocator, uri, version_path, version);
 
     try alias.setZigVersion(version);
+
+    return computedHash;
 }
 
 fn checkExistingVersion(version_path: []const u8) bool {
@@ -63,7 +66,7 @@ fn confirmUserChoice() bool {
     return std.ascii.toLower(buffer[0]) == 'y';
 }
 
-fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8) !void {
+fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8) !?[32]u8 {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
@@ -91,6 +94,8 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
 
+    var sha256 = crypto.sha256.Sha256.init();
+
     while (true) {
         var buffer: [8192]u8 = undefined;
         const bytes_read = try req.reader().read(buffer[0..]);
@@ -98,6 +103,9 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
         downloadedBytes += bytes_read;
         progress.print(downloadedBytes, totalSize);
+
+        sha256.update(buffer[0..bytes_read]);
+
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
 
@@ -124,7 +132,10 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         std.debug.print("✓ Successfully renamed {s} to {s}.\n", .{ fx, lastp });
     } else |err| {
         std.debug.print("✗ Error: Failed to rename {s} to {s}. Reason: {any}\n", .{ fx, lastp, err });
+        return null;
     }
+
+    return sha256.final();
 }
 
 fn openOrCreateZvmDir() !std.fs.Dir {
