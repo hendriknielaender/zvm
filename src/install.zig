@@ -24,6 +24,7 @@ const Error = error{
     MissingExpectedFields,
     FileError,
     HashMismatch,
+    ContentMissing,
 };
 
 fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
@@ -105,16 +106,15 @@ pub fn fromVersion(version: []const u8) !void {
         std.debug.print("Install {s}\n", .{data.name});
 
         // Download and verify
-        const content = try download.content(allocator, data.name, data.tarball.?);
-        if (content) |actual_content| {
-            const computedHash: [32]u8 = hash.computeSHA256(&actual_content);
-            std.debug.print("Computed hash {s}\n", .{computedHash});
-            if (!hash.verifyHash(computedHash, data.shasum.?)) {
-                return error.HashMismatch;
+        if (data.shasum) |actual_shasum| {
+            const content = try download.content(allocator, data.name, data.tarball.?);
+            if (content) |actual_content| {
+                const computedHash: [32]u8 = hash.computeSHA256(&actual_content);
+                std.debug.print("Computed hash {s}\n", .{computedHash});
+                if (!hash.verifyHash(computedHash, actual_shasum)) {
+                    return error.HashMismatch;
+                }
             }
-        } else {
-            // TODO: handle null case, this is not an error
-            return error.FileError;
         }
     } else {
         return Error.UnsupportedVersion;
