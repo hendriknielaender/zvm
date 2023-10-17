@@ -110,7 +110,7 @@ pub fn fromVersion(version: []const u8) !void {
             const content = try download.content(allocator, data.name, data.tarball.?);
             if (content) |actual_content| {
                 const computedHash: [32]u8 = hash.computeSHA256(&actual_content);
-                std.debug.print("Computed hash {s}\n", .{computedHash});
+                std.debug.print("Computed hash {s}\n", .{std.fmt.fmtSliceHexLower(&computedHash)});
                 if (!hash.verifyHash(computedHash, actual_shasum)) {
                     return error.HashMismatch;
                 }
