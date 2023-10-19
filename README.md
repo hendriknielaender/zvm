@@ -41,3 +41,6 @@ zvm --version           # Display zvm version
 
 ## Contributing
 Contributions, issues, and feature requests are welcome!
+
+## Clarification
+Please note that our project is **not** affiliated with [ZVM](https://github.com/tristanisham/zvm) maintained by @tristanisham. Both projects operate independently, and any similarities are coincidental.
