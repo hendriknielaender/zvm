@@ -25,7 +25,7 @@ brew install zvm
 Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
 
 ```bash
-export PATH="$HOME/.zvm/current:$PATH"
+export PATH="$HOME/.zm/current:$PATH"
 ```
 
 ## Usage

@@ -4,10 +4,10 @@ pub fn setZigVersion(version: []const u8) !void {
     const allocator = std.heap.page_allocator;
     const userHome = getUserHome();
 
-    const zigPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zvm", "versions", version });
+    const zigPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "versions", version });
     defer allocator.free(zigPath);
 
-    const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zvm", "current" });
+    const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "current" });
     defer allocator.free(symlinkPath);
 
     try updateSymlink(zigPath, symlinkPath);

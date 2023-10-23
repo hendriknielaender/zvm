@@ -10,7 +10,7 @@ const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 fn getZvmPathSegment(segment: []const u8) ![]u8 {
     const user_home = std.os.getenv("HOME") orelse ".";
-    return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ user_home, ".zvm", segment });
+    return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ user_home, ".zm", segment });
 }
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
