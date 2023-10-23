@@ -1,5 +1,5 @@
 <h1 align="center">
-   <img src="logo.png" width="50%" height="50%" alt="zvm logo" title="zvm logo">
+   <img src="logo.png" width="40%" height="40%" alt="zvm logo" title="zvm logo">
   <br><br>
   ⚡ Zig Version Manager (<code>zvm</code>)
 </h1>
