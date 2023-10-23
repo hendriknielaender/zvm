@@ -49,7 +49,7 @@ fn verifyZigVersion(allocator: std.mem.Allocator, expectedVersion: []const u8) !
 
 fn retrieveZigVersion(allocator: std.mem.Allocator) ![]u8 {
     const userHome = getUserHome();
-    const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zvm", "current" });
+    const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "current" });
     defer allocator.free(symlinkPath);
 
     var childProcess = std.ChildProcess.init(&[_][]const u8{ "zig", "version" }, allocator);
