@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
+const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 2 };
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
