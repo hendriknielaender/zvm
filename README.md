@@ -41,8 +41,13 @@ zvm --help              # Displays help information
 zvm --version           # Display zvm version
 ```
 
-## Contributing
+### Compatibility Notes
+Zig is in active development and the APIs can change frequently, making it challenging to support every dev build. This project currently aims to be compatible with stable, non-development builds to provide a consistent experience for the users.
+
+***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.11.0***.
+
+### Contributing
 Contributions, issues, and feature requests are welcome!
 
-## Clarification
+### Clarification
 Please note that our project is **not** affiliated with [ZVM](https://github.com/tristanisham/zvm) maintained by @tristanisham. Both projects operate independently, and any similarities are coincidental.
