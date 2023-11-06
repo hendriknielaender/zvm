@@ -58,12 +58,16 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
         // const key = key_ptr.*;
         if (std.mem.eql(u8, entry.key_ptr.*, requested_version)) {
             // Initialize fields with null.
+            var version: ?[]const u8 = "not_set";
             var date: ?[]const u8 = null;
             var tarball: ?[]const u8 = null;
             var shasum: ?[]const u8 = null;
 
             var valObj = entry.value_ptr.*.object.iterator();
             while (valObj.next()) |value| {
+                if (std.mem.eql(u8, value.key_ptr.*, "version")) {
+                    version = value.value_ptr.*.string;
+                }
                 if (std.mem.eql(u8, value.key_ptr.*, "date")) {
                     date = value.value_ptr.*.string;
                 } else if (std.mem.eql(u8, value.key_ptr.*, sub_key)) {
@@ -72,7 +76,8 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
                     while (nestedObj.next()) |nestedValue| {
                         if (std.mem.eql(u8, nestedValue.key_ptr.*, "tarball")) {
                             tarball = nestedValue.value_ptr.*.string;
-                        } else if (std.mem.eql(u8, nestedValue.key_ptr.*, "shasum")) {
+                        }
+                        if (std.mem.eql(u8, nestedValue.key_ptr.*, "shasum")) {
                             shasum = nestedValue.value_ptr.*.string;
                         }
                     }
@@ -84,9 +89,10 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
                 return Error.MissingExpectedFields;
             }
 
+            const version_name = if (std.mem.eql(u8, requested_version, "master")) version.? else requested_version;
             // Create the Version struct.
             return Version{
-                .name = try allocator.dupe(u8, requested_version),
+                .name = try allocator.dupe(u8, version_name),
                 .date = try allocator.dupe(u8, date.?),
                 .tarball = try allocator.dupe(u8, tarball.?),
                 .shasum = try allocator.dupe(u8, shasum.?),
