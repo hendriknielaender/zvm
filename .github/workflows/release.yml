@@ -12,16 +12,13 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            arch: x86_64-linux
+            arch: ubuntu-latest-x86_64
           - os: ubuntu-latest
-            arch: aarch64-linux
-          - os: ubuntu-latest
-            arch: armv7a-linux
-          # Add other architectures here...
+            arch: ubuntu-latest-aarch64
           - os: macos-latest
-            arch: x86_64-macos
+            arch: macos-latest-x86_64
           - os: macos-latest
-            arch: aarch64-macos
+            arch: macos-latest-aarch64
           # ...and so on for each supported architecture
     steps:
       - uses: actions/checkout@v2
