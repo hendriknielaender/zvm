@@ -6,95 +6,86 @@ on:
       - '*'
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64-linux
+          - os: ubuntu-latest
+            arch: aarch64-linux
+          - os: ubuntu-latest
+            arch: armv7a-linux
+          # Add other architectures here...
+          - os: macos-latest
+            arch: x86_64-macos
+          - os: macos-latest
+            arch: aarch64-macos
+          # ...and so on for each supported architecture
     steps:
       - uses: actions/checkout@v2
 
-      - name: submodule update
+      - name: Update submodules
         run: git submodule update --init --recursive
 
-      - name: Install libarchive
+      # Conditional step for installing dependencies on Linux
+      - name: Install dependencies on Linux
+        if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get install libarchive-dev
 
-      - name: Setup Zig
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.11.0
-
-      - name: Build release for Linux
-        run: zig build -Dtarget=x86_64-linux -p zig-out-linux-x86_64
-
-      - name: Tarball Linux artifact
-        run: tar -czvf zvm-linux-x86_64.tar.gz -C zig-out-linux-x86_64/bin zvm
-
-      - name: Archive production artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: zvm-linux-tar
-          path: zvm-linux-x86_64.tar.gz
-
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: submodule update
-        run: git submodule update --init --recursive
-
-      - name: Install libarchive
+      # Conditional step for installing dependencies on MacOS
+      - name: Install dependencies on MacOS
+        if: startsWith(matrix.os, 'macos')
         run: |
-          brew install automake autoconf
-          make libarchive
+          brew install automake autoconf libarchive
 
+      # Setup Zig step remains the same
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
 
-      - name: Build release for MacOS
-        run: zig build -Dtarget=x86_64-macos -p zig-out-macos-x86_64
+      # Dynamic build command using matrix variables
+      - name: Build
+        run: zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
 
-      - name: Tarball MacOS artifact
-        run: tar -czvf zvm-macos-x86_64.tar.gz -C zig-out-macos-x86_64/bin zvm
+      - name: Tarball artifact
+        run: tar -czvf "zvm-${{ matrix.arch }}.tar.gz" -C "zig-out/${{ matrix.arch }}/bin" zvm
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: zvm-macos-tar
-          path: zvm-macos-x86_64.tar.gz
+          name: "zvm-${{ matrix.arch }}-tar"
+          path: "zvm-${{ matrix.arch }}.tar.gz"
 
+  # This job will need to be modified to handle multiple artifacts
   create-release:
-    needs: [build-linux, build-macos]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-    - name: Download Linux artifact tarball
-      uses: actions/download-artifact@v2
-      with:
-        name: zvm-linux-tar
-        path: artifacts/
+      # Download all artifacts dynamically
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+        with:
+          path: artifacts/
 
-    - name: Download MacOS artifact tarball
-      uses: actions/download-artifact@v2
-      with:
-        name: zvm-macos-tar
-        path: artifacts/
+      - name: List artifacts
+        run: ls -la artifacts/
 
-    - name: List artifacts
-      run: ls -la /home/runner/work/zvm/zvm/artifacts
-
-    - name: Create and Upload Release
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: "artifacts/zvm-linux-x86_64.tar.gz,artifacts/zvm-macos-x86_64.tar.gz"
-        tag: ${{ github.ref }}
-        name: ${{ github.ref_name }}
-        draft: false
-        prerelease: false
-        allowUpdates: true
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and Upload Release
+        uses: ncipollo/release-action@v1
+        with:
+          # You will need to dynamically construct the artifacts string based on the outputs of the build job
+          artifacts: ${{ steps.artifacts.outputs.artifacts }}
+          tag: ${{ github.ref }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          allowUpdates: true
+          token: ${{ secrets.GITHUB_TOKEN }}
