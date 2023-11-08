@@ -27,18 +27,19 @@ jobs:
         run: git submodule update --init --recursive
 
       # Conditional step for installing dependencies on Linux
-      - name: Install dependencies on Linux
-        if: startsWith(matrix.os, 'ubuntu')
+      - name: Install dependencies on Linux x86
+        if: startsWith(matrix.arch, 'x86_64-linux')
         run: |
           sudo apt-get update
-          if [ "${{ matrix.arch }}" = "x86_64-linux" ]; then
-            sudo apt-get install libarchive-dev
-          elif [ "${{ matrix.arch }}" = "aarch64-linux-gnu" ]; then
+          sudo apt-get install libarchive-dev
+
+      - name: Install dependencies on Linux aarch64
+        if: startsWith(matrix.arch, 'aarch64-linux-gnu')
+        run: |
             sudo dpkg --add-architecture arm64
+            sudo apt-get update
             sudo apt-get install libarchive-dev
-          fi
-
-
+          
       # Conditional step for installing dependencies on MacOS
       - name: Install dependencies on MacOS
         if: startsWith(matrix.os, 'macos')
