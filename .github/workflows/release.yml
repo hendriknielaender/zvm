@@ -29,7 +29,16 @@ jobs:
       # Conditional step for installing dependencies on Linux
       - name: Install dependencies on Linux
         if: startsWith(matrix.os, 'ubuntu')
-        run: sudo apt-get install libarchive-dev
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.arch }}" = "x86_64-linux" ]; then
+            sudo apt-get install libarchive-dev
+          elif [ "${{ matrix.arch }}" = "aarch64-linux-gnu" ]; then
+            sudo apt-get install libarchive-dev:arm64
+            # Set up the environment to use the arm64 libraries
+            echo "/usr/lib/aarch64-linux-gnu" >> $GITHUB_PATH
+          fi
+
 
       # Conditional step for installing dependencies on MacOS
       - name: Install dependencies on MacOS
