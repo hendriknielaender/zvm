@@ -13,12 +13,16 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x86_64-linux
+            docker_image: ""
           - os: ubuntu-latest
             arch: aarch64-linux-gnu
+            docker_image: "multiarch/ubuntu-core:arm64-focal"
           - os: macos-latest
             arch: x86_64-macos
+            docker_image: ""
           - os: macos-latest
             arch: aarch64-macos
+            docker_image: ""
           # ...and so on for each supported architecture
     steps:
       - uses: actions/checkout@v2
@@ -26,39 +30,42 @@ jobs:
       - name: Update submodules
         run: git submodule update --init --recursive
 
-      # Conditional step for installing dependencies on Linux
-      - name: Install dependencies on Linux x86
-        if: startsWith(matrix.arch, 'x86_64-linux')
-        run: |
-          sudo apt-get update
-          sudo apt-get install libarchive-dev
-
-      - name: Install dependencies on Linux aarch64
-        if: startsWith(matrix.arch, 'aarch64-linux-gnu')
-        run: |
-            sudo dpkg --add-architecture arm64
-            sudo apt-get update
-            sudo apt-get install libarchive-dev
-          
-      # Conditional step for installing dependencies on MacOS
-      - name: Install dependencies on MacOS
-        if: startsWith(matrix.os, 'macos')
-        run: |
-          brew install automake autoconf libarchive
-
-      # Setup Zig step remains the same
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
 
-      # Dynamic build command using matrix variables
-      - name: Build
-        run: zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
+      # Start Docker container for aarch64 build if necessary
+      - name: Start Docker container
+        if: matrix.docker_image != ""
+        run: |
+          docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d ${matrix.docker_image} tail -f /dev/null
 
+      # Install dependencies and build inside Docker container for aarch64
+      - name: Install dependencies and Build inside Docker container
+        if: matrix.docker_image != ""
+        run: |
+          docker exec aarch64_build_container /bin/sh -c "apt-get update && apt-get install -y libarchive-dev"
+          docker exec aarch64_build_container /bin/sh -c "zig build -Dtarget=${{ matrix.arch }} -p 'zig-out/${{ matrix.arch }}'"
+
+      # Conditional step for installing dependencies on Linux x86 and MacOS, and build
+      - name: Install dependencies and Build for x86_64 and MacOS
+        if: matrix.docker_image == ""
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            sudo apt-get update
+            sudo apt-get install -y libarchive-dev
+            zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            brew install automake autoconf libarchive
+            zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
+          fi
+
+      # Create a tarball of the artifacts
       - name: Tarball artifact
         run: tar -czvf "zvm-${{ matrix.arch }}.tar.gz" -C "zig-out/${{ matrix.arch }}/bin" zvm
 
+      # Archive production artifacts
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
