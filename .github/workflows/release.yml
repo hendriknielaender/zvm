@@ -37,20 +37,20 @@ jobs:
 
       # Start Docker container for aarch64 build if necessary
       - name: Start Docker container
-        if: matrix.docker_image != ""
+        if: matrix.docker_image != ''
         run: |
           docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d ${matrix.docker_image} tail -f /dev/null
 
       # Install dependencies and build inside Docker container for aarch64
       - name: Install dependencies and Build inside Docker container
-        if: matrix.docker_image != ""
+        if: matrix.docker_image != ''
         run: |
           docker exec aarch64_build_container /bin/sh -c "apt-get update && apt-get install -y libarchive-dev"
           docker exec aarch64_build_container /bin/sh -c "zig build -Dtarget=${{ matrix.arch }} -p 'zig-out/${{ matrix.arch }}'"
 
       # Conditional step for installing dependencies on Linux x86 and MacOS, and build
       - name: Install dependencies and Build for x86_64 and MacOS
-        if: matrix.docker_image == ""
+        if: matrix.docker_image != ''
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             sudo apt-get update
