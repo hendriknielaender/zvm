@@ -42,24 +42,23 @@ jobs:
           docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d ${matrix.docker_image} tail -f /dev/null
 
       # Install dependencies and build inside Docker container for aarch64
-      - name: Install dependencies and Build inside Docker container
+      - name: Build in Docker container
         if: matrix.docker_image != ''
         run: |
           docker exec aarch64_build_container /bin/sh -c "apt-get update && apt-get install -y libarchive-dev"
           docker exec aarch64_build_container /bin/sh -c "zig build -Dtarget=${{ matrix.arch }} -p 'zig-out/${{ matrix.arch }}'"
 
-      # Conditional step for installing dependencies on Linux x86 and MacOS, and build
-      - name: Install dependencies and Build for x86_64 and MacOS
-        if: matrix.docker_image != ''
+      # Install dependencies and build for x86_64 and MacOS
+      - name: Build for x86_64 and MacOS
+        if: matrix.docker_image == ''
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             sudo apt-get update
             sudo apt-get install -y libarchive-dev
-            zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
             brew install automake autoconf libarchive
-            zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
           fi
+          zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
 
       # Create a tarball of the artifacts
       - name: Tarball artifact
@@ -72,7 +71,6 @@ jobs:
           name: "zvm-${{ matrix.arch }}-tar"
           path: "zvm-${{ matrix.arch }}.tar.gz"
 
-  # This job will need to be modified to handle multiple artifacts
   create-release:
     needs: build
     runs-on: ubuntu-latest
@@ -94,11 +92,13 @@ jobs:
       - name: Create and Upload Release
         uses: ncipollo/release-action@v1
         with:
-          # You will need to dynamically construct the artifacts string based on the outputs of the build job
-          artifacts: ${{ steps.artifacts.outputs.artifacts }}
+          # Construct the artifacts string dynamically based on the outputs of the build job
+          # This might need custom scripting depending on your project's specifics
+          artifacts: "artifacts/*"
           tag: ${{ github.ref }}
           name: ${{ github.ref_name }}
           draft: false
           prerelease: false
           allowUpdates: true
           token: ${{ secrets.GITHUB_TOKEN }}
+
