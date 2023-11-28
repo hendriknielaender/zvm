@@ -24,6 +24,8 @@ jobs:
             arch: aarch64-macos
             docker_image: ""
           # ...and so on for each supported architecture
+    env:
+      DOCKER_IMAGE: ${{ matrix.docker_image }}
     steps:
       - uses: actions/checkout@v2
 
@@ -39,7 +41,7 @@ jobs:
       - name: Start Docker container
         if: matrix.docker_image != ''
         run: |
-          docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d ${matrix.docker_image} tail -f /dev/null
+          docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d $DOCKER_IMAGE tail -f /dev/null
 
       # Install dependencies and build inside Docker container for aarch64
       - name: Build in Docker container
