@@ -42,11 +42,6 @@ jobs:
         if: matrix.docker_image != ''
         run: |
           docker run --name aarch64_build_container -v ${{ github.workspace }}:${{ github.workspace }} -w ${{ github.workspace }} -d $DOCKER_IMAGE tail -f /dev/null
-
-      # Install dependencies and build inside Docker container for aarch64
-      - name: Build in Docker container
-        if: matrix.docker_image != ''
-        run: |
           docker exec aarch64_build_container /bin/sh -c "apt-get update && apt-get install -y libarchive-dev"
           docker exec aarch64_build_container /bin/sh -c "zig build -Dtarget=${{ matrix.arch }} -p 'zig-out/${{ matrix.arch }}'"
 
