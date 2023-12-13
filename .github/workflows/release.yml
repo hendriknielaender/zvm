@@ -15,9 +15,6 @@ jobs:
             arch: x86_64-linux
           - os: ubuntu-latest
             arch: aarch64-linux
-          - os: ubuntu-latest
-            arch: armv7a-linux
-          # Add other architectures here...
           - os: macos-latest
             arch: x86_64-macos
           - os: macos-latest
