@@ -13,18 +13,15 @@ jobs:
         include:
           - os: ubuntu-latest
             arch: x86_64-linux
-          - os: ubuntu-latest
-            arch: aarch64-linux
           - os: macos-latest
             arch: x86_64-macos
-          - os: macos-latest
-            arch: aarch64-macos
           # ...and so on for each supported architecture
     steps:
       - uses: actions/checkout@v2
 
       - name: Update submodules
         run: git submodule update --init --recursive
+
 
       # Conditional step for installing dependencies on Linux
       - name: Install dependencies on Linux
@@ -50,6 +47,22 @@ jobs:
       - name: Tarball artifact
         run: tar -czvf "zvm-${{ matrix.arch }}.tar.gz" -C "zig-out/${{ matrix.arch }}/bin" zvm
 
+      # Install dependencies and build for x86_64 and MacOS
+      - name: Build for x86_64 and MacOS
+        run: |
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            sudo apt-get update
+            sudo apt-get install -y libarchive-dev
+          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+            brew install automake autoconf libarchive
+          fi
+          zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
+
+      # Create a tarball of the artifacts
+      - name: Tarball artifact
+        run: tar -czvf "zvm-${{ matrix.arch }}.tar.gz" -C "zig-out/${{ matrix.arch }}/bin" zvm
+
+      # Archive production artifacts
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
