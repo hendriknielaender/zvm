@@ -2,11 +2,18 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sha2 = @import("std").crypto.hash.sha2;
 const architecture = @import("architecture.zig");
-const progress = @import("progress.zig");
+const Progress = std.Progress;
 const alias = @import("alias.zig");
 const hash = @import("hash.zig");
 const lib = @import("libarchive/libarchive.zig");
 const crypto = std.crypto;
+
+// Initialize the Progress structure
+var progress = Progress{
+    .terminal = std.io.getStdErr(),
+    .supports_ansi_escape_codes = true,
+    .refresh_rate_ns = 10 * std.time.ns_per_ms, // 10 milliseconds
+};
 
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
@@ -97,13 +104,18 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     var sha256 = sha2.Sha256.init(.{});
 
+    var root_node = progress.start("Downloading", totalSize);
+    defer root_node.end();
+
     while (true) {
         var buffer: [8192]u8 = undefined;
         const bytes_read = try req.reader().read(buffer[0..]);
         if (bytes_read == 0) break;
 
         downloadedBytes += bytes_read;
-        progress.print(downloadedBytes, totalSize);
+
+        root_node.setCompletedItems(downloadedBytes);
+        progress.refresh();
 
         sha256.update(buffer[0..bytes_read]);
 
