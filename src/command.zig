@@ -42,7 +42,7 @@ pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
 }
 
 fn handleList() !void {
-    var allocator = std.heap.page_allocator;
+    const allocator = std.heap.page_allocator;
     const versionsList = try versions.list(allocator);
     defer versionsList.deinit();
     for (versionsList.items) |version| {

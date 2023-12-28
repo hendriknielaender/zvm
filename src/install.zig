@@ -113,11 +113,9 @@ pub fn fromVersion(version: []const u8) !void {
 
         // Download and verify
         if (data.shasum) |actual_shasum| {
-            const content = try download.content(allocator, data.name, data.tarball.?);
-            if (content) |actual_content| {
-                const computedHash: [32]u8 = hash.computeSHA256(&actual_content);
-                std.debug.print("Computed hash {s}\n", .{std.fmt.fmtSliceHexLower(&computedHash)});
-                if (!hash.verifyHash(computedHash, actual_shasum)) {
+            const computed_hash = try download.content(allocator, data.name, data.tarball.?);
+            if (computed_hash) |shasum| {
+                if (!hash.verifyHash(shasum, actual_shasum)) {
                     return error.HashMismatch;
                 }
             }
