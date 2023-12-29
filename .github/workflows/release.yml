@@ -40,13 +40,6 @@ jobs:
         with:
           version: 0.11.0
 
-      # Dynamic build command using matrix variables
-      - name: Build
-        run: zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
-
-      - name: Tarball artifact
-        run: tar -czvf "zvm-${{ matrix.arch }}.tar.gz" -C "zig-out/${{ matrix.arch }}/bin" zvm
-
       # Install dependencies and build for x86_64 and MacOS
       - name: Build for x86_64 and MacOS
         run: |
