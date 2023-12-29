@@ -86,7 +86,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           # You will need to dynamically construct the artifacts string based on the outputs of the build job
-          artifacts: ${{ steps.artifacts.outputs.artifacts }}
+          artifacts: "zvm-x86_64-macos-tar/zvm-x86_64-macos.tar.gz,zvm-x86_64-linux-tar/zvm-x86_64-linux.tar.gz"
           tag: ${{ github.ref }}
           name: ${{ github.ref_name }}
           draft: false
