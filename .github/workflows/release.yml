@@ -54,7 +54,8 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y libarchive-dev
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            brew install automake autoconf libarchive
+            brew install automake autoconf
+            make libarchive
           fi
           zig build -Dtarget=${{ matrix.arch }} -p "zig-out/${{ matrix.arch }}"
 
