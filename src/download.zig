@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const sha2 = @import("std").crypto.hash.sha2;
 const architecture = @import("architecture.zig");
-const progress = @import("progress.zig");
+const Progress = std.Progress;
 const alias = @import("alias.zig");
 const hash = @import("hash.zig");
 const lib = @import("libarchive/libarchive.zig");
@@ -16,6 +16,15 @@ fn getZvmPathSegment(segment: []const u8) ![]u8 {
 }
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
+    // Initialize the Progress structure
+    var progress = Progress{
+        .terminal = std.io.getStdErr(),
+        .supports_ansi_escape_codes = true,
+    };
+
+    var root_node = progress.start("", 4);
+    defer root_node.end();
+
     const uri = std.Uri.parse(url) catch unreachable;
     const version_folder_name = try std.fmt.allocPrint(allocator, "versions/{s}", .{version});
     defer allocator.free(version_folder_name);
@@ -48,9 +57,13 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     const version_path = try getZvmPathSegment("versions");
     defer allocator.free(version_path);
 
-    const computedHash = try downloadAndExtract(allocator, uri, version_path, version);
+    const computedHash = try downloadAndExtract(allocator, uri, version_path, version, root_node, &progress);
 
+    var set_version_node = root_node.start("Setting Version", 1);
+    set_version_node.activate();
+    progress.refresh();
     try alias.setZigVersion(version);
+    set_version_node.end();
 
     return computedHash;
 }
@@ -68,7 +81,7 @@ fn confirmUserChoice() bool {
     return std.ascii.toLower(buffer[0]) == 'y';
 }
 
-fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8) ![32]u8 {
+fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8, root_node: *std.Progress.Node, progress: *std.Progress) ![32]u8 {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
@@ -84,13 +97,17 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = false }) orelse unreachable;
     defer allocator.free(platform);
-    std.debug.print("→ Downloading Zig version {s} for platform {s}...\n", .{ version, platform });
 
     const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
     defer allocator.free(file_name);
 
     const totalSize = req.response.content_length orelse 0;
     var downloadedBytes: usize = 0;
+
+    const downloadMessage = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
+    defer allocator.free(downloadMessage);
+    var download_node = root_node.start(downloadMessage, totalSize);
+    download_node.activate();
 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
@@ -103,24 +120,32 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         if (bytes_read == 0) break;
 
         downloadedBytes += bytes_read;
-        progress.print(downloadedBytes, totalSize);
+
+        download_node.setCompletedItems(downloadedBytes);
+        progress.refresh();
 
         sha256.update(buffer[0..bytes_read]);
 
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
 
-    //std.debug.print("Total downloaded bytes: {d}\n", .{downloadedBytes});
-
     const file_path = try zvm_dir.realpathAlloc(allocator, file_name);
     defer allocator.free(file_path);
+    download_node.end();
 
     // libarchive can't set dest path so it extracts to cwd
     // rename here moves the extracted folder to the correct path
     // (cwd)/zig-linux-x86_64-0.11.0 -> ~/zvm/versions/0.11.0
+    var extract_node = root_node.start("Extracting", 1);
+    extract_node.activate();
+    progress.refresh();
     _ = try lib.extractTarXZ(file_path);
+    extract_node.end();
     // TODO: use std.tar.pipeToFileSystem() in the future, currently very slow
 
+    var move_node = root_node.start("Copy Files", 1);
+    move_node.activate();
+    progress.refresh();
     const folder_name = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, version });
     defer allocator.free(folder_name);
 
@@ -136,34 +161,12 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     } else |err| {
         std.debug.print("✗ Error: Failed to rename {s} to {s}. Reason: {any}\n", .{ folder_name, folder_path, err });
     }
+    move_node.end();
 
     var result: [32]u8 = undefined;
     sha256.final(&result);
     //std.debug.print("Hash computation complete. Hash: {s}\n", .{std.fmt.fmtSliceHexLower(&result)});
     return result;
-}
-
-fn getExtractedFolderPath(allocator: std.mem.Allocator, version_path: []const u8, version: []const u8, platform: []const u8) ![]u8 {
-    // Construct the folder name
-    const folderName = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, version });
-    defer allocator.free(folderName);
-
-    const folderPath = try std.fs.path.join(allocator, &.{ version_path, version });
-    defer allocator.free(folderPath);
-
-    std.fs.makeDirAbsolute(version_path) catch {};
-
-    //debug log
-    //std.debug.print("Renaming '{s}' to '{s}'\n", .{ folderName, extractedFolderPath });
-
-    if (std.fs.cwd().rename(folderName, folderPath)) |_| {
-        //debug log
-        std.debug.print("✓ Successfully renamed {s} to {s}.\n", .{ folderName, folderPath });
-    } else |err| {
-        std.debug.print("✗ Error: Failed to rename {s} to {s}. Reason: {any}\n", .{ folderName, folderPath, err });
-    }
-
-    return folderPath;
 }
 
 fn openOrCreateZvmDir() !std.fs.Dir {
