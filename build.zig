@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
     options.addOption(std.SemanticVersion, "zvm_version", version);
 
     const crossTargets = [_]CrossTargetInfo{
-        CrossTargetInfo{ .crossTarget = std.zig.CrossTarget{ .cpu_arch = .x86_64, .os_tag = .macos, .abi = .musl }, .name = "zvm_macos-x86_64-musl" },
-        CrossTargetInfo{ .crossTarget = std.zig.CrossTarget{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .musl }, .name = "zvm_linux-x86_64-musl" },
+        CrossTargetInfo{ .crossTarget = std.zig.CrossTarget{ .cpu_arch = .x86_64, .os_tag = .macos }, .name = "zvm_macos-x86_64" },
+        CrossTargetInfo{ .crossTarget = std.zig.CrossTarget{ .cpu_arch = .x86_64, .os_tag = .linux }, .name = "zvm_linux-x86_64" },
         // Add more targets as necessary
     };
 
