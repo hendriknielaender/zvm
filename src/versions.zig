@@ -8,10 +8,12 @@ pub fn list(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
+    const sendOptions = std.http.Client.Request.SendOptions{};
+
     // Make the HTTP request
-    var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
+    var req = try client.open(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start();
+    try req.send(sendOptions);
     try req.wait();
 
     // Check if request was successful

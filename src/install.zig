@@ -35,10 +35,12 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
+    const sendOptions = std.http.Client.Request.SendOptions{};
+
     // Make the HTTP request
-    var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
+    var req = try client.open(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start();
+    try req.send(sendOptions);
     try req.wait();
 
     // Check if request was successful

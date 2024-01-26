@@ -24,6 +24,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     // Add a global option for versioning
     const options = b.addOptions();
+    options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
     options.addOption(std.SemanticVersion, "zvm_version", version);
 
     const exe = b.addExecutable(.{
@@ -44,7 +45,8 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("archive"); // libarchive
     exe.linkSystemLibrary("lzma"); // liblzma
 
-    exe.addOptions("options", options);
+    const exe_options_module = options.createModule();
+    exe.root_module.addImport("options", exe_options_module);
 
     b.installArtifact(exe);
 
@@ -92,7 +94,8 @@ pub fn build(b: *std.Build) void {
         rel_exe.linkSystemLibrary("archive"); // libarchive
         rel_exe.linkSystemLibrary("lzma"); // liblzma
 
-        rel_exe.addOptions("options", options);
+        const rel_exe_options_module = options.createModule();
+        rel_exe.root_module.addImport("options", rel_exe_options_module);
 
         const install = b.addInstallArtifact(rel_exe, .{});
         install.dest_dir = .prefix;

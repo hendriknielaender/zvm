@@ -5,7 +5,7 @@ const architecture = @import("architecture.zig");
 const Progress = std.Progress;
 const alias = @import("alias.zig");
 const hash = @import("hash.zig");
-const lib = @import("libarchive/libarchive.zig");
+const lib = @import("extract.zig");
 const crypto = std.crypto;
 
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
@@ -85,9 +85,12 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    var req = try client.request(.GET, uri, .{ .allocator = allocator }, .{});
+    const sendOptions = std.http.Client.Request.SendOptions{};
+
+    var req = try client.open(.GET, uri, .{ .allocator = allocator }, .{});
     defer req.deinit();
-    try req.start();
+
+    try req.send(sendOptions);
     try req.wait();
 
     try std.testing.expect(req.response.status == .ok);
@@ -101,6 +104,8 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
     defer allocator.free(file_name);
 
+    std.debug.print("Constructed file name: {s}\n", .{file_name});
+
     const totalSize = req.response.content_length orelse 0;
     var downloadedBytes: usize = 0;
 
@@ -111,6 +116,8 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
+
+    std.debug.print("Download complete, file written: {s}\n", .{file_name});
 
     var sha256 = sha2.Sha256.init(.{});
 
@@ -129,39 +136,37 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
 
-    const file_path = try zvm_dir.realpathAlloc(allocator, file_name);
-    defer allocator.free(file_path);
+    //const file_path = try zvm_dir.realpathAlloc(allocator, file_stream);
+    //defer allocator.free(file_path);
     download_node.end();
 
-    // libarchive can't set dest path so it extracts to cwd
-    // rename here moves the extracted folder to the correct path
-    // (cwd)/zig-linux-x86_64-0.11.0 -> ~/zvm/versions/0.11.0
     var extract_node = root_node.start("Extracting", 1);
     extract_node.activate();
     progress.refresh();
-    _ = try lib.extractTarXZ(file_path);
-    extract_node.end();
-    // TODO: use std.tar.pipeToFileSystem() in the future, currently very slow
+    const c_allocator = std.heap.c_allocator;
 
-    var move_node = root_node.start("Copy Files", 1);
-    move_node.activate();
-    progress.refresh();
-    const folder_name = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, version });
-    defer allocator.free(folder_name);
+    // ~/.zm/versions/zig-macos-x86_64-0.10.0.tar.xz
+    const zvm_path = try getZvmPathSegment("");
+    const downloaded_file_path = try std.fs.path.join(allocator, &.{ zvm_path, file_name });
+    defer allocator.free(downloaded_file_path);
 
+    std.debug.print("Downloaded file path: {s}\n", .{downloaded_file_path});
+
+    // Construct the full file path
+    // example: ~/.zm/0.10.0
     const folder_path = try std.fs.path.join(allocator, &.{ version_path, version });
     defer allocator.free(folder_path);
 
-    std.fs.makeDirAbsolute(version_path) catch {};
+    std.debug.print("folder_path: {s}\n", .{folder_path});
+    std.fs.makeDirAbsolute(folder_path) catch {};
 
-    //std.debug.print("Renaming '{s}' to '{s}'\n", .{ folder_name, folder_path });
+    const zvm_dir_version = try std.fs.openDirAbsolute(folder_path, .{});
 
-    if (std.fs.cwd().rename(folder_name, folder_path)) |_| {
-        //std.debug.print("✓ Successfully renamed {s} to {s}.\n", .{ folder_name, folder_path });
-    } else |err| {
-        std.debug.print("✗ Error: Failed to rename {s} to {s}. Reason: {any}\n", .{ folder_name, folder_path, err });
-    }
-    move_node.end();
+    const downloaded_file = try zvm_dir.openFile(downloaded_file_path, .{});
+    defer downloaded_file.close();
+
+    _ = try lib.extract_tarxz_to_dir(c_allocator, zvm_dir_version, downloaded_file);
+    extract_node.end();
 
     var result: [32]u8 = undefined;
     sha256.final(&result);
