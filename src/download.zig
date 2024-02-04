@@ -106,7 +106,7 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     std.debug.print("Constructed file name: {s}\n", .{file_name});
 
-    const totalSize = req.response.content_length orelse 0;
+    const totalSize: usize = @intCast(req.response.content_length orelse 0);
     var downloadedBytes: usize = 0;
 
     const downloadMessage = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
