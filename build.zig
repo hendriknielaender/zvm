@@ -8,7 +8,7 @@ const CrossTargetInfo = struct {
 // Semantic version of your application
 const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 2 };
 
-const min_zig_string = "0.12.0-dev.2341+92211135f";
+const min_zig_string = "0.12.0-dev.2546+f2e249e92";
 
 const Build = blk: {
     const current_zig = builtin.zig_version;
@@ -31,19 +31,12 @@ pub fn build(b: *std.Build) void {
         .name = "zvm",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
-        .optimize = optimize,
+        .optimize = .ReleaseFast,
         .version = version,
     });
 
     // Link dependencies and set include paths
     exe.linkLibC();
-
-    exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
-    exe.addLibraryPath(.{ .path = "src/deps" });
-    exe.addLibraryPath(.{ .path = "/usr/lib/x86_64-linux-gnu" });
-    exe.addLibraryPath(.{ .path = "/usr/local/lib" });
-    exe.linkSystemLibrary("archive"); // libarchive
-    exe.linkSystemLibrary("lzma"); // liblzma
 
     const exe_options_module = options.createModule();
     exe.root_module.addImport("options", exe_options_module);
@@ -86,13 +79,6 @@ pub fn build(b: *std.Build) void {
         });
 
         rel_exe.linkLibC();
-
-        rel_exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
-        rel_exe.addLibraryPath(.{ .path = "src/deps" });
-        rel_exe.addLibraryPath(.{ .path = "/usr/lib/x86_64-linux-gnu" });
-        rel_exe.addLibraryPath(.{ .path = "/usr/local/lib" });
-        rel_exe.linkSystemLibrary("archive"); // libarchive
-        rel_exe.linkSystemLibrary("lzma"); // liblzma
 
         const rel_exe_options_module = options.createModule();
         rel_exe.root_module.addImport("options", rel_exe_options_module);
