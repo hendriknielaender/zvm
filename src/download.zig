@@ -87,7 +87,10 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
 
     const sendOptions = std.http.Client.Request.SendOptions{};
 
-    var req = try client.open(.GET, uri, .{ .allocator = allocator }, .{});
+    // Read the response body with 256kb buffer allocation
+    var headerBuffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
+
+    var req = try client.open(.GET, uri, .{ .server_header_buffer = &headerBuffer });
     defer req.deinit();
 
     try req.send(sendOptions);
