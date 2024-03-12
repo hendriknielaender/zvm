@@ -36,13 +36,13 @@ pub fn detect(allocator: std.mem.Allocator, params: DetectParams) !?[]u8 {
     const result = try allocator.alloc(u8, len);
 
     if (params.reverse) {
-        std.mem.copy(u8, result[0..archStr.len], archStr);
+        @memcpy(result[0..archStr.len], archStr);
         result[archStr.len] = '-';
-        std.mem.copy(u8, result[archStr.len + 1 ..], osStr);
+        @memcpy(result[archStr.len + 1 ..], osStr);
     } else {
-        std.mem.copy(u8, result[0..osStr.len], osStr);
+        @memcpy(result[0..osStr.len], osStr);
         result[osStr.len] = '-';
-        std.mem.copy(u8, result[osStr.len + 1 ..], archStr);
+        @memcpy(result[osStr.len + 1 ..], archStr);
     }
 
     return result;
