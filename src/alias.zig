@@ -15,12 +15,12 @@ pub fn setZigVersion(version: []const u8) !void {
 }
 
 fn getUserHome() []const u8 {
-    return std.os.getenv("HOME") orelse ".";
+    return std.posix.getenv("HOME") orelse ".";
 }
 
 fn updateSymlink(zigPath: []const u8, symlinkPath: []const u8) !void {
     if (doesFileExist(symlinkPath)) try std.fs.cwd().deleteFile(symlinkPath);
-    try std.os.symlink(zigPath, symlinkPath);
+    try std.posix.symlink(zigPath, symlinkPath);
 }
 
 fn doesFileExist(path: []const u8) bool {

@@ -11,7 +11,7 @@ const crypto = std.crypto;
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 fn getZvmPathSegment(segment: []const u8) ![]u8 {
-    const user_home = std.os.getenv("HOME") orelse ".";
+    const user_home = std.posix.getenv("HOME") orelse ".";
     return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ user_home, ".zm", segment });
 }
 
