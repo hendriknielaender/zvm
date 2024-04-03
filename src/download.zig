@@ -160,7 +160,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const folder_path = try std.fs.path.join(allocator, &.{ version_path, version });
     defer allocator.free(folder_path);
 
-    std.debug.print("folder_path: {s}\n", .{folder_path});
     std.fs.makeDirAbsolute(folder_path) catch {};
 
     const zvm_dir_version = try std.fs.openDirAbsolute(folder_path, .{});

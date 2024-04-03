@@ -4,5 +4,5 @@ pub fn extract_tarxz_to_dir(allocator: std.mem.Allocator, outDir: std.fs.Dir, fi
     var buffered_reader = std.io.bufferedReader(file.reader());
     var decompressed = try std.compress.xz.decompress(allocator, buffered_reader.reader());
     defer decompressed.deinit();
-    try std.tar.pipeToFileSystem(outDir, decompressed.reader(), .{ .mode_mode = .ignore, .strip_components = 1 });
+    try std.tar.pipeToFileSystem(outDir, decompressed.reader(), .{ .mode_mode = .executable_bit_only, .strip_components = 1 });
 }
