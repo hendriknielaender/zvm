@@ -1,72 +1,96 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 2 };
+const CrossTargetInfo = struct {
+    crossTarget: std.zig.CrossTarget,
+    name: []const u8,
+};
+// Semantic version of your application
+const version = std.SemanticVersion{ .major = 0, .minor = 3, .patch = 0 };
 
-// Although this function looks imperative, note that its job is to
-// declaratively construct a build graph that will be executed by an external
-// runner.
+const min_zig_string = "0.12.0-dev.3522+b88ae8dbd";
+
+const Build = blk: {
+    const current_zig = builtin.zig_version;
+    const min_zig = std.SemanticVersion.parse(min_zig_string) catch unreachable;
+    if (current_zig.order(min_zig) == .lt) {
+        @compileError(std.fmt.comptimePrint("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
+    }
+    break :blk std.Build;
+};
+
 pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
-
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
-
+    // Add a global option for versioning
     const options = b.addOptions();
+    options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
     options.addOption(std.SemanticVersion, "zvm_version", version);
 
     const exe = b.addExecutable(.{
         .name = "zvm",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
-        .optimize = optimize,
+        .optimize = .ReleaseFast,
         .version = version,
     });
+
+    // Link dependencies and set include paths
     exe.linkLibC();
 
-    exe.addIncludePath(.{ .path = "src/deps/libarchive/libarchive" });
-    exe.addLibraryPath(.{ .path = "src/deps" });
-    exe.addLibraryPath(.{ .path = "/usr/lib/x86_64-linux-gnu" });
-    exe.addLibraryPath(.{ .path = "/usr/local/lib" });
-    exe.linkSystemLibrary("archive"); // libarchive
-    exe.linkSystemLibrary("lzma"); // liblzma
+    const exe_options_module = options.createModule();
+    exe.root_module.addImport("options", exe_options_module);
 
-    exe.addOptions("options", options);
-    // This declares intent for the executable to be installed into the
-    // standard location when the user invokes the "install" step (the default
-    // step when running `zig build`).
     b.installArtifact(exe);
 
-    // This *creates* a Run step in the build graph, to be executed when another
-    // step is evaluated that depends on it. The next line below will establish
-    // such a dependency.
-    const run_cmd = b.addRunArtifact(exe);
+    const release = b.step("release", "make an upstream binary release");
+    const release_targets = [_]std.Target.Query{
+        .{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+        },
+        .{
+            .cpu_arch = .x86,
+            .os_tag = .linux,
+        },
+        .{
+            .cpu_arch = .riscv64,
+            .os_tag = .linux,
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .os_tag = .macos,
+        },
+    };
 
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
-    run_cmd.step.dependOn(b.getInstallStep());
+    for (release_targets) |target_query| {
+        const resolved_target = b.resolveTargetQuery(target_query);
+        const t = resolved_target.result;
+        const rel_exe = b.addExecutable(.{
+            .name = "zvm",
+            .root_source_file = .{ .path = "src/main.zig" },
+            .target = resolved_target,
+            .optimize = .ReleaseSafe,
+            .strip = true,
+        });
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
+        rel_exe.linkLibC();
+
+        const rel_exe_options_module = options.createModule();
+        rel_exe.root_module.addImport("options", rel_exe_options_module);
+
+        const install = b.addInstallArtifact(rel_exe, .{});
+        install.dest_dir = .prefix;
+        install.dest_sub_path = b.fmt("{s}-{s}-{s}", .{
+            @tagName(t.cpu.arch), @tagName(t.os.tag), rel_exe.name,
+        });
+
+        release.dependOn(&install.step);
     }
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -83,4 +107,6 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+    // Additional build steps for different configurations or tasks
+    // Add here as needed (e.g., documentation generation, code linting)
 }
