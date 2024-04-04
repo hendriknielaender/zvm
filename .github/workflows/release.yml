@@ -9,12 +9,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Build release
-      - uses: actions/checkout@v2
-      - uses: goto-bus-stop/setup-zig@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
+      
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
         with:
           version: master
-      - run: zig build release
+      
+      - name: Build release
+        run: zig build release
 
       - name: Archive executable
         uses: actions/upload-artifact@v3
