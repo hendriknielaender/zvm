@@ -24,7 +24,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: zvm
-          path: zig-out/bin/*
+          path: zig-out/*
 
   # This job will need to be modified to handle multiple artifacts
   create-release:
