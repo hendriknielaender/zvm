@@ -20,11 +20,18 @@ jobs:
       - name: Build release
         run: zig build release
 
-      - name: Archive executable
+      - name: Archive executables
+        run: |
+          mkdir -p artifacts
+          for binary in zig-out/*; do
+            tar -czvf artifacts/$(basename "$binary").tar.gz -C zig-out $(basename "$binary")
+          done
+      
+      - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: zvm
-          path: zig-out/*
+          name: zvm-artifacts
+          path: artifacts/*.tar.gz
 
   # This job will need to be modified to handle multiple artifacts
   create-release:
@@ -40,6 +47,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v2
         with:
+          name: zvm-artifacts
           path: artifacts/
 
       - name: List artifacts
