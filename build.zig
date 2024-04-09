@@ -6,7 +6,7 @@ const CrossTargetInfo = struct {
     name: []const u8,
 };
 // Semantic version of your application
-const version = std.SemanticVersion{ .major = 0, .minor = 3, .patch = 0 };
+const version = std.SemanticVersion{ .major = 0, .minor = 3, .patch = 1 };
 
 const min_zig_string = "0.12.0-dev.3522+b88ae8dbd";
 
@@ -63,6 +63,10 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .cpu_arch = .x86_64,
+            .os_tag = .macos,
+        },
+        .{
+            .cpu_arch = .aarch64,
             .os_tag = .macos,
         },
     };
