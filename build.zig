@@ -8,7 +8,7 @@ const CrossTargetInfo = struct {
 // Semantic version of your application
 const version = std.SemanticVersion{ .major = 0, .minor = 3, .patch = 1 };
 
-const min_zig_string = "0.12.0-dev.3522+b88ae8dbd";
+const min_zig_string = "0.12.0";
 
 const Build = blk: {
     const current_zig = builtin.zig_version;
