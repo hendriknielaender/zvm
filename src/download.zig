@@ -25,6 +25,16 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     var root_node = progress.start("", 4);
     defer root_node.end();
 
+    // Ensure version directory exists before any operation
+    const version_path = try getZvmPathSegment("versions");
+    defer allocator.free(version_path);
+
+    defer allocator.free(version_path);
+    std.fs.cwd().makePath(version_path) catch |err| {
+        std.debug.print("Failed to create versions directory: {}\n", .{err});
+        return err;
+    };
+
     const uri = std.Uri.parse(url) catch unreachable;
     const version_folder_name = try std.fmt.allocPrint(allocator, "versions/{s}", .{version});
     defer allocator.free(version_folder_name);
@@ -54,9 +64,6 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
         std.debug.print("→ Version {s} is not installed. Beginning download...\n", .{version});
     }
 
-    const version_path = try getZvmPathSegment("versions");
-    defer allocator.free(version_path);
-
     const computedHash = try downloadAndExtract(allocator, uri, version_path, version, root_node, &progress);
 
     var set_version_node = root_node.start("Setting Version", 1);
@@ -85,15 +92,13 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    const sendOptions = std.http.Client.Request.SendOptions{};
-
     // Read the response body with 256kb buffer allocation
     var headerBuffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
 
     var req = try client.open(.GET, uri, .{ .server_header_buffer = &headerBuffer });
     defer req.deinit();
 
-    try req.send(sendOptions);
+    try req.send();
     try req.wait();
 
     try std.testing.expect(req.response.status == .ok);
