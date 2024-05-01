@@ -30,9 +30,15 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     defer allocator.free(version_path);
 
     defer allocator.free(version_path);
-    std.fs.cwd().makePath(version_path) catch |err| {
-        std.debug.print("Failed to create versions directory: {}\n", .{err});
-        return err;
+    std.fs.cwd().makePath(version_path) catch |err| switch (err) {
+        error.PathAlreadyExists => {
+            // The path already exists and is a directory, nothing to do here
+            // std.debug.print("Versions directory already exists: {s}\n", .{version_path});
+        },
+        else => {
+            std.debug.print("Failed to create versions directory: {}\n", .{err});
+            return err;
+        },
     };
 
     const uri = std.Uri.parse(url) catch unreachable;
@@ -112,8 +118,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
     defer allocator.free(file_name);
 
-    std.debug.print("Constructed file name: {s}\n", .{file_name});
-
     const totalSize: usize = @intCast(req.response.content_length orelse 0);
     var downloadedBytes: usize = 0;
 
@@ -144,8 +148,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
 
-    //const file_path = try zvm_dir.realpathAlloc(allocator, file_stream);
-    //defer allocator.free(file_path);
     download_node.end();
 
     var extract_node = root_node.start("Extracting", 1);
@@ -165,7 +167,9 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const folder_path = try std.fs.path.join(allocator, &.{ version_path, version });
     defer allocator.free(folder_path);
 
-    std.fs.makeDirAbsolute(folder_path) catch {};
+    std.fs.makeDirAbsolute(folder_path) catch |err| {
+        std.debug.print("makeDirAbsolute: {any}\n", .{err});
+    };
 
     const zvm_dir_version = try std.fs.openDirAbsolute(folder_path, .{});
 

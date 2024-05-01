@@ -20,7 +20,13 @@ fn getUserHome() []const u8 {
 
 fn updateSymlink(zigPath: []const u8, symlinkPath: []const u8) !void {
     if (doesFileExist(symlinkPath)) try std.fs.cwd().deleteFile(symlinkPath);
-    try std.posix.symlink(zigPath, symlinkPath);
+    std.posix.symlink(zigPath, symlinkPath) catch |err| switch (err) {
+        error.PathAlreadyExists => {
+            try std.fs.cwd().deleteFile(symlinkPath);
+            try std.posix.symlink(zigPath, symlinkPath);
+        },
+        else => return err,
+    };
 }
 
 fn doesFileExist(path: []const u8) bool {
