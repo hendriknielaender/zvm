@@ -25,10 +25,8 @@ pub fn setZigVersion(version: []const u8) !void {
 }
 
 fn getCurrentVersionSymlink(allocator: std.mem.Allocator, symlinkPath: []const u8) ![]u8 {
-    // Create a buffer to store the symlink target
-    var buffer: [1000]u8 = undefined; // You can adjust the size based on expected path lengths
+    var buffer: [1000]u8 = undefined;
 
-    // Resolve the current symlink if it exists
     if (doesFileExist(symlinkPath)) {
         const linkTarget = try std.fs.cwd().readLink(symlinkPath, &buffer);
         // Allocate memory to return a copy of the link target
