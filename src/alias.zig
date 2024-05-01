@@ -10,8 +10,33 @@ pub fn setZigVersion(version: []const u8) !void {
     const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "current" });
     defer allocator.free(symlinkPath);
 
+    const previousVersionPath = try getCurrentVersionSymlink(allocator, symlinkPath);
+    defer allocator.free(previousVersionPath);
+
     try updateSymlink(zigPath, symlinkPath);
-    try verifyZigVersion(allocator, version);
+    verifyZigVersion(allocator, version) catch |err| switch (err) {
+        error.WrongVersion => {
+            std.debug.print("Failed to set Zig version {s}. Reverting to previous version.\n", .{version});
+            try updateSymlink(previousVersionPath, symlinkPath);
+            std.debug.print("Reverted to previous Zig version successfully.\n", .{});
+        },
+        else => return err,
+    };
+}
+
+fn getCurrentVersionSymlink(allocator: std.mem.Allocator, symlinkPath: []const u8) ![]u8 {
+    // Create a buffer to store the symlink target
+    var buffer: [1000]u8 = undefined; // You can adjust the size based on expected path lengths
+
+    // Resolve the current symlink if it exists
+    if (doesFileExist(symlinkPath)) {
+        const linkTarget = try std.fs.cwd().readLink(symlinkPath, &buffer);
+        // Allocate memory to return a copy of the link target
+        const linkTargetCopy = try allocator.dupe(u8, linkTarget);
+        return linkTargetCopy;
+    }
+    // Return an empty string if no symlink exists
+    return try allocator.dupe(u8, "");
 }
 
 fn getUserHome() []const u8 {
@@ -48,6 +73,7 @@ fn verifyZigVersion(allocator: std.mem.Allocator, expectedVersion: []const u8) !
 
     if (!std.mem.eql(u8, expectedVersion, actualVersion)) {
         std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expectedVersion, actualVersion });
+        return error.WrongVersion;
     } else {
         std.debug.print("Now using Zig version {s}\n", .{expectedVersion});
     }
