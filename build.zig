@@ -35,6 +35,9 @@ pub fn build(b: *std.Build) void {
         .version = version,
     });
 
+    // Link dependencies and set include paths
+    exe.linkLibC();
+
     const exe_options_module = options.createModule();
     exe.root_module.addImport("options", exe_options_module);
 
@@ -78,6 +81,9 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
             .strip = true,
         });
+
+        // Link dependencies and set include paths
+        rel_exe.linkLibC();
 
         const rel_exe_options_module = options.createModule();
         rel_exe.root_module.addImport("options", rel_exe_options_module);
