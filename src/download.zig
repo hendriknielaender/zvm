@@ -17,12 +17,11 @@ fn getZvmPathSegment(segment: []const u8) ![]u8 {
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
     // Initialize the Progress structure
-    var progress = Progress{
-        .terminal = std.io.getStdErr(),
-        .supports_ansi_escape_codes = true,
-    };
+    const root_node = Progress.start(.{
+        .root_name = "",
+        .estimated_total_items = 4,
+    });
 
-    var root_node = progress.start("", 4);
     defer root_node.end();
 
     // Ensure version directory exists before any operation
@@ -70,11 +69,9 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
         std.debug.print("→ Version {s} is not installed. Beginning download...\n", .{version});
     }
 
-    const computedHash = try downloadAndExtract(allocator, uri, version_path, version, root_node, &progress);
+    const computedHash = try downloadAndExtract(allocator, uri, version_path, version, root_node);
 
     var set_version_node = root_node.start("Setting Version", 1);
-    set_version_node.activate();
-    progress.refresh();
     try alias.setZigVersion(version);
     set_version_node.end();
 
@@ -94,7 +91,7 @@ fn confirmUserChoice() bool {
     return std.ascii.toLower(buffer[0]) == 'y';
 }
 
-fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8, root_node: *std.Progress.Node, progress: *std.Progress) ![32]u8 {
+fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: []const u8, version: []const u8, root_node: std.Progress.Node) ![32]u8 {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
@@ -124,7 +121,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     const downloadMessage = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
     defer allocator.free(downloadMessage);
     var download_node = root_node.start(downloadMessage, totalSize);
-    download_node.activate();
 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
@@ -141,7 +137,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
         downloadedBytes += bytes_read;
 
         download_node.setCompletedItems(downloadedBytes);
-        progress.refresh();
 
         sha256.update(buffer[0..bytes_read]);
 
@@ -151,8 +146,6 @@ fn downloadAndExtract(allocator: std.mem.Allocator, uri: std.Uri, version_path: 
     download_node.end();
 
     var extract_node = root_node.start("Extracting", 1);
-    extract_node.activate();
-    progress.refresh();
     const c_allocator = std.heap.c_allocator;
 
     // ~/.zm/versions/zig-macos-x86_64-0.10.0.tar.xz

@@ -8,7 +8,7 @@ const CrossTargetInfo = struct {
 // Semantic version of your application
 const version = std.SemanticVersion{ .major = 0, .minor = 3, .patch = 3 };
 
-const min_zig_string = "0.12.0";
+const min_zig_string = "0.13.0";
 
 const Build = blk: {
     const current_zig = builtin.zig_version;
@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zvm",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
         .target = target,
         .optimize = .ReleaseFast,
         .version = version,
@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
         const t = resolved_target.result;
         const rel_exe = b.addExecutable(.{
             .name = "zvm",
-            .root_source_file = .{ .path = "src/main.zig" },
+            .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
             .target = resolved_target,
             .optimize = .ReleaseSafe,
             .strip = true,
@@ -94,7 +94,7 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
         .target = target,
         .optimize = optimize,
     });
