@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const tools = @import("tools.zig");
 const sha2 = @import("std").crypto.hash.sha2;
 const architecture = @import("architecture.zig");
 const Progress = std.Progress;
@@ -11,7 +12,7 @@ const crypto = std.crypto;
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 fn getZvmPathSegment(segment: []const u8) ![]u8 {
-    const user_home = std.posix.getenv("HOME") orelse ".";
+    const user_home = tools.getHome();
     return std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ user_home, ".zm", segment });
 }
 

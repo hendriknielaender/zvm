@@ -1,8 +1,9 @@
 const std = @import("std");
+const tools = @import("tools.zig");
 
 pub fn setZigVersion(version: []const u8) !void {
     const allocator = std.heap.page_allocator;
-    const userHome = getUserHome();
+    const userHome = tools.getHome();
 
     const zigPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "versions", version });
     defer allocator.free(zigPath);
@@ -12,10 +13,6 @@ pub fn setZigVersion(version: []const u8) !void {
 
     try updateSymlink(zigPath, symlinkPath);
     try verifyZigVersion(allocator, version);
-}
-
-fn getUserHome() []const u8 {
-    return std.posix.getenv("HOME") orelse ".";
 }
 
 fn updateSymlink(zigPath: []const u8, symlinkPath: []const u8) !void {
@@ -54,7 +51,7 @@ fn verifyZigVersion(allocator: std.mem.Allocator, expectedVersion: []const u8) !
 }
 
 fn retrieveZigVersion(allocator: std.mem.Allocator) ![]u8 {
-    const userHome = getUserHome();
+    const userHome = tools.getHome();
     const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "current" });
     defer allocator.free(symlinkPath);
 
