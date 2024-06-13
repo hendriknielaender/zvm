@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tools = @import("tools.zig");
 
 pub fn setZigVersion(version: []const u8) !void {
@@ -16,14 +17,95 @@ pub fn setZigVersion(version: []const u8) !void {
 }
 
 fn updateSymlink(zigPath: []const u8, symlinkPath: []const u8) !void {
-    if (doesFileExist(symlinkPath)) try std.fs.cwd().deleteFile(symlinkPath);
-    std.posix.symlink(zigPath, symlinkPath) catch |err| switch (err) {
+    if (builtin.os.tag == .windows) {
+        if (std.fs.path.dirname(symlinkPath)) |dirname| {
+            var parent_dir = try std.fs.openDirAbsolute(dirname, .{
+                .iterate = true,
+            });
+            defer parent_dir.close();
+            try parent_dir.deleteTree(std.fs.path.basename(symlinkPath));
+        } else {
+            @panic("sorry, dirname is not avaiable!");
+        }
+        if (doesDirExist(symlinkPath)) try std.fs.deleteDirAbsolute(symlinkPath);
+        try copyDir(zigPath, symlinkPath);
+    } else {
+        if (doesFileExist(symlinkPath)) try std.fs.cwd().deleteFile(symlinkPath);
+        std.posix.symlink(zigPath, symlinkPath) catch |err| switch (err) {
+            error.PathAlreadyExists => {
+                try std.fs.cwd().deleteFile(symlinkPath);
+                try std.posix.symlink(zigPath, symlinkPath);
+            },
+            else => return err,
+        };
+    }
+}
+
+fn copyDir(source_dir: []const u8, dest_dir: []const u8) !void {
+    var source = try std.fs.openDirAbsolute(
+        source_dir,
+        .{ .iterate = true },
+    );
+    defer source.close();
+
+    // try make dir
+    std.fs.makeDirAbsolute(dest_dir) catch |err| switch (err) {
         error.PathAlreadyExists => {
-            try std.fs.cwd().deleteFile(symlinkPath);
-            try std.posix.symlink(zigPath, symlinkPath);
+            // The path already exists and is a directory, nothing to do here
+            // std.debug.print("Versions directory already exists: {s}\n", .{version_path});
         },
-        else => return err,
+        else => {
+            tools.log.err("make dir failed, dir is {s}", .{dest_dir});
+            return err;
+        },
     };
+
+    var dest = try std.fs.openDirAbsolute(
+        dest_dir,
+        .{ .iterate = true },
+    );
+    defer dest.close();
+
+    var iterate = source.iterate();
+    const allocator = tools.getAllocator();
+    while (try iterate.next()) |entry| {
+        const entry_name = entry.name;
+
+        const source_sub_path = try std.fs.path.join(
+            allocator,
+            &.{ source_dir, entry_name },
+        );
+        defer allocator.free(source_sub_path);
+
+        const dest_sub_path = try std.fs.path.join(
+            allocator,
+            &.{ dest_dir, entry_name },
+        );
+        defer allocator.free(dest_sub_path);
+
+        switch (entry.kind) {
+            .directory => {
+                try copyDir(source_sub_path, dest_sub_path);
+            },
+            .file => {
+                try std.fs.copyFileAbsolute(source_sub_path, dest_sub_path, .{});
+            },
+            else => {},
+        }
+    }
+}
+
+fn doesDirExist(path: []const u8) bool {
+    const result = blk: {
+        _ = std.fs.openDirAbsolute(path, .{}) catch |err| {
+            switch (err) {
+                error.FileNotFound => break :blk false,
+                else => break :blk true,
+            }
+        };
+        break :blk true;
+    };
+    return result;
 }
 
 fn doesFileExist(path: []const u8) bool {

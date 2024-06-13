@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
         .name = "zvm",
         .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
         .target = target,
-        .optimize = .ReleaseFast,
+        .optimize = optimize,
         .version = version,
     });
 

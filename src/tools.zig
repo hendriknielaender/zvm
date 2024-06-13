@@ -5,6 +5,8 @@ var allocator: std.mem.Allocator = undefined;
 
 var home_dir: []const u8 = undefined;
 
+pub const log = std.log.scoped(.zvm);
+
 /// init the data
 pub fn dataInit(tmp_allocator: std.mem.Allocator) !void {
     allocator = tmp_allocator;
@@ -30,3 +32,11 @@ pub fn getHome() []const u8 {
 pub fn getAllocator() std.mem.Allocator {
     return allocator;
 }
+
+pub fn getZvmPathSegment(_allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
+    return std.fs.path.join(
+        _allocator,
+        &[_][]const u8{ getHome(), ".zm", segment },
+    );
+}
+
