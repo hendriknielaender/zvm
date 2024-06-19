@@ -39,4 +39,3 @@ pub fn getZvmPathSegment(_allocator: std.mem.Allocator, segment: []const u8) ![]
         &[_][]const u8{ getHome(), ".zm", segment },
     );
 }
-

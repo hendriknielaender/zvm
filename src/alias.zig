@@ -50,10 +50,7 @@ fn copyDir(source_dir: []const u8, dest_dir: []const u8) !void {
 
     // try make dir
     std.fs.makeDirAbsolute(dest_dir) catch |err| switch (err) {
-        error.PathAlreadyExists => {
-            // The path already exists and is a directory, nothing to do here
-            // std.debug.print("Versions directory already exists: {s}\n", .{version_path});
-        },
+        error.PathAlreadyExists => {},
         else => {
             tools.log.err("Failed to create directory: {s}", .{dest_dir});
             return err;
