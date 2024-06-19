@@ -8,3 +8,4 @@ zig-out-*
 # libarchive
 *.o
 *.a
+.zig-cache

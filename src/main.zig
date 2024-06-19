@@ -1,4 +1,5 @@
 const std = @import("std");
+const tools = @import("tools.zig");
 const Command = @import("command.zig").Command;
 const handleCommands = @import("command.zig").handleCommands;
 
@@ -14,9 +15,14 @@ const CommandOption = struct {
 };
 
 pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer if (gpa.deinit() == .leak) @panic("memory leaked!");
+
+    try tools.dataInit(gpa.allocator());
+    defer tools.dataDeinit();
+
+    const args = try std.process.argsAlloc(tools.getAllocator());
+    defer std.process.argsFree(tools.getAllocator(), args);
 
     const cmd_data = try parseArgs(args);
     try handleCommands(cmd_data.cmd, cmd_data.params);
