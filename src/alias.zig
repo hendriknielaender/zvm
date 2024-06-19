@@ -55,7 +55,7 @@ fn copyDir(source_dir: []const u8, dest_dir: []const u8) !void {
             // std.debug.print("Versions directory already exists: {s}\n", .{version_path});
         },
         else => {
-            tools.log.err("make dir failed, dir is {s}", .{dest_dir});
+            tools.log.err("Failed to create directory: {s}", .{dest_dir});
             return err;
         },
     };
