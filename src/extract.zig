@@ -3,14 +3,10 @@ const builtin = @import("builtin");
 const tools = @import("tools.zig");
 
 pub fn extract_tarxz_to_dir(allocator: std.mem.Allocator, outDir: std.fs.Dir, file: std.fs.File) !void {
-    if (builtin.os.tag == .windows) {
-        try extract_zip_dir(outDir, file);
-    } else {
-        var buffered_reader = std.io.bufferedReader(file.reader());
-        var decompressed = try std.compress.xz.decompress(allocator, buffered_reader.reader());
-        defer decompressed.deinit();
-        try std.tar.pipeToFileSystem(outDir, decompressed.reader(), .{ .mode_mode = .executable_bit_only, .strip_components = 1 });
-    }
+    var buffered_reader = std.io.bufferedReader(file.reader());
+    var decompressed = try std.compress.xz.decompress(allocator, buffered_reader.reader());
+    defer decompressed.deinit();
+    try std.tar.pipeToFileSystem(outDir, decompressed.reader(), .{ .mode_mode = .executable_bit_only, .strip_components = 1 });
 }
 
 pub fn extract_zip_dir(outDir: std.fs.Dir, file: std.fs.File) !void {

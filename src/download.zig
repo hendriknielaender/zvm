@@ -148,7 +148,6 @@ fn downloadAndExtract(
     download_node.end();
 
     var extract_node = root_node.start("Extracting", 1);
-    const c_allocator = std.heap.c_allocator;
 
     // ~/.zm/versions/zig-macos-x86_64-0.10.0.tar.xz
     const data_allocator = tools.getAllocator();
@@ -175,12 +174,16 @@ fn downloadAndExtract(
     const downloaded_file = try zvm_dir.openFile(downloaded_file_path, .{});
     defer downloaded_file.close();
 
-    _ = try lib.extract_tarxz_to_dir(c_allocator, zvm_dir_version, downloaded_file);
+    if (builtin.os.tag == .windows) {
+        try lib.extract_zip_dir(zvm_dir_version, downloaded_file);
+    } else {
+        try lib.extract_tarxz_to_dir(allocator, zvm_dir_version, downloaded_file);
+    }
+
     extract_node.end();
 
     var result: [32]u8 = undefined;
     sha256.final(&result);
-    //std.debug.print("Hash computation complete. Hash: {s}\n", .{std.fmt.fmtSliceHexLower(&result)});
     return result;
 }
 
