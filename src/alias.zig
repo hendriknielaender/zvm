@@ -3,14 +3,16 @@ const builtin = @import("builtin");
 const tools = @import("tools.zig");
 
 pub fn setZigVersion(version: []const u8) !void {
-    const allocator = std.heap.page_allocator;
+    const allocator = tools.getAllocator();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     const userHome = tools.getHome();
 
-    const zigPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "versions", version });
-    defer allocator.free(zigPath);
-
-    const symlinkPath = try std.fs.path.join(allocator, &[_][]const u8{ userHome, ".zm", "current" });
-    defer allocator.free(symlinkPath);
+    const zigPath = try std.fs.path.join(arena_allocator, &[_][]const u8{ userHome, ".zm", "versions", version });
+    const symlinkPath = try std.fs.path.join(arena_allocator, &[_][]const u8{ userHome, ".zm", "current" });
 
     try updateSymlink(zigPath, symlinkPath);
     try verifyZigVersion(allocator, version);

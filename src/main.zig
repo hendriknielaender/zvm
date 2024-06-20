@@ -21,8 +21,10 @@ pub fn main() !void {
     try tools.dataInit(gpa.allocator());
     defer tools.dataDeinit();
 
-    const args = try std.process.argsAlloc(tools.getAllocator());
-    defer std.process.argsFree(tools.getAllocator(), args);
+    const allocator = tools.getAllocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
     const cmd_data = try parseArgs(args);
     try handleCommands(cmd_data.cmd, cmd_data.params);

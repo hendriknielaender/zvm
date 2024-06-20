@@ -2,6 +2,7 @@ const std = @import("std");
 const versions = @import("versions.zig");
 const install = @import("install.zig");
 const alias = @import("alias.zig");
+const tools = @import("tools.zig");
 
 const options = @import("options");
 
@@ -42,10 +43,11 @@ pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
 }
 
 fn handleList() !void {
-    const allocator = std.heap.page_allocator;
-    const versionsList = try versions.list(allocator);
-    defer versionsList.deinit();
-    for (versionsList.items) |version| {
+    const allocator = tools.getAllocator();
+    var version_list = try versions.VersionList.init(allocator);
+    defer version_list.deinit();
+
+    for (version_list.slice()) |version| {
         std.debug.print("{s}\n", .{version});
     }
 }

@@ -1,42 +1,69 @@
 const std = @import("std");
 
-pub fn list(allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    const url = "https://ziglang.org/download/index.json";
-    const uri = std.Uri.parse(url) catch unreachable;
+// TODO: The url should be stored in a separate config file
+const url = "https://ziglang.org/download/index.json";
 
-    // Initialize HTTP client
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
+const uri = std.Uri.parse(url) catch unreachable;
 
-    // Read the response body with 256kb buffer allocation
-    var buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
+pub const VersionList = struct {
+    const List = std.ArrayList([]const u8);
+    lists: List,
+    allocator: std.mem.Allocator,
 
-    // Make the HTTP request
-    var req = try client.open(.GET, uri, .{ .server_header_buffer = &buffer });
-    defer req.deinit();
-    try req.send();
-    try req.wait();
+    pub fn init(allocator: std.mem.Allocator) !VersionList {
+        // Initialize HTTP client
+        var client = std.http.Client{ .allocator = allocator };
+        defer client.deinit();
 
-    // Check if request was successful
-    try std.testing.expect(req.response.status == .ok);
+        // Read the response body with 256kb buffer allocation
+        var buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
 
-    const read_len = try req.readAll(buffer[0..]);
+        // Make the HTTP request
+        var req = try client.open(.GET, uri, .{ .server_header_buffer = &buffer });
+        defer req.deinit();
 
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, buffer[0..read_len], .{});
-    defer parsed.deinit();
-    const root = parsed.value;
+        // send http request
+        try req.send();
 
-    // Initialize array list to hold versions
-    var versions = std.ArrayList([]const u8).init(allocator);
+        // wait response
+        try req.wait();
 
-    var it = root.object.iterator();
-    while (it.next()) |entry| {
-        const key_ptr = entry.key_ptr;
-        const key = key_ptr.*;
+        // Check if request was successful
+        if (req.response.status != .ok)
+            return error.ListResponseNotOk;
 
-        const key_copy = try allocator.dupe(u8, key);
-        try versions.append(key_copy);
+        const len = try req.readAll(buffer[0..]);
+
+        const json = try std.json.parseFromSlice(std.json.Value, allocator, buffer[0..len], .{});
+        defer json.deinit();
+        const root = json.value;
+
+        // Initialize array list to hold versions
+        var lists = std.ArrayList([]const u8).init(allocator);
+
+        var iterate = root.object.iterator();
+        while (iterate.next()) |entry| {
+            const key_ptr = entry.key_ptr;
+            const key = key_ptr.*;
+
+            const key_copy = try allocator.dupe(u8, key);
+            try lists.append(key_copy);
+        }
+
+        return VersionList{
+            .lists = lists,
+            .allocator = allocator,
+        };
     }
 
-    return versions;
-}
+    pub fn slice(self: *VersionList) [][]const u8 {
+        return self.lists.items;
+    }
+
+    pub fn deinit(self: *VersionList) void {
+        defer self.lists.deinit();
+        for (self.lists.items) |value| {
+            self.allocator.free(value);
+        }
+    }
+};
