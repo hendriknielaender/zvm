@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const hash = @import("hash.zig");
 const download = @import("download.zig");
 const architecture = @import("architecture.zig");
+const tools = @import("tools.zig");
 const Allocator = std.mem.Allocator;
 const io = std.io;
 const json = std.json;
@@ -27,8 +28,9 @@ const Error = error{
     ContentMissing,
 };
 
+const url = "https://ziglang.org/download/index.json";
+
 fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
-    const url = "https://ziglang.org/download/index.json";
     const uri = std.Uri.parse(url) catch unreachable;
 
     // Initialize HTTP client
@@ -105,10 +107,18 @@ fn fetchVersionData(allocator: Allocator, requested_version: []const u8, sub_key
 }
 
 pub fn fromVersion(version: []const u8) !void {
-    var allocator = std.heap.page_allocator;
-    const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = true }) orelse unreachable;
-    defer allocator.free(platform);
-    const version_data = try fetchVersionData(allocator, version, platform);
+    var allocator = tools.getAllocator();
+
+    const platform_str = try architecture.detect(allocator, architecture.DetectParams{
+        .os = builtin.os.tag,
+        .arch = builtin.cpu.arch,
+        .reverse = true,
+    }) orelse unreachable;
+    defer allocator.free(platform_str);
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const version_data = try fetchVersionData(arena.allocator(), version, platform_str);
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
 
