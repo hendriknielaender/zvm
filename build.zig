@@ -6,7 +6,7 @@ const CrossTargetInfo = struct {
     name: []const u8,
 };
 // Semantic version of your application
-const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 1 };
+const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 2 };
 
 const min_zig_string = "0.13.0";
 
@@ -34,9 +34,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .version = version,
     });
-
-    // Link dependencies and set include paths
-    exe.linkLibC();
 
     const exe_options_module = options.createModule();
     exe.root_module.addImport("options", exe_options_module);
@@ -89,9 +86,6 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
             .strip = true,
         });
-
-        // Link dependencies and set include paths
-        rel_exe.linkLibC();
 
         const rel_exe_options_module = options.createModule();
         rel_exe.root_module.addImport("options", rel_exe_options_module);
