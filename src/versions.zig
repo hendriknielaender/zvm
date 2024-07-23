@@ -1,9 +1,7 @@
 const std = @import("std");
+const config = @import("config.zig");
 
-// TODO: The URL should be stored in a separate config file.
-const url = "https://ziglang.org/download/index.json";
-
-const uri = std.Uri.parse(url) catch unreachable;
+const uri = std.Uri.parse(config.download_manifest_url) catch unreachable;
 
 pub const VersionList = struct {
     const List = std.ArrayList([]const u8);
