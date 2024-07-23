@@ -1,35 +1,27 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const tools = @import("tools.zig");
-const sha2 = @import("std").crypto.hash.sha2;
+const sha2 = std.crypto.hash.sha2;
 const architecture = @import("architecture.zig");
-const Progress = std.Progress;
 const alias = @import("alias.zig");
 const hash = @import("hash.zig");
 const lib = @import("extract.zig");
-const crypto = std.crypto;
 
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
-    // Initialize the Progress structure
-    const root_node = Progress.start(.{
+    const root_node = std.Progress.start(.{
         .root_name = "",
         .estimated_total_items = 4,
     });
-
     defer root_node.end();
 
-    const data_allocator = tools.getAllocator();
-    // Ensure version directory exists before any operation
-    const version_path = try tools.getZvmPathSegment(data_allocator, "versions");
+    const data_allocator = tools.get_allocator();
+    const version_path = try tools.get_zvm_path_segment(data_allocator, "versions");
     defer data_allocator.free(version_path);
 
     std.fs.cwd().makePath(version_path) catch |err| switch (err) {
-        error.PathAlreadyExists => {
-            // The path already exists and is a directory, nothing to do here
-            // std.debug.print("Versions directory already exists: {s}\n", .{version_path});
-        },
+        error.PathAlreadyExists => {},
         else => {
             std.debug.print("Failed to create versions directory: {}\n", .{err});
             return err;
@@ -40,18 +32,17 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     const version_folder_name = try std.fmt.allocPrint(allocator, "versions/{s}", .{version});
     defer allocator.free(version_folder_name);
 
-    const version_folder_path = try tools.getZvmPathSegment(data_allocator, version_folder_name);
+    const version_folder_path = try tools.get_zvm_path_segment(data_allocator, version_folder_name);
     defer data_allocator.free(version_folder_path);
 
-    if (checkExistingVersion(version_folder_path)) {
+    if (check_existing_version(version_folder_path)) {
         std.debug.print("→ Version {s} is already installed.\n", .{version});
         std.debug.print("Do you want to reinstall? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{});
 
-        if (!confirmUserChoice()) {
-            // Ask if the version should be set as the default
+        if (!confirm_user_choice()) {
             std.debug.print("Do you want to set version {s} as the default? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{version});
-            if (confirmUserChoice()) {
-                try alias.setZigVersion(version);
+            if (confirm_user_choice()) {
+                try alias.set_zig_version(version);
                 std.debug.print("Version {s} has been set as the default.\n", .{version});
                 return null;
             } else {
@@ -65,29 +56,29 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
         std.debug.print("→ Version {s} is not installed. Beginning download...\n", .{version});
     }
 
-    const computedHash = try downloadAndExtract(allocator, uri, version_path, version, root_node);
+    const computed_hash = try download_and_extract(allocator, uri, version_path, version, root_node);
 
     var set_version_node = root_node.start("Setting Version", 1);
-    try alias.setZigVersion(version);
+    try alias.set_zig_version(version);
     set_version_node.end();
 
-    return computedHash;
+    return computed_hash;
 }
 
-fn checkExistingVersion(version_path: []const u8) bool {
-    const openDirOptions = .{ .access_sub_paths = true, .no_follow = false };
-    _ = std.fs.cwd().openDir(version_path, openDirOptions) catch return false;
+fn check_existing_version(version_path: []const u8) bool {
+    const open_dir_options = .{ .access_sub_paths = true, .no_follow = false };
+    _ = std.fs.cwd().openDir(version_path, open_dir_options) catch return false;
     return true;
 }
 
-fn confirmUserChoice() bool {
+fn confirm_user_choice() bool {
     var buffer: [4]u8 = undefined;
     _ = std.io.getStdIn().read(buffer[0..]) catch return false;
 
     return std.ascii.toLower(buffer[0]) == 'y';
 }
 
-fn downloadAndExtract(
+fn download_and_extract(
     allocator: std.mem.Allocator,
     uri: std.Uri,
     version_path: []const u8,
@@ -97,18 +88,16 @@ fn downloadAndExtract(
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    // Read the response body with 256kb buffer allocation
-    var headerBuffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
+    var header_buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
 
-    var req = try client.open(.GET, uri, .{ .server_header_buffer = &headerBuffer });
+    var req = try client.open(.GET, uri, .{ .server_header_buffer = &header_buffer });
     defer req.deinit();
 
     try req.send();
     try req.wait();
-
     try std.testing.expect(req.response.status == .ok);
 
-    var zvm_dir = try openOrCreateZvmDir();
+    var zvm_dir = try open_or_create_zvm_dir();
     defer zvm_dir.close();
 
     const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = false }) orelse unreachable;
@@ -117,12 +106,12 @@ fn downloadAndExtract(
     const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
     defer allocator.free(file_name);
 
-    const totalSize: usize = @intCast(req.response.content_length orelse 0);
-    var downloadedBytes: usize = 0;
+    const total_size: usize = @intCast(req.response.content_length orelse 0);
+    var downloaded_bytes: usize = 0;
 
-    const downloadMessage = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
-    defer allocator.free(downloadMessage);
-    var download_node = root_node.start(downloadMessage, totalSize);
+    const download_message = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
+    defer allocator.free(download_message);
+    var download_node = root_node.start(download_message, total_size);
 
     const file_stream = try zvm_dir.createFile(file_name, .{});
     defer file_stream.close();
@@ -136,23 +125,18 @@ fn downloadAndExtract(
         const bytes_read = try req.reader().read(buffer[0..]);
         if (bytes_read == 0) break;
 
-        downloadedBytes += bytes_read;
-
-        download_node.setCompletedItems(downloadedBytes);
-
+        downloaded_bytes += bytes_read;
+        download_node.setCompletedItems(downloaded_bytes);
         sha256.update(buffer[0..bytes_read]);
-
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
 
     download_node.end();
 
     var extract_node = root_node.start("Extracting", 1);
+    const data_allocator = tools.get_allocator();
 
-    // ~/.zm/versions/zig-macos-x86_64-0.10.0.tar.xz
-    const data_allocator = tools.getAllocator();
-
-    const zvm_path = try tools.getZvmPathSegment(data_allocator, "");
+    const zvm_path = try tools.get_zvm_path_segment(data_allocator, "");
     defer data_allocator.free(zvm_path);
 
     const downloaded_file_path = try std.fs.path.join(data_allocator, &.{ zvm_path, file_name });
@@ -160,8 +144,6 @@ fn downloadAndExtract(
 
     std.debug.print("Downloaded file path: {s}\n", .{downloaded_file_path});
 
-    // Construct the full file path
-    // example: ~/.zm/0.10.0
     const folder_path = try std.fs.path.join(allocator, &.{ version_path, version });
     defer allocator.free(folder_path);
 
@@ -170,7 +152,6 @@ fn downloadAndExtract(
     };
 
     const zvm_dir_version = try std.fs.openDirAbsolute(folder_path, .{});
-
     const downloaded_file = try zvm_dir.openFile(downloaded_file_path, .{});
     defer downloaded_file.close();
 
@@ -187,14 +168,14 @@ fn downloadAndExtract(
     return result;
 }
 
-fn openOrCreateZvmDir() !std.fs.Dir {
-    const zvm_path = try tools.getZvmPathSegment(tools.getAllocator(), "");
-    defer tools.getAllocator().free(zvm_path);
+fn open_or_create_zvm_dir() !std.fs.Dir {
+    const zvm_path = try tools.get_zvm_path_segment(tools.get_allocator(), "");
+    defer tools.get_allocator().free(zvm_path);
 
-    const openDirOptions = .{ .access_sub_paths = true, .no_follow = false };
-    const potentialDir = std.fs.cwd().openDir(zvm_path, openDirOptions);
+    const open_dir_options = .{ .access_sub_paths = true, .no_follow = false };
+    const potential_dir = std.fs.cwd().openDir(zvm_path, open_dir_options);
 
-    if (potentialDir) |dir| {
+    if (potential_dir) |dir| {
         return dir;
     } else |err| switch (err) {
         error.FileNotFound => {
@@ -202,11 +183,11 @@ fn openOrCreateZvmDir() !std.fs.Dir {
 
             if (std.fs.cwd().makeDir(zvm_path)) |_| {
                 std.debug.print("✓ Directory created successfully: {s}\n", .{zvm_path});
-            } else |errMakeDir| {
-                std.debug.print("✗ Error: Failed to create directory. Reason: {}\n", .{errMakeDir});
+            } else |err_make_dir| {
+                std.debug.print("✗ Error: Failed to create directory. Reason: {}\n", .{err_make_dir});
             }
 
-            return std.fs.cwd().openDir(zvm_path, openDirOptions);
+            return std.fs.cwd().openDir(zvm_path, open_dir_options);
         },
         else => |e| {
             std.debug.print("Unexpected error when checking directory: {}\n", .{e});
