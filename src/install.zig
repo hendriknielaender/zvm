@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const config = @import("config.zig");
 const hash = @import("hash.zig");
 const download = @import("download.zig");
 const architecture = @import("architecture.zig");
@@ -28,10 +29,8 @@ const Error = error{
     ContentMissing,
 };
 
-const url = "https://ziglang.org/download/index.json";
-
 fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
-    const uri = std.Uri.parse(url) catch unreachable;
+    const uri = std.Uri.parse(config.download_manifest_url) catch unreachable;
 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
