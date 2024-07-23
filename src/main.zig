@@ -1,7 +1,7 @@
 const std = @import("std");
 const tools = @import("tools.zig");
 const Command = @import("command.zig").Command;
-const handleCommands = @import("command.zig").handleCommands;
+const handle_commands = @import("command.zig").handle_commands;
 
 const CommandData = struct {
     cmd: Command,
@@ -18,25 +18,25 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer if (gpa.deinit() == .leak) @panic("memory leaked!");
 
-    try tools.dataInit(gpa.allocator());
-    defer tools.dataDeinit();
+    try tools.data_init(gpa.allocator());
+    defer tools.data_deinit();
 
-    const allocator = tools.getAllocator();
+    const allocator = tools.get_allocator();
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const cmd_data = try parseArgs(args);
-    try handleCommands(cmd_data.cmd, cmd_data.params);
+    const cmd_data = try parse_args(args);
+    try handle_commands(cmd_data.cmd, cmd_data.params);
 }
 
-fn parseArgs(args: []const []const u8) !CommandData {
-    const options = getAvailableCommands();
+fn parse_args(args: []const []const u8) !CommandData {
+    const options = get_available_commands();
     if (args.len < 2) return CommandData{ .cmd = Command.Unknown, .params = null };
-    return findCommandInArgs(args[1..], options) orelse CommandData{ .cmd = Command.Unknown, .params = null };
+    return find_command_in_args(args[1..], options) orelse CommandData{ .cmd = Command.Unknown, .params = null };
 }
 
-fn getAvailableCommands() []const CommandOption {
+fn get_available_commands() []const CommandOption {
     return &[_]CommandOption{
         CommandOption{ .short_handle = "ls", .handle = "list", .cmd = Command.List },
         CommandOption{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
@@ -47,7 +47,7 @@ fn getAvailableCommands() []const CommandOption {
     };
 }
 
-fn findCommandInArgs(args: []const []const u8, options: []const CommandOption) ?CommandData {
+fn find_command_in_args(args: []const []const u8, options: []const CommandOption) ?CommandData {
     var i: usize = 0;
     for (args) |arg| {
         for (options) |option| {

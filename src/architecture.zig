@@ -28,21 +28,20 @@ fn archToString(arch: std.Target.Cpu.Arch) ?[]const u8 {
 }
 
 pub fn detect(allocator: std.mem.Allocator, params: DetectParams) !?[]u8 {
-    const osStr = osToString(params.os) orelse return error.UnsupportedSystem;
-    const archStr = archToString(params.arch) orelse return error.UnsupportedSystem;
+    const os_str = osToString(params.os) orelse return error.UnsupportedSystem;
+    const arch_str = archToString(params.arch) orelse return error.UnsupportedSystem;
 
-    const len = osStr.len + archStr.len + 1; // +1 for the '-'
-
+    const len = os_str.len + arch_str.len + 1; // +1 for the '-'
     const result = try allocator.alloc(u8, len);
 
     if (params.reverse) {
-        @memcpy(result[0..archStr.len], archStr);
-        result[archStr.len] = '-';
-        @memcpy(result[archStr.len + 1 ..], osStr);
+        @memcpy(result[0..arch_str.len], arch_str);
+        result[arch_str.len] = '-';
+        @memcpy(result[arch_str.len + 1 ..], os_str);
     } else {
-        @memcpy(result[0..osStr.len], osStr);
-        result[osStr.len] = '-';
-        @memcpy(result[osStr.len + 1 ..], archStr);
+        @memcpy(result[0..os_str.len], os_str);
+        result[os_str.len] = '-';
+        @memcpy(result[os_str.len + 1 ..], arch_str);
     }
 
     return result;

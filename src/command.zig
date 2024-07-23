@@ -16,34 +16,34 @@ pub const Command = enum {
     Unknown,
 };
 
-pub fn handleCommands(cmd: Command, params: ?[]const u8) !void {
+pub fn handle_commands(cmd: Command, params: ?[]const u8) !void {
     switch (cmd) {
-        Command.List => {
-            try handleList();
+        .List => {
+            try handle_list();
         },
-        Command.Install => {
-            try installVersion(params);
+        .Install => {
+            try install_version(params);
         },
-        Command.Use => {
-            try useVersion(params);
+        .Use => {
+            try use_version(params);
         },
-        Command.Default => {
-            try setDefault();
+        .Default => {
+            try set_default();
         },
-        Command.Version => {
-            try getVersion();
+        .Version => {
+            try get_version();
         },
-        Command.Help => {
-            try displayHelp();
+        .Help => {
+            try display_help();
         },
-        Command.Unknown => {
-            try handleUnknown();
+        .Unknown => {
+            try handle_unknown();
         },
     }
 }
 
-fn handleList() !void {
-    const allocator = tools.getAllocator();
+fn handle_list() !void {
+    const allocator = tools.get_allocator();
     var version_list = try versions.VersionList.init(allocator);
     defer version_list.deinit();
 
@@ -52,32 +52,32 @@ fn handleList() !void {
     }
 }
 
-fn installVersion(params: ?[]const u8) !void {
+fn install_version(params: ?[]const u8) !void {
     if (params) |version| {
-        try install.fromVersion(version);
+        try install.from_version(version);
     } else {
         std.debug.print("Error: Please specify a version to install using 'install <version>'.\n", .{});
     }
 }
 
-fn useVersion(params: ?[]const u8) !void {
+fn use_version(params: ?[]const u8) !void {
     if (params) |version| {
-        try alias.setZigVersion(version);
+        try alias.set_zig_version(version);
     } else {
         std.debug.print("Error: Please specify a version to use with 'use <version>'.\n", .{});
     }
 }
 
-fn setDefault() !void {
+fn set_default() !void {
     std.debug.print("Handling 'default' command.\n", .{});
     // Your default code here
 }
 
-fn getVersion() !void {
+fn get_version() !void {
     std.debug.print("zvm {}\n", .{options.zvm_version});
 }
 
-fn displayHelp() !void {
+fn display_help() !void {
     const help_message =
         \\Usage:
         \\    zvm <command> [args]
@@ -100,6 +100,6 @@ fn displayHelp() !void {
     std.debug.print(help_message, .{});
 }
 
-fn handleUnknown() !void {
+fn handle_unknown() !void {
     std.debug.print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
 }
