@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tools = @import("tools.zig");
 const sha2 = std.crypto.hash.sha2;
@@ -10,6 +11,9 @@ const lib = @import("extract.zig");
 const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
 
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
+    assert(version.len > 0);
+    assert(url.len > 0);
+
     const root_node = std.Progress.start(.{
         .root_name = "",
         .estimated_total_items = 4,
@@ -85,6 +89,9 @@ fn download_and_extract(
     version: []const u8,
     root_node: std.Progress.Node,
 ) ![32]u8 {
+    assert(version_path.len > 0);
+    assert(version.len > 0);
+
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tools = @import("tools.zig");
 
@@ -17,6 +18,9 @@ pub fn set_zig_version(version: []const u8) !void {
 }
 
 fn update_symlink(zig_path: []const u8, symlink_path: []const u8) !void {
+    assert(zig_path.len > 0);
+    assert(symlink_path.len > 0);
+
     if (builtin.os.tag == .windows) {
         if (std.fs.path.dirname(symlink_path)) |dirname| {
             var parent_dir = try std.fs.openDirAbsolute(dirname, .{ .iterate = true });
@@ -40,6 +44,9 @@ fn update_symlink(zig_path: []const u8, symlink_path: []const u8) !void {
 }
 
 fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
+    assert(source_dir.len > 0);
+    assert(dest_dir.len > 0);
+
     var source = try std.fs.openDirAbsolute(source_dir, .{ .iterate = true });
     defer source.close();
 
@@ -103,6 +110,9 @@ fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8
     const actual_version = try retrieve_zig_version(allocator);
     defer allocator.free(actual_version);
 
+    assert(actual_version.len > 0);
+    assert(std.mem.eql(u8, expected_version, actual_version));
+
     if (!std.mem.eql(u8, expected_version, actual_version)) {
         std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
     } else {
@@ -124,7 +134,9 @@ fn retrieve_zig_version(allocator: std.mem.Allocator) ![]u8 {
     try child_process.spawn();
 
     if (child_process.stdout) |stdout| {
-        return try stdout.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', 100) orelse return error.EmptyVersion;
+        const version = try stdout.reader().readUntilDelimiterOrEofAlloc(allocator, '\n', 100) orelse return error.EmptyVersion;
+        assert(version.len > 0);
+        return version;
     }
 
     return error.FailedToReadVersion;
