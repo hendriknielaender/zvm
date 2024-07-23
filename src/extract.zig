@@ -20,7 +20,7 @@ pub fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
     try std.fs.makeDirAbsolute(tmp_path);
     var tmp_dir = try std.fs.openDirAbsolute(tmp_path, .{ .iterate = true });
 
-    try std.zip.extract(tmp_dir, file.seekable_stream(), .{});
+    try std.zip.extract(tmp_dir, file.seekableStream(), .{});
 
     var iterate = tmp_dir.iterate();
     var sub_dir = blk: {
