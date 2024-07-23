@@ -15,22 +15,22 @@ pub fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
 
     const allocator = arena.allocator();
     const tmp_path = try tools.get_zvm_path_segment(allocator, "tmpdir");
-    defer std.fs.delete_dir_absolute(tmp_path) catch unreachable;
+    defer std.fs.deleteDirAbsolute(tmp_path) catch unreachable;
 
-    try std.fs.make_dir_absolute(tmp_path);
-    var tmp_dir = try std.fs.open_dir_absolute(tmp_path, .{ .iterate = true });
+    try std.fs.makeDirAbsolute(tmp_path);
+    var tmp_dir = try std.fs.openDirAbsolute(tmp_path, .{ .iterate = true });
 
     try std.zip.extract(tmp_dir, file.seekable_stream(), .{});
 
     var iterate = tmp_dir.iterate();
     var sub_dir = blk: {
         const entry = try iterate.next() orelse return error.NotFound;
-        break :blk try tmp_dir.open_dir(entry.name, .{ .iterate = true });
+        break :blk try tmp_dir.openDir(entry.name, .{ .iterate = true });
     };
     defer sub_dir.close();
 
-    const sub_path = try sub_dir.realpath_alloc(allocator, "");
-    defer std.fs.delete_dir_absolute(sub_path) catch unreachable;
+    const sub_path = try sub_dir.realpathAlloc(allocator, "");
+    defer std.fs.deleteDirAbsolute(sub_path) catch unreachable;
 
     var sub_iterate = sub_dir.iterate();
     while (try sub_iterate.next()) |entry| {
