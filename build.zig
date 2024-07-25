@@ -1,25 +1,31 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const Build = std.Build;
+
+const min_zig_string = "0.13.0";
+// Semantic version of your application
+const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 4 };
+
 const CrossTargetInfo = struct {
     crossTarget: std.zig.CrossTarget,
     name: []const u8,
 };
-// Semantic version of your application
-const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 4 };
 
-const min_zig_string = "0.13.0";
-
-const Build = blk: {
+// comptime detect the zig version
+comptime {
     const current_zig = builtin.zig_version;
     const min_zig = std.SemanticVersion.parse(min_zig_string) catch unreachable;
     if (current_zig.order(min_zig) == .lt) {
-        @compileError(std.fmt.comptimePrint("Your Zig version v{} does not meet the minimum build requirement of v{}", .{ current_zig, min_zig }));
+        const error_msg = std.fmt.comptimePrint(
+            "Your Zig version v{} does not meet the minimum build requirement of v{}",
+            .{ current_zig, min_zig },
+        );
+        @compileError(error_msg);
     }
-    break :blk std.Build;
-};
+}
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     // Add a global option for versioning
@@ -29,7 +35,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zvm",
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .version = version,
@@ -42,38 +48,14 @@ pub fn build(b: *std.Build) void {
 
     const release = b.step("release", "make an upstream binary release");
     const release_targets = [_]std.Target.Query{
-        .{
-            .cpu_arch = .aarch64,
-            .os_tag = .linux,
-        },
-        .{
-            .cpu_arch = .x86_64,
-            .os_tag = .linux,
-        },
-        .{
-            .cpu_arch = .x86,
-            .os_tag = .linux,
-        },
-        .{
-            .cpu_arch = .riscv64,
-            .os_tag = .linux,
-        },
-        .{
-            .cpu_arch = .x86_64,
-            .os_tag = .macos,
-        },
-        .{
-            .cpu_arch = .aarch64,
-            .os_tag = .macos,
-        },
-        .{
-            .cpu_arch = .x86_64,
-            .os_tag = .windows,
-        },
-        .{
-            .cpu_arch = .x86,
-            .os_tag = .windows,
-        },
+        .{ .cpu_arch = .x86_64, .os_tag = .linux },
+        .{ .cpu_arch = .x86_64, .os_tag = .windows },
+        .{ .cpu_arch = .x86_64, .os_tag = .macos },
+        .{ .cpu_arch = .x86, .os_tag = .linux },
+        .{ .cpu_arch = .x86, .os_tag = .windows },
+        .{ .cpu_arch = .aarch64, .os_tag = .linux },
+        .{ .cpu_arch = .aarch64, .os_tag = .macos },
+        .{ .cpu_arch = .riscv64, .os_tag = .linux },
     };
 
     for (release_targets) |target_query| {
@@ -81,7 +63,7 @@ pub fn build(b: *std.Build) void {
         const t = resolved_target.result;
         const rel_exe = b.addExecutable(.{
             .name = "zvm",
-            .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
+            .root_source_file = b.path("src/main.zig"),
             .target = resolved_target,
             .optimize = .ReleaseSafe,
             .strip = true,
@@ -102,7 +84,7 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/main.zig" } },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
