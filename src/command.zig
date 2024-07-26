@@ -1,11 +1,12 @@
 const std = @import("std");
+const options = @import("options");
+
 const versions = @import("versions.zig");
 const install = @import("install.zig");
 const alias = @import("alias.zig");
 const tools = @import("tools.zig");
 
-const options = @import("options");
-
+// command species
 pub const Command = enum {
     List,
     Install,
@@ -16,29 +17,69 @@ pub const Command = enum {
     Unknown,
 };
 
-pub fn handle_commands(cmd: Command, params: ?[]const u8) !void {
-    switch (cmd) {
-        .List => {
-            try handle_list();
-        },
-        .Install => {
-            try install_version(params);
-        },
-        .Use => {
-            try use_version(params);
-        },
-        .Default => {
-            try set_default();
-        },
-        .Version => {
-            try get_version();
-        },
-        .Help => {
-            try display_help();
-        },
-        .Unknown => {
-            try handle_unknown();
-        },
+const CommandData = struct {
+    cmd: Command = .Unknown,
+    param: ?[]const u8 = null,
+};
+
+const CommandOption = struct {
+    short_handle: ?[]const u8,
+    handle: []const u8,
+    cmd: Command,
+};
+
+/// now all available commands
+const command_opts = [_]CommandOption{
+    .{ .short_handle = "ls", .handle = "list", .cmd = Command.List },
+    .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
+    .{ .short_handle = null, .handle = "use", .cmd = Command.Use },
+    .{ .short_handle = null, .handle = "--version", .cmd = Command.Version },
+    .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
+    .{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
+};
+
+/// parse command and handle commands
+pub fn handleCommand(params: []const []const u8) !void {
+    // get command data, get the first command and its arg
+    const command: CommandData = blk: {
+        // when args len is less than 2, that mean no extra args!
+        if (params.len < 2) break :blk CommandData{};
+
+        const args = params[1..];
+
+        for (args, 0..) |arg, index| {
+            for (command_opts) |opt| {
+
+                // whether eql short handle
+                const is_eql_short_handle =
+                    if (opt.short_handle) |short_handle|
+                    std.mem.eql(u8, arg, short_handle)
+                else
+                    false;
+
+                // whether eql handle
+                const is_eql_handle = std.mem.eql(u8, arg, opt.handle);
+
+                if (!is_eql_short_handle and !is_eql_handle)
+                    continue;
+
+                break :blk CommandData{
+                    .cmd = opt.cmd,
+                    .param = if (index + 1 < args.len) args[index + 1] else null,
+                };
+            }
+        }
+        break :blk CommandData{};
+    };
+
+    switch (command.cmd) {
+        .List => try handle_list(),
+        .Install => try install_version(command.param),
+        .Use => try use_version(command.param),
+        .Default => try set_default(),
+        .Version => try get_version(),
+        .Help => try display_help(),
+        .Unknown => try handle_unknown(),
     }
 }
 
@@ -95,6 +136,7 @@ fn display_help() !void {
         \\    zvm use 0.8.0      Switch to using Zig version 0.8.0.
         \\
         \\For additional information and contributions, please visit the GitHub repository.
+        \\
     ;
 
     std.debug.print(help_message, .{});
