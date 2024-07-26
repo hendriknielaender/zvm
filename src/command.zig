@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const options = @import("options");
 
 const versions = @import("versions.zig");
@@ -40,6 +41,11 @@ const command_opts = [_]CommandOption{
 
 /// parse command and handle commands
 pub fn handleCommand(params: []const []const u8) !void {
+    if (builtin.os.tag != .windows) {
+        if (std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
+            try handleAlias(params);
+    }
+
     // get command data, get the first command and its arg
     const command: CommandData = blk: {
         // when args len is less than 2, that mean no extra args!
@@ -81,6 +87,29 @@ pub fn handleCommand(params: []const []const u8) !void {
         .Help => try display_help(),
         .Unknown => try handle_unknown(),
     }
+}
+
+fn handleAlias(params: []const []const u8) !void {
+    var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const new_params = try allocator.dupe([]const u8, params);
+
+    const home = tools.get_home();
+    const current_zig_path = try std.fs.path.join(allocator, &.{ home, ".zm", "current", "zig" });
+
+    std.fs.accessAbsolute(current_zig_path, .{}) catch |err| {
+        if (err == std.fs.Dir.AccessError.FileNotFound) {
+            std.debug.print("Zig has not been installed yet, please install zig with zvm!\n", .{});
+            std.process.exit(1);
+        }
+        return err;
+    };
+
+    new_params[0] = current_zig_path;
+    return std.process.execv(allocator, new_params);
 }
 
 fn handle_list() !void {
