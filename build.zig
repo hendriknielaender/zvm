@@ -28,6 +28,7 @@ comptime {
 pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
     // Add a global option for versioning
     const options = b.addOptions();
     options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
@@ -45,6 +46,16 @@ pub fn build(b: *Build) void {
     exe.root_module.addImport("options", exe_options_module);
 
     b.installArtifact(exe);
+
+    // add run step
+    const run_exe = b.addRunArtifact(exe);
+    run_exe.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args|
+        run_exe.addArgs(args);
+
+    const run_step = b.step("run", "Run the application");
+    run_step.dependOn(&run_exe.step);
 
     const release = b.step("release", "make an upstream binary release");
     const release_targets = [_]std.Target.Query{

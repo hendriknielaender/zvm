@@ -11,7 +11,7 @@ pub fn set_zig_version(version: []const u8) !void {
 
     const user_home = tools.get_home();
     const zig_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "versions", version });
-    const symlink_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "current" });
+    const symlink_path = try tools.get_zvm_path_segment(arena_allocator, "current");
 
     try update_symlink(zig_path, symlink_path);
     try verify_zig_version(allocator, version);
@@ -121,8 +121,7 @@ fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8
 }
 
 fn retrieve_zig_version(allocator: std.mem.Allocator) ![]u8 {
-    const user_home = tools.get_home();
-    const symlink_path = try std.fs.path.join(allocator, &[_][]const u8{ user_home, ".zm", "current" });
+    const symlink_path = try tools.get_zvm_path_segment(allocator, "current");
     defer allocator.free(symlink_path);
 
     var child_process = std.process.Child.init(&[_][]const u8{ "zig", "version" }, allocator);
