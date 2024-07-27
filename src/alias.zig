@@ -106,12 +106,12 @@ fn does_file_exist(path: []const u8) bool {
     return result;
 }
 
+/// verify current zig version
 fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8) !void {
     const actual_version = try retrieve_zig_version(allocator);
     defer allocator.free(actual_version);
 
     assert(actual_version.len > 0);
-    assert(std.mem.eql(u8, expected_version, actual_version));
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
         std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
@@ -120,11 +120,13 @@ fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8
     }
 }
 
+/// try to get zig version
 fn retrieve_zig_version(allocator: std.mem.Allocator) ![]u8 {
-    const symlink_path = try tools.get_zvm_path_segment(allocator, "current");
-    defer allocator.free(symlink_path);
+    const home_dir = tools.get_home();
+    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", tools.zig_name });
+    defer allocator.free(current_zig_path);
 
-    var child_process = std.process.Child.init(&[_][]const u8{ "zig", "version" }, allocator);
+    var child_process = std.process.Child.init(&[_][]const u8{ current_zig_path, "version" }, allocator);
 
     child_process.stdin_behavior = .Close;
     child_process.stdout_behavior = .Pipe;

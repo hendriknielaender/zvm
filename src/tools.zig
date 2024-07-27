@@ -6,6 +6,13 @@ var home_dir: []const u8 = undefined;
 
 pub const log = std.log.scoped(.zvm);
 
+pub const zig_name = switch (builtin.os.tag) {
+    .windows => "zig.exe",
+    .linux => "zig",
+    .macos => "zig",
+    else => @compileError("not support current platform"),
+};
+
 /// Initialize the data.
 pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
     allocator = tmp_allocator;
