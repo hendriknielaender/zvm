@@ -80,26 +80,26 @@ fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
     }
 }
 
+/// detect the dir whether exist
 fn does_dir_exist(path: []const u8) bool {
     const result = blk: {
-        _ = std.fs.openDirAbsolute(path, .{}) catch |err| {
-            switch (err) {
-                error.FileNotFound => break :blk false,
-                else => break :blk true,
-            }
+        std.fs.accessAbsolute(path, .{}) catch |err| {
+            if (err == error.FileNotFound)
+                break :blk false;
+            break :blk true;
         };
         break :blk true;
     };
     return result;
 }
 
+/// detect the dir whether exist
 fn does_file_exist(path: []const u8) bool {
     const result = blk: {
-        _ = std.fs.cwd().openFile(path, .{}) catch |err| {
-            switch (err) {
-                error.FileNotFound => break :blk false,
-                else => break :blk true,
-            }
+        std.fs.accessAbsolute(path, .{}) catch |err| {
+            if (err == error.FileNotFound)
+                break :blk false;
+            break :blk true;
         };
         break :blk true;
     };
