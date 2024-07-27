@@ -107,16 +107,19 @@ fn download_and_extract(
     var zvm_dir = try open_or_create_zvm_dir();
     defer zvm_dir.close();
 
-    const platform = try architecture.detect(allocator, architecture.DetectParams{ .os = builtin.os.tag, .arch = builtin.cpu.arch, .reverse = false }) orelse unreachable;
-    defer allocator.free(platform);
+    const platform_str = try architecture.platform_str(architecture.DetectParams{
+        .os = builtin.os.tag,
+        .arch = builtin.cpu.arch,
+        .reverse = false,
+    }) orelse unreachable;
 
-    const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform, "-", version, ".", archive_ext });
+    const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform_str, "-", version, ".", archive_ext });
     defer allocator.free(file_name);
 
     const total_size: usize = @intCast(req.response.content_length orelse 0);
     var downloaded_bytes: usize = 0;
 
-    const download_message = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform });
+    const download_message = try std.fmt.allocPrint(allocator, "Downloading Zig version {s} for platform {s}...", .{ version, platform_str });
     defer allocator.free(download_message);
     var download_node = root_node.start(download_message, total_size);
 

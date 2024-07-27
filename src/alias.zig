@@ -3,46 +3,43 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tools = @import("tools.zig");
 
+/// try to set zig version
+/// this will use system link on unix-like
+/// for windows, this will use copy dir
 pub fn set_zig_version(version: []const u8) !void {
-    const allocator = tools.get_allocator();
-    var arena = std.heap.ArenaAllocator.init(allocator);
+    var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
     const user_home = tools.get_home();
-    const zig_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "versions", version });
+    const version_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "versions", version });
     const symlink_path = try tools.get_zvm_path_segment(arena_allocator, "current");
 
-    try update_symlink(zig_path, symlink_path);
-    try verify_zig_version(allocator, version);
+    try update_current(version_path, symlink_path);
+    try verify_zig_version(version);
 }
 
-fn update_symlink(zig_path: []const u8, symlink_path: []const u8) !void {
+fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     assert(zig_path.len > 0);
     assert(symlink_path.len > 0);
 
     if (builtin.os.tag == .windows) {
-        if (std.fs.path.dirname(symlink_path)) |dirname| {
-            var parent_dir = try std.fs.openDirAbsolute(dirname, .{ .iterate = true });
-            defer parent_dir.close();
-            try parent_dir.deleteTree(std.fs.path.basename(symlink_path));
-        } else {
-            @panic("dirname is not available!");
-        }
-        if (does_dir_exist(symlink_path)) try std.fs.deleteDirAbsolute(symlink_path);
+        if (does_dir_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
         try copy_dir(zig_path, symlink_path);
-    } else {
-        if (does_file_exist(symlink_path)) try std.fs.cwd().deleteFile(symlink_path);
-        std.posix.symlink(zig_path, symlink_path) catch |err| switch (err) {
-            error.PathAlreadyExists => {
-                try std.fs.cwd().deleteFile(symlink_path);
-                try std.posix.symlink(zig_path, symlink_path);
-            },
-            else => return err,
-        };
+        return;
     }
+
+    // when platform is not windows, this is execute here
+
+    // when file exist(it is a systemlink), delete it
+    if (does_file_exist(symlink_path)) try std.fs.cwd().deleteFile(symlink_path);
+
+    // system link it
+    try std.posix.symlink(zig_path, symlink_path);
 }
 
+/// Nested copy dir
+/// only copy dir and file, no including link
 fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
     assert(source_dir.len > 0);
     assert(dest_dir.len > 0);
@@ -80,38 +77,40 @@ fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
     }
 }
 
+/// detect the dir whether exist
 fn does_dir_exist(path: []const u8) bool {
     const result = blk: {
-        _ = std.fs.openDirAbsolute(path, .{}) catch |err| {
-            switch (err) {
-                error.FileNotFound => break :blk false,
-                else => break :blk true,
-            }
+        std.fs.accessAbsolute(path, .{}) catch |err| {
+            if (err == error.FileNotFound)
+                break :blk false;
+            break :blk true;
         };
         break :blk true;
     };
     return result;
 }
 
+/// detect the dir whether exist
 fn does_file_exist(path: []const u8) bool {
     const result = blk: {
-        _ = std.fs.cwd().openFile(path, .{}) catch |err| {
-            switch (err) {
-                error.FileNotFound => break :blk false,
-                else => break :blk true,
-            }
+        std.fs.accessAbsolute(path, .{}) catch |err| {
+            if (err == error.FileNotFound)
+                break :blk false;
+            break :blk true;
         };
         break :blk true;
     };
     return result;
 }
 
-fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8) !void {
+/// verify current zig version
+fn verify_zig_version(expected_version: []const u8) !void {
+    const allocator = tools.get_allocator();
+
     const actual_version = try retrieve_zig_version(allocator);
     defer allocator.free(actual_version);
 
     assert(actual_version.len > 0);
-    assert(std.mem.eql(u8, expected_version, actual_version));
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
         std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
@@ -120,11 +119,15 @@ fn verify_zig_version(allocator: std.mem.Allocator, expected_version: []const u8
     }
 }
 
+/// try to get zig version
 fn retrieve_zig_version(allocator: std.mem.Allocator) ![]u8 {
-    const symlink_path = try tools.get_zvm_path_segment(allocator, "current");
-    defer allocator.free(symlink_path);
+    const home_dir = tools.get_home();
+    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", tools.zig_name });
+    defer allocator.free(current_zig_path);
 
-    var child_process = std.process.Child.init(&[_][]const u8{ "zig", "version" }, allocator);
+    // here we must use the absolute path, we can not just use "zig"
+    // because child process will use environment variable
+    var child_process = std.process.Child.init(&[_][]const u8{ current_zig_path, "version" }, allocator);
 
     child_process.stdin_behavior = .Close;
     child_process.stdout_behavior = .Pipe;
