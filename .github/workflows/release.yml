@@ -36,7 +36,9 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: zvm-artifacts
-          path: artifacts/*
+          path: |
+            artifacts/*.zip
+            artifacts/*.tar.gz
 
   # This job will need to be modified to handle multiple artifacts
   create-release:
