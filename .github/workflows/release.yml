@@ -25,7 +25,7 @@ jobs:
           mkdir -p artifacts
           for binary in zig-out/*; do
             filename=$(basename "$binary")
-            if [[ "$filename" == *windows* ]]; then
+            if [[ "$filename" == *"windows"* ]]; then
               zip -j artifacts/"${filename}.zip" "$binary"
             else
               tar -czvf artifacts/"${filename}.tar.gz" -C zig-out "$filename"
