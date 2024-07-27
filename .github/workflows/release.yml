@@ -63,7 +63,7 @@ jobs:
       - name: Create and Upload Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.tar.gz"
+          artifacts: "artifacts/*.tar.gz,artifacts/*.zip"
           artifactErrorsFailBuild: true
           generateReleaseNotes: true
           tag: ${{ github.ref }}
