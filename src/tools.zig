@@ -31,6 +31,7 @@ pub fn get_allocator() std.mem.Allocator {
     return allocator;
 }
 
+/// get zvm path segment
 pub fn get_zvm_path_segment(tmp_allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
     return std.fs.path.join(
         tmp_allocator,
