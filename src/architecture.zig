@@ -35,10 +35,10 @@ fn archToString(arch: std.Target.Cpu.Arch) ?[]const u8 {
 ///
 /// for performance, we treat this function as comptime-func
 pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
-    const os_str = comptime osToString(params.os) orelse
+    const os_str = (comptime osToString(params.os)) orelse
         return error.UnsupportedSystem;
 
-    const arch_str = comptime archToString(params.arch) orelse
+    const arch_str = (comptime archToString(params.arch)) orelse
         return error.UnsupportedSystem;
 
     if (params.reverse)
