@@ -40,7 +40,7 @@ const command_opts = [_]CommandOption{
 };
 
 /// parse command and handle commands
-pub fn handleCommand(params: []const []const u8) !void {
+pub fn handle_command(params: []const []const u8) !void {
     if (builtin.os.tag != .windows) {
         if (std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
             try handleAlias(params);
