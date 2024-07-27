@@ -27,50 +27,36 @@ fn archToString(arch: std.Target.Cpu.Arch) ?[]const u8 {
     };
 }
 
-pub fn detect(allocator: std.mem.Allocator, params: DetectParams) !?[]u8 {
-    const os_str = osToString(params.os) orelse return error.UnsupportedSystem;
-    const arch_str = archToString(params.arch) orelse return error.UnsupportedSystem;
+/// get platform str
+///
+/// in offical zig json
+/// use "arch-platform" as key
+/// use "platform-arch" as file name
+///
+/// for performance, we treat this function as comptime-func
+pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
+    const os_str = comptime osToString(params.os) orelse
+        return error.UnsupportedSystem;
 
-    const len = os_str.len + arch_str.len + 1; // +1 for the '-'
-    const result = try allocator.alloc(u8, len);
+    const arch_str = comptime archToString(params.arch) orelse
+        return error.UnsupportedSystem;
 
-    if (params.reverse) {
-        @memcpy(result[0..arch_str.len], arch_str);
-        result[arch_str.len] = '-';
-        @memcpy(result[arch_str.len + 1 ..], os_str);
-    } else {
-        @memcpy(result[0..os_str.len], os_str);
-        result[os_str.len] = '-';
-        @memcpy(result[os_str.len + 1 ..], arch_str);
-    }
+    if (params.reverse)
+        return arch_str ++ "-" ++ os_str;
 
-    return result;
+    return os_str ++ "-" ++ arch_str;
 }
 
 test "detect() Test" {
-    const allocator = std.testing.allocator;
+    const result_1 = try platform_str(DetectParams{ .os = std.Target.Os.Tag.linux, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
+    try std.testing.expectEqualStrings("linux-x86_64", result_1);
 
-    {
-        const result = try detect(allocator, DetectParams{ .os = std.Target.Os.Tag.linux, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
-        defer allocator.free(result);
-        try std.testing.expectEqualStrings("linux-x86_64", result);
-    }
+    const result_2 = try platform_str(DetectParams{ .os = std.Target.Os.Tag.linux, .arch = std.Target.Cpu.Arch.aarch64, .reverse = true }) orelse unreachable;
+    try std.testing.expectEqualStrings("aarch64-linux", result_2);
 
-    {
-        const result = try detect(allocator, DetectParams{ .os = std.Target.Os.Tag.linux, .arch = std.Target.Cpu.Arch.aarch64, .reverse = true }) orelse unreachable;
-        defer allocator.free(result);
-        try std.testing.expectEqualStrings("aarch64-linux", result);
-    }
+    const result_3 = try platform_str(DetectParams{ .os = std.Target.Os.Tag.macos, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
+    try std.testing.expectEqualStrings("macos-x86_64", result_3);
 
-    {
-        const result = try detect(allocator, DetectParams{ .os = std.Target.Os.Tag.macos, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
-        defer allocator.free(result);
-        try std.testing.expectEqualStrings("macos-x86_64", result);
-    }
-
-    {
-        const result = try detect(allocator, DetectParams{ .os = std.Target.Os.Tag.windows, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
-        defer allocator.free(result);
-        try std.testing.expectEqualStrings("windows-x86_64", result);
-    }
+    const result_4 = try platform_str(DetectParams{ .os = std.Target.Os.Tag.windows, .arch = std.Target.Cpu.Arch.x86_64 }) orelse unreachable;
+    try std.testing.expectEqualStrings("windows-x86_64", result_4);
 }

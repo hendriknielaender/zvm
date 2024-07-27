@@ -97,17 +97,17 @@ fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_k
 }
 
 pub fn from_version(version: []const u8) !void {
-    var allocator = tools.get_allocator();
+    const allocator = tools.get_allocator();
 
-    const platform_str = try architecture.detect(allocator, architecture.DetectParams{
+    const platform_str = try architecture.platform_str(architecture.DetectParams{
         .os = builtin.os.tag,
         .arch = builtin.cpu.arch,
         .reverse = true,
     }) orelse unreachable;
-    defer allocator.free(platform_str);
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
+
     const version_data = try fetch_version_data(arena.allocator(), version, platform_str);
     if (version_data) |data| {
         std.debug.print("Install {s}\n", .{data.name});
