@@ -26,7 +26,9 @@ jobs:
           for binary in zig-out/*; do
             filename=$(basename "$binary")
             if [[ "$filename" == *"windows"* ]]; then
-              zip -j artifacts/"${filename}.zip" "$binary"
+              # Remove .exe from the filename before creating the ZIP file
+              zip_name="${filename%.exe}"
+              zip -j artifacts/"${zip_name}.zip" "$binary"
             else
               tar -czvf artifacts/"${filename}.tar.gz" -C zig-out "$filename"
             fi
