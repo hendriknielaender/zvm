@@ -2,7 +2,14 @@
 const std = @import("std");
 const config = @import("config.zig");
 
-const uri = std.Uri.parse(config.download_mainfest_url) catch unreachable;
+const zig_url = std.Uri.parse(config.zig_mainfest_url) catch unreachable;
+const zls_url = std.Uri.parse(config.zls_mainfest_url) catch unreachable;
+
+/// for which use
+pub const which = enum {
+    zig,
+    zls,
+};
 
 pub const VersionList = struct {
     // this type will store
@@ -13,7 +20,7 @@ pub const VersionList = struct {
     allocator: std.mem.Allocator,
 
     /// init the VersionList
-    pub fn init(allocator: std.mem.Allocator) !VersionList {
+    pub fn init(allocator: std.mem.Allocator, use: which) !VersionList {
         // create a http client
         var client = std.http.Client{ .allocator = allocator };
         defer client.deinit();
@@ -22,7 +29,11 @@ pub const VersionList = struct {
         var buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
 
         // try open a request
-        var req = try client.open(.GET, uri, .{ .server_header_buffer = &buffer });
+        var req = try client.open(
+            .GET,
+            if (use == .zig) zig_url else zls_url,
+            .{ .server_header_buffer = &buffer },
+        );
         defer req.deinit();
 
         // send request and wait response
@@ -42,7 +53,27 @@ pub const VersionList = struct {
 
         var lists = std.ArrayList([]const u8).init(allocator);
 
-        var iterate = root.object.iterator();
+        if (use == .zig) {
+            var iterate = root.object.iterator();
+            while (iterate.next()) |entry| {
+                const key_ptr = entry.key_ptr;
+                const key = key_ptr.*;
+
+                const key_copy = try allocator.dupe(u8, key);
+                try lists.append(key_copy);
+            }
+
+            return VersionList{
+                .lists = lists,
+                .allocator = allocator,
+            };
+        }
+
+        // for zls
+
+        var zls_versions = root.object.get("versions") orelse return error.NotFoundZlsVersion;
+
+        var iterate = zls_versions.object.iterator();
         while (iterate.next()) |entry| {
             const key_ptr = entry.key_ptr;
             const key = key_ptr.*;
@@ -50,6 +81,8 @@ pub const VersionList = struct {
             const key_copy = try allocator.dupe(u8, key);
             try lists.append(key_copy);
         }
+
+        std.mem.reverse([]const u8, lists.items);
 
         return VersionList{
             .lists = lists,

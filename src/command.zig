@@ -114,7 +114,7 @@ fn handle_alias(params: []const []const u8) !void {
 
 fn handle_list() !void {
     const allocator = tools.get_allocator();
-    var version_list = try versions.VersionList.init(allocator);
+    var version_list = try versions.VersionList.init(allocator, .zig);
     defer version_list.deinit();
 
     for (version_list.slice()) |version| {

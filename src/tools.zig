@@ -13,6 +13,8 @@ pub const zig_name = switch (builtin.os.tag) {
     else => @compileError("not support current platform"),
 };
 
+pub const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
+
 /// Initialize the data.
 pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
     allocator = tmp_allocator;

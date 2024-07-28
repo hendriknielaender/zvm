@@ -8,8 +8,6 @@ const alias = @import("alias.zig");
 const hash = @import("hash.zig");
 const lib = @import("extract.zig");
 
-const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
-
 pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u8) !?[32]u8 {
     assert(version.len > 0);
     assert(url.len > 0);
@@ -113,7 +111,7 @@ fn download_and_extract(
         .reverse = false,
     }) orelse unreachable;
 
-    const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform_str, "-", version, ".", archive_ext });
+    const file_name = try std.mem.concat(allocator, u8, &[_][]const u8{ "zig-", platform_str, "-", version, ".", tools.archive_ext });
     defer allocator.free(file_name);
 
     const total_size: usize = @intCast(req.response.content_length orelse 0);
