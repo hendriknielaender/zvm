@@ -30,7 +30,7 @@ const Error = error{
 };
 
 fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
-    const uri = std.Uri.parse(config.download_manifest_url) catch unreachable;
+    const uri = std.Uri.parse(config.download_mainfest_url) catch unreachable;
 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();

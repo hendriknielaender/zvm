@@ -2,7 +2,7 @@
 const std = @import("std");
 const config = @import("config.zig");
 
-const uri = std.Uri.parse(config.download_manifest_url) catch unreachable;
+const uri = std.Uri.parse(config.download_mainfest_url) catch unreachable;
 
 pub const VersionList = struct {
     // this type will store
