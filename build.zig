@@ -5,7 +5,7 @@ const Build = std.Build;
 
 const min_zig_string = "0.13.0";
 // Semantic version of your application
-const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 5 };
+const version = std.SemanticVersion{ .major = 0, .minor = 4, .patch = 6 };
 
 const CrossTargetInfo = struct {
     crossTarget: std.zig.CrossTarget,
@@ -83,11 +83,11 @@ pub fn build(b: *Build) void {
         const rel_exe_options_module = options.createModule();
         rel_exe.root_module.addImport("options", rel_exe_options_module);
 
+        const file_name_ext = if (t.os.tag == .windows) ".exe" else "";
+
         const install = b.addInstallArtifact(rel_exe, .{});
         install.dest_dir = .prefix;
-        install.dest_sub_path = b.fmt("{s}-{s}-{s}", .{
-            @tagName(t.cpu.arch), @tagName(t.os.tag), rel_exe.name,
-        });
+        install.dest_sub_path = b.fmt("{s}-{s}-{s}{s}", .{ @tagName(t.cpu.arch), @tagName(t.os.tag), rel_exe.name, file_name_ext });
 
         release.dependOn(&install.step);
     }
