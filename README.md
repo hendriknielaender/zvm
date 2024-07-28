@@ -24,6 +24,20 @@ brew tap hendriknielaender/zvm
 brew install zvm
 ```
 
+### Windows
+
+#### PowerShell
+
+```ps1
+irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
+```
+
+#### Command Prompt
+
+```cmd
+powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex"
+```
+
 Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
 
 ```bash
