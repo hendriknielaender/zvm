@@ -24,6 +24,12 @@ brew tap hendriknielaender/zvm
 brew install zvm
 ```
 
+Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
+
+```bash
+export PATH="$HOME/.zm/current:$PATH"
+```
+
 ### Windows
 
 #### PowerShell
@@ -36,12 +42,6 @@ irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 |
 
 ```cmd
 powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex"
-```
-
-Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
-
-```bash
-export PATH="$HOME/.zm/current:$PATH"
 ```
 
 ## Usage
