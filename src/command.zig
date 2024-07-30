@@ -43,7 +43,7 @@ const command_opts = [_]CommandOption{
 pub fn handle_command(params: []const []const u8) !void {
     if (builtin.os.tag != .windows) {
         if (std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
-            try handleAlias(params);
+            try handle_alias(params);
     }
 
     // get command data, get the first command and its arg
@@ -89,7 +89,7 @@ pub fn handle_command(params: []const []const u8) !void {
     }
 }
 
-fn handleAlias(params: []const []const u8) !void {
+fn handle_alias(params: []const []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
     defer arena.deinit();
 
