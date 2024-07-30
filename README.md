@@ -30,6 +30,20 @@ Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
 export PATH="$HOME/.zm/current:$PATH"
 ```
 
+### Windows
+
+#### PowerShell
+
+```ps1
+irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
+```
+
+#### Command Prompt
+
+```cmd
+powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex"
+```
+
 ## Usage
 ```bash
 zvm list                # List all available Zig versions
