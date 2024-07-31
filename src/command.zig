@@ -53,28 +53,41 @@ pub fn handle_command(params: []const []const u8) !void {
 
         const args = params[1..];
 
-        for (args, 0..) |arg, index| {
-            for (command_opts) |opt| {
-                const is_eql_short_handle = if (opt.short_handle) |short_handle|
-                    std.mem.eql(u8, arg, short_handle)
-                else
-                    false;
+        // for (args, 0..) |arg, index| {
+        const arg = args[0];
+        for (command_opts) |opt| {
+            const is_eql_short_handle = if (opt.short_handle) |short_handle|
+                std.mem.eql(u8, arg, short_handle)
+            else
+                false;
 
-                const is_eql_handle = std.mem.eql(u8, arg, opt.handle);
+            const is_eql_handle = std.mem.eql(u8, arg, opt.handle);
 
-                if (!is_eql_short_handle and !is_eql_handle)
-                    continue;
+            if (!is_eql_short_handle and !is_eql_handle)
+                continue;
 
-                const next_param = if (index + 1 < args.len) args[index + 1] else null;
-                const is_version = if (next_param) |np| std.ascii.isDigit(np[0]) else false;
+            const subcmd = if (args.len > 2) args[1] else null;
+            const param = kk: {
+                if (subcmd != null) {
+                    break :kk args[2];
+                }
 
-                break :blk CommandData{
-                    .cmd = opt.cmd,
-                    .param = if (is_version) next_param else null,
-                    .subcmd = if (!is_version) next_param else null,
-                };
-            }
+                if (args.len > 1)
+                    break :kk args[1];
+
+                break :kk null;
+            };
+
+            // const next_param = if (index + 1 < args.len) args[index + 1] else null;
+            // const is_version = if (next_param) |np| std.ascii.isDigit(np[0]) else false;
+
+            break :blk CommandData{
+                .cmd = opt.cmd,
+                .subcmd = subcmd,
+                .param = param,
+            };
         }
+        // }
         break :blk CommandData{};
     };
 
