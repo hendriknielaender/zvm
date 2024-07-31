@@ -7,7 +7,7 @@ const install = @import("install.zig");
 const alias = @import("alias.zig");
 const tools = @import("tools.zig");
 
-// command species
+// Command types
 pub const Command = enum {
     List,
     Install,
@@ -20,6 +20,7 @@ pub const Command = enum {
 
 const CommandData = struct {
     cmd: Command = .Unknown,
+    subcmd: ?[]const u8 = null,
     param: ?[]const u8 = null,
 };
 
@@ -27,9 +28,10 @@ const CommandOption = struct {
     short_handle: ?[]const u8,
     handle: []const u8,
     cmd: Command,
+    subcmd: ?[]const u8 = null,
 };
 
-/// now all available commands
+// Available commands
 const command_opts = [_]CommandOption{
     .{ .short_handle = "ls", .handle = "list", .cmd = Command.List },
     .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
@@ -39,39 +41,37 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
 };
 
-/// parse command and handle commands
+/// Parse and handle commands
 pub fn handle_command(params: []const []const u8) !void {
     if (builtin.os.tag != .windows) {
         if (std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
             try handle_alias(params);
     }
 
-    // get command data, get the first command and its arg
     const command: CommandData = blk: {
-        // when args len is less than 2, that mean no extra args!
         if (params.len < 2) break :blk CommandData{};
 
         const args = params[1..];
 
         for (args, 0..) |arg, index| {
             for (command_opts) |opt| {
-
-                // whether eql short handle
-                const is_eql_short_handle =
-                    if (opt.short_handle) |short_handle|
+                const is_eql_short_handle = if (opt.short_handle) |short_handle|
                     std.mem.eql(u8, arg, short_handle)
                 else
                     false;
 
-                // whether eql handle
                 const is_eql_handle = std.mem.eql(u8, arg, opt.handle);
 
                 if (!is_eql_short_handle and !is_eql_handle)
                     continue;
 
+                const next_param = if (index + 1 < args.len) args[index + 1] else null;
+                const is_version = if (next_param) |np| std.ascii.isDigit(np[0]) else false;
+
                 break :blk CommandData{
                     .cmd = opt.cmd,
-                    .param = if (index + 1 < args.len) args[index + 1] else null,
+                    .param = if (is_version) next_param else null,
+                    .subcmd = if (!is_version) next_param else null,
                 };
             }
         }
@@ -80,7 +80,7 @@ pub fn handle_command(params: []const []const u8) !void {
 
     switch (command.cmd) {
         .List => try handle_list(),
-        .Install => try install_version(command.param),
+        .Install => try install_version(command.subcmd, command.param),
         .Use => try use_version(command.param),
         .Default => try set_default(),
         .Version => try get_version(),
@@ -122,8 +122,21 @@ fn handle_list() !void {
     }
 }
 
-fn install_version(params: ?[]const u8) !void {
-    if (params) |version| {
+fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+    if (subcmd) |scmd| {
+        if (std.mem.eql(u8, scmd, "zig")) {
+            if (param) |version| {
+                try install.from_version(version);
+            } else {
+                std.debug.print("Please specify a version to install using 'install zig <version>'.\n", .{});
+            }
+        } else if (std.mem.eql(u8, scmd, "zls")) {
+            // Handle ZLS installation if supported
+            std.debug.print("[Unsupported] install zls\n", .{});
+        } else {
+            std.debug.print("Unknown subcommand '{s}'. Use 'install zig <version>' or 'install zls <version>'.\n", .{scmd});
+        }
+    } else if (param) |version| {
         try install.from_version(version);
     } else {
         std.debug.print("Error: Please specify a version to install using 'install <version>'.\n", .{});
