@@ -2,8 +2,8 @@
 const std = @import("std");
 const config = @import("config.zig");
 
-const zig_url = std.Uri.parse(config.zig_mainfest_url) catch unreachable;
-const zls_url = std.Uri.parse(config.zls_mainfest_url) catch unreachable;
+const zig_url = config.zig_url;
+const zls_url = config.zls_url;
 
 /// for which use
 pub const which = enum {

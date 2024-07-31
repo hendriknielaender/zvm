@@ -30,7 +30,7 @@ const Error = error{
 };
 
 fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
-    const uri = std.Uri.parse(config.zig_mainfest_url) catch unreachable;
+    const uri = config.zig_url;
 
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -96,6 +96,7 @@ fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_k
     return null;
 }
 
+/// Try to install the specified version of zig
 pub fn from_version(version: []const u8) !void {
     const allocator = tools.get_allocator();
 

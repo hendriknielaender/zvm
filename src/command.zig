@@ -92,7 +92,7 @@ pub fn handle_command(params: []const []const u8) !void {
     };
 
     switch (command.cmd) {
-        .List => try handle_list(),
+        .List => try handle_list(command.param),
         .Install => try install_version(command.subcmd, command.param),
         .Use => try use_version(command.param),
         .Default => try set_default(),
@@ -125,7 +125,8 @@ fn handle_alias(params: []const []const u8) !void {
     return std.process.execv(allocator, new_params);
 }
 
-fn handle_list() !void {
+fn handle_list(_: ?[]const u8) !void {
+    // TODO:
     const allocator = tools.get_allocator();
     var version_list = try versions.VersionList.init(allocator, .zig);
     defer version_list.deinit();
