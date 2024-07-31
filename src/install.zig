@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");
-const hash = @import("hash.zig");
 const download = @import("download.zig");
 const architecture = @import("architecture.zig");
 const tools = @import("tools.zig");
@@ -116,7 +115,7 @@ pub fn from_version(version: []const u8) !void {
         if (data.shasum) |actual_shasum| {
             const computed_hash = try download.content(allocator, data.name, data.tarball.?);
             if (computed_hash) |shasum| {
-                if (!hash.verify_hash(shasum, actual_shasum)) {
+                if (!tools.verify_hash(shasum, actual_shasum)) {
                     return error.HashMismatch;
                 }
             }
