@@ -79,9 +79,6 @@ pub fn handle_command(params: []const []const u8) !void {
                 break :kk null;
             };
 
-            // const next_param = if (index + 1 < args.len) args[index + 1] else null;
-            // const is_version = if (next_param) |np| std.ascii.isDigit(np[0]) else false;
-
             break :blk CommandData{
                 .cmd = opt.cmd,
                 .subcmd = subcmd,
