@@ -47,8 +47,8 @@ pub fn free_str_array(str_arr: []const []const u8, allocator: std.mem.Allocator)
 }
 
 /// For verifying hash
-pub fn verify_hash(computed_hash: [32]u8, actual_hash_string: []const u8) bool {
-    if (actual_hash_string.len != 64) return false; // SHA256 hash should be 64 hex characters
+pub fn verify_hash(computed_hash: [32]u8, actual_hash_string: [64]u8) bool {
+    // if (actual_hash_string.len != 64) return false; // SHA256 hash should be 64 hex characters
 
     var actual_hash_bytes: [32]u8 = undefined;
     var i: usize = 0;
