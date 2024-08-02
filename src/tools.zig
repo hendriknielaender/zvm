@@ -1,27 +1,15 @@
+//! this file just contains util function
 const std = @import("std");
 const builtin = @import("builtin");
+const config = @import("config.zig");
 
 const testing = std.testing;
 
-var allocator: std.mem.Allocator = undefined;
-var home_dir: []const u8 = undefined;
-
-pub const log = std.log.scoped(.zvm);
-
-pub const zig_name = switch (builtin.os.tag) {
-    .windows => "zig.exe",
-    .linux => "zig",
-    .macos => "zig",
-    else => @compileError("not support current platform"),
-};
-
-pub const archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
-
 /// Initialize the data.
 pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
-    allocator = tmp_allocator;
-    home_dir = if (builtin.os.tag == .windows)
-        try std.process.getEnvVarOwned(allocator, "USERPROFILE")
+    config.allocator = tmp_allocator;
+    config.home_dir = if (builtin.os.tag == .windows)
+        try std.process.getEnvVarOwned(config.allocator, "USERPROFILE")
     else
         std.posix.getenv("HOME") orelse ".";
 }
@@ -29,20 +17,20 @@ pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
 /// Deinitialize the data.
 pub fn data_deinit() void {
     if (builtin.os.tag == .windows)
-        allocator.free(home_dir);
+        config.allocator.free(config.home_dir);
 }
 
 /// Get home directory.
 pub fn get_home() []const u8 {
-    return home_dir;
+    return config.home_dir;
 }
 
 /// Get the allocator.
 pub fn get_allocator() std.mem.Allocator {
-    return allocator;
+    return config.allocator;
 }
 
-/// get zvm path segment
+/// Get zvm path segment
 pub fn get_zvm_path_segment(tmp_allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
     return std.fs.path.join(
         tmp_allocator,
@@ -50,7 +38,15 @@ pub fn get_zvm_path_segment(tmp_allocator: std.mem.Allocator, segment: []const u
     );
 }
 
-/// for verify hash
+/// Free str array
+pub fn free_str_array(str_arr: []const []const u8, allocator: std.mem.Allocator) void {
+    for (str_arr) |str|
+        allocator.free(str);
+
+    allocator.free(str_arr);
+}
+
+/// For verifying hash
 pub fn verify_hash(computed_hash: [32]u8, actual_hash_string: []const u8) bool {
     if (actual_hash_string.len != 64) return false; // SHA256 hash should be 64 hex characters
 
@@ -85,4 +81,35 @@ test "verify_hash basic test" {
 
     try testing.expect(verify_hash(sample_hash, &sample_hash_hex));
     try testing.expect(!verify_hash(sample_hash, "incorrect_hash"));
+}
+
+/// http get
+pub fn http_get(allocator: std.mem.Allocator, uri: std.Uri) ![]const u8 {
+
+    // create a http client
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    // we ceate a buffer to store the http response
+    var buf: [1024]u8 = undefined; // 256 * 1024 = 262kb
+
+    // try open a request
+    var req = try client.open(.GET, uri, .{ .server_header_buffer = &buf });
+    defer req.deinit();
+
+    // send request and wait response
+    try req.send();
+    try req.wait();
+
+    if (req.response.status != .ok) {
+        return error.ListResponseNotOk;
+    }
+
+    const res = try req.reader().readAllAlloc(allocator, 256 * 1024);
+    return res;
+}
+
+/// eql str
+pub fn eql_str(str1: []const u8, str2: []const u8) bool {
+    return std.mem.eql(u8, str1, str2);
 }

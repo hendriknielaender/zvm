@@ -2,10 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("options");
 
-const versions = @import("versions.zig");
 const install = @import("install.zig");
 const alias = @import("alias.zig");
 const tools = @import("tools.zig");
+const meta = @import("meta.zig");
+const config = @import("config.zig");
 
 // Command types
 pub const Command = enum {
@@ -125,13 +126,43 @@ fn handle_alias(params: []const []const u8) !void {
     return std.process.execv(allocator, new_params);
 }
 
-fn handle_list(_: ?[]const u8) !void {
-    // TODO:
+fn handle_list(param: ?[]const u8) !void {
     const allocator = tools.get_allocator();
-    var version_list = try versions.VersionList.init(allocator, .zig);
-    defer version_list.deinit();
 
-    for (version_list.slice()) |version| {
+    const version_list: [][]const u8 = blk: {
+        if (param) |p| {
+            // when zls
+            if (tools.eql_str(p, "zls")) {
+                const res = try tools.http_get(allocator, config.zls_url);
+                defer allocator.free(res);
+
+                var zls_meta = try meta.Zls.init(res, allocator);
+                defer zls_meta.deinit();
+
+                const version_list = try zls_meta.get_version_list(allocator);
+                break :blk version_list;
+            } else
+            // when not zig
+            if (!tools.eql_str(p, "zig")) {
+                std.debug.print("Error param, you can specify zig or zls\n", .{});
+                return;
+            }
+        }
+
+        // when param is null
+        const res = try tools.http_get(allocator, config.zig_url);
+        defer allocator.free(res);
+
+        var zig_meta = try meta.Zig.init(res, allocator);
+        defer zig_meta.deinit();
+
+        const version_list = try zig_meta.get_version_list(allocator);
+        break :blk version_list;
+    };
+
+    defer tools.free_str_array(version_list, allocator);
+
+    for (version_list) |version| {
         std.debug.print("{s}\n", .{version});
     }
 }

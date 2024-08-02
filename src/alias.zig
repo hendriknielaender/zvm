@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const tools = @import("tools.zig");
+const config = @import("config.zig");
 
 /// try to set zig version
 /// this will use system link on unix-like
@@ -122,7 +123,7 @@ fn verify_zig_version(expected_version: []const u8) !void {
 /// try to get zig version
 fn retrieve_zig_version(allocator: std.mem.Allocator) ![]u8 {
     const home_dir = tools.get_home();
-    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", tools.zig_name });
+    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", config.zig_name });
     defer allocator.free(current_zig_path);
 
     // here we must use the absolute path, we can not just use "zig"

@@ -76,5 +76,6 @@ pub const Zls = struct {
         const slice = try list.toOwnedSlice();
 
         std.mem.reverse([]const u8, slice);
+        return slice;
     }
 };
