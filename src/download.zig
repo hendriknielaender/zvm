@@ -10,12 +10,48 @@ pub fn download(
     uri: std.Uri,
     file_name: []const u8,
     shasum: ?[64]u8,
+    size: ?usize,
 ) !std.fs.File {
+
     // whether verify hashsum
     const if_hash = shasum != null;
 
     // allocator
     const allocator = tools.get_allocator();
+
+    // this file store the downloaded src
+    const zvm_path = try tools.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(zvm_path);
+
+    var store = try std.fs.cwd().makeOpenPath(zvm_path, .{});
+    defer store.close();
+
+    // if file exist
+    // and provide shasum
+    // then calculate hash and verify, return the file if eql
+    // otherwise delete this file
+    if (tools.does_path_exist2(store, file_name)) {
+        if (if_hash) {
+            var sha256 = sha2.Sha256.init(.{});
+            const file = try store.openFile(file_name, .{});
+            var buffer: [512]u8 = undefined;
+            while (true) {
+                const byte_nums = try file.read(&buffer);
+                if (byte_nums == 0)
+                    break;
+
+                sha256.update(buffer[0..byte_nums]);
+            }
+            var result = std.mem.zeroes([32]u8);
+            sha256.final(&result);
+
+            if (tools.verify_hash(result, shasum.?)) {
+                try file.seekTo(0);
+                return file;
+            }
+        }
+        try std.fs.deleteFileAbsolute(file_name);
+    }
 
     // http client
     var client = std.http.Client{ .allocator = allocator };
@@ -33,15 +69,12 @@ pub fn download(
     if (req.response.status != .ok)
         return error.DownFailed;
 
-    // NOTE:
-    // const total_size: usize = @intCast(req.response.content_length orelse 0);
-
-    // this file store the downloaded src
-    const zvm_path = try tools.get_zvm_path_segment(allocator, "store");
-    defer allocator.free(zvm_path);
-
-    var store = try std.fs.cwd().makeOpenPath(zvm_path, .{});
-    defer store.close();
+    // Compare file sizes
+    if (size) |ss| {
+        const total_size: usize = @intCast(req.response.content_length orelse 0);
+        if (ss != total_size)
+            return error.IncorrectSize;
+    }
 
     // create a new file
     const new_file = try store.createFile(file_name, .{

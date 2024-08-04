@@ -53,7 +53,7 @@ pub fn install_zig(version: []const u8) !void {
     );
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
-    const new_file = try download.download(parsed_uri, file_name, version_data.shasum);
+    const new_file = try download.download(parsed_uri, file_name, version_data.shasum, version_data.size);
     defer new_file.close();
 
     // get version path

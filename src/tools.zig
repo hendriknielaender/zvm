@@ -161,6 +161,14 @@ pub fn does_path_exist(version_path: []const u8) bool {
     return true;
 }
 
+// check dir exist
+pub fn does_path_exist2(dir: std.fs.Dir, file_name: []const u8) bool {
+    dir.access(file_name, .{}) catch |err| {
+        if (err == error.FileNotFound) return false;
+    };
+    return true;
+}
+
 /// Nested copy dir
 /// only copy dir and file, no including link
 pub fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
