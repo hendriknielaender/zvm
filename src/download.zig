@@ -22,13 +22,7 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     const version_path = try tools.get_zvm_path_segment(data_allocator, "versions");
     defer data_allocator.free(version_path);
 
-    std.fs.cwd().makePath(version_path) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => {
-            std.debug.print("Failed to create versions directory: {}\n", .{err});
-            return err;
-        },
-    };
+    try tools.try_create_path(version_path);
 
     const uri = std.Uri.parse(url) catch unreachable;
     const version_folder_name = try std.fmt.allocPrint(allocator, "versions/{s}", .{version});
@@ -37,7 +31,7 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     const version_folder_path = try tools.get_zvm_path_segment(data_allocator, version_folder_name);
     defer data_allocator.free(version_folder_path);
 
-    if (check_existing_version(version_folder_path)) {
+    if (tools.does_path_exist(version_folder_path)) {
         std.debug.print("→ Version {s} is already installed.\n", .{version});
         std.debug.print("Do you want to reinstall? (\x1b[1mY\x1b[0mes/\x1b[1mN\x1b[0mo): ", .{});
 
@@ -65,12 +59,6 @@ pub fn content(allocator: std.mem.Allocator, version: []const u8, url: []const u
     set_version_node.end();
 
     return computed_hash;
-}
-
-fn check_existing_version(version_path: []const u8) bool {
-    const open_dir_options = .{ .access_sub_paths = true, .no_follow = false };
-    _ = std.fs.cwd().openDir(version_path, open_dir_options) catch return false;
-    return true;
 }
 
 fn confirm_user_choice() bool {
@@ -102,7 +90,14 @@ fn download_and_extract(
     try req.wait();
     try std.testing.expect(req.response.status == .ok);
 
-    var zvm_dir = try open_or_create_zvm_dir();
+    const zvm_path = try tools.get_zvm_path_segment(allocator, "");
+    defer allocator.free(zvm_path);
+
+    var zvm_dir = std.fs.cwd().makeOpenPath(zvm_path, .{}) catch |err| {
+        std.debug.print("sorry, open zvm path failed, erro is {}\n", .{err});
+        std.process.exit(1);
+    };
+
     defer zvm_dir.close();
 
     const platform_str = try architecture.platform_str(architecture.DetectParams{
@@ -129,7 +124,6 @@ fn download_and_extract(
     var download_node = root_node.start(download_message, total_size);
 
     const file_stream = try zvm_dir.createFile(file_name, .{});
-    defer file_stream.close();
 
     std.debug.print("Download complete, file written: {s}\n", .{file_name});
 
@@ -145,14 +139,12 @@ fn download_and_extract(
         sha256.update(buffer[0..bytes_read]);
         try file_stream.writeAll(buffer[0..bytes_read]);
     }
+    file_stream.close();
 
     download_node.end();
 
     var extract_node = root_node.start("Extracting", 1);
     const data_allocator = tools.get_allocator();
-
-    const zvm_path = try tools.get_zvm_path_segment(data_allocator, "");
-    defer data_allocator.free(zvm_path);
 
     const downloaded_file_path = try std.fs.path.join(data_allocator, &.{ zvm_path, file_name });
     defer data_allocator.free(downloaded_file_path);
@@ -184,29 +176,9 @@ fn download_and_extract(
 }
 
 fn open_or_create_zvm_dir() !std.fs.Dir {
-    const zvm_path = try tools.get_zvm_path_segment(tools.get_allocator(), "");
-    defer tools.get_allocator().free(zvm_path);
+    const allocator = tools.get_allocator();
+    const zvm_path = try tools.get_zvm_path_segment(allocator, "");
+    defer allocator.free(zvm_path);
 
-    const open_dir_options = .{ .access_sub_paths = true, .no_follow = false };
-    const potential_dir = std.fs.cwd().openDir(zvm_path, open_dir_options);
-
-    if (potential_dir) |dir| {
-        return dir;
-    } else |err| switch (err) {
-        error.FileNotFound => {
-            std.debug.print("→ Directory not found. Creating: {s}...\n", .{zvm_path});
-
-            if (std.fs.cwd().makeDir(zvm_path)) |_| {
-                std.debug.print("✓ Directory created successfully: {s}\n", .{zvm_path});
-            } else |err_make_dir| {
-                std.debug.print("✗ Error: Failed to create directory. Reason: {}\n", .{err_make_dir});
-            }
-
-            return std.fs.cwd().openDir(zvm_path, open_dir_options);
-        },
-        else => |e| {
-            std.debug.print("Unexpected error when checking directory: {}\n", .{e});
-            return e;
-        },
-    }
+    return try std.fs.cwd().makeOpenPath(zvm_path, .{});
 }
