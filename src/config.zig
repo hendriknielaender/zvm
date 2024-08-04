@@ -7,6 +7,9 @@ pub var allocator: std.mem.Allocator = undefined;
 /// home dir environment variable
 pub var home_dir: []const u8 = undefined;
 
+/// global progress root node
+pub var progress_root: std.Progress.Node = undefined;
+
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
 /// zls meta data url

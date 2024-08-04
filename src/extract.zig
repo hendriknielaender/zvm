@@ -5,11 +5,23 @@ const tools = @import("tools.zig");
 const xz = std.compress.xz;
 const tar = std.tar;
 
+/// extract file to out_dir
+pub fn extrace(
+    out_dir: std.fs.Dir,
+    file: std.fs.File,
+    file_type: enum { tarxz, zip },
+) !void {
+    switch (file_type) {
+        .zip => try extract_zip_dir(out_dir, file),
+        .tarxz => try extract_tarxz_to_dir(out_dir, file),
+    }
+}
+
 /// extract tar.xz to dir
-pub fn extract_tarxz_to_dir(allocator: std.mem.Allocator, out_dir: std.fs.Dir, file: std.fs.File) !void {
+fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
     var buffered_reader = std.io.bufferedReader(file.reader());
 
-    var decompressed = try xz.decompress(allocator, buffered_reader.reader());
+    var decompressed = try xz.decompress(tools.get_allocator(), buffered_reader.reader());
     defer decompressed.deinit();
 
     try tar.pipeToFileSystem(
@@ -20,7 +32,7 @@ pub fn extract_tarxz_to_dir(allocator: std.mem.Allocator, out_dir: std.fs.Dir, f
 }
 
 /// extract zip to directory
-pub fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
+fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
     var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
     defer arena.deinit();
 

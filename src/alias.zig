@@ -13,7 +13,7 @@ pub fn set_zig_version(version: []const u8) !void {
     const arena_allocator = arena.allocator();
 
     const user_home = tools.get_home();
-    const version_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "versions", version });
+    const version_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "version", version });
     const symlink_path = try tools.get_zvm_path_segment(arena_allocator, "current");
 
     try update_current(version_path, symlink_path);

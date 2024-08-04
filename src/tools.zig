@@ -12,12 +12,21 @@ pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
         try std.process.getEnvVarOwned(config.allocator, "USERPROFILE")
     else
         std.posix.getenv("HOME") orelse ".";
+
+    // config.progress_root = std.Progress.start(.{ .root_name = "zvm" });
 }
 
 /// Deinitialize the data.
 pub fn data_deinit() void {
     if (builtin.os.tag == .windows)
         config.allocator.free(config.home_dir);
+
+    // config.progress_root.end();
+}
+
+/// new progress node
+pub fn new_progress_node(name: []const u8, estimated_total_items: usize) std.Progress.Node {
+    return config.progress_root.start(name, estimated_total_items);
 }
 
 /// Get home directory.
@@ -116,10 +125,8 @@ pub fn eql_str(str1: []const u8, str2: []const u8) bool {
 
 /// try to create path
 pub fn try_create_path(path: []const u8) !void {
-    std.fs.cwd().makePath(path) catch |err| {
-        if (err != error.PathAlreadyExists)
-            return err;
-    };
+    std.fs.cwd().makePath(path) catch |err|
+        if (err != error.PathAlreadyExists) return err;
 }
 
 /// try to get zig version

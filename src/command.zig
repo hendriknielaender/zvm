@@ -168,7 +168,7 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     if (subcmd) |scmd| {
         if (std.mem.eql(u8, scmd, "zig")) {
             if (param) |version| {
-                try install.from_version(version);
+                try install.install_zig(version);
             } else {
                 std.debug.print("Please specify a version to install using 'install zig <version>'.\n", .{});
             }
@@ -179,7 +179,7 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
             std.debug.print("Unknown subcommand '{s}'. Use 'install zig <version>' or 'install zls <version>'.\n", .{scmd});
         }
     } else if (param) |version| {
-        try install.from_version(version);
+        try install.install_zig(version);
     } else {
         std.debug.print("Error: Please specify a version to install using 'install <version>'.\n", .{});
     }
