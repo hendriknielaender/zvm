@@ -154,16 +154,16 @@ pub fn get_zig_version(allocator: std.mem.Allocator) ![]u8 {
 }
 
 // check dir exist
-pub fn does_path_exist(version_path: []const u8) bool {
-    std.fs.accessAbsolute(version_path, .{}) catch |err| {
+pub fn does_path_exist(path: []const u8) bool {
+    std.fs.accessAbsolute(path, .{}) catch |err| {
         if (err == error.FileNotFound) return false;
     };
     return true;
 }
 
 // check dir exist
-pub fn does_path_exist2(dir: std.fs.Dir, file_name: []const u8) bool {
-    dir.access(file_name, .{}) catch |err| {
+pub fn does_path_exist2(dir: std.fs.Dir, path: []const u8) bool {
+    dir.access(path, .{}) catch |err| {
         if (err == error.FileNotFound) return false;
     };
     return true;
