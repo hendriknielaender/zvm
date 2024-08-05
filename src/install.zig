@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");
-const download = @import("download.zig");
 const architecture = @import("architecture.zig");
 const tools = @import("tools.zig");
 const alias = @import("alias.zig");
@@ -61,7 +60,7 @@ pub fn install_zig(version: []const u8) !void {
     );
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
-    const new_file = try download.download(parsed_uri, file_name, version_data.shasum, version_data.size);
+    const new_file = try tools.download(parsed_uri, file_name, version_data.shasum, version_data.size);
     defer new_file.close();
 
     try tools.try_create_path(extract_path);
