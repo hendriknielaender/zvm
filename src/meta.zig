@@ -151,24 +151,16 @@ pub const Zls = struct {
 
     /// return the version list
     pub fn get_version_list(self: *Zls, allocator: Allocator) ![][]const u8 {
-        var zls_versions =
-            self.data.value.object.get("versions") orelse
-            return error.NotFoundZlsVersion;
-
         var list = std.ArrayList([]const u8).init(allocator);
 
-        var iterate = zls_versions.object.iterator();
-        while (iterate.next()) |entry| {
-            const key_ptr = entry.key_ptr;
-            const key = key_ptr.*;
+        for (self.data.value.array.items) |item| {
+            const tag = item.object.get("tag_name") orelse continue;
 
-            const key_copy = try allocator.dupe(u8, key);
+            const key_copy = try allocator.dupe(u8, tag.string);
             try list.append(key_copy);
         }
 
         const slice = try list.toOwnedSlice();
-
-        std.mem.reverse([]const u8, slice);
         return slice;
     }
 };

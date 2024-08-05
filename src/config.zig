@@ -13,7 +13,7 @@ pub var progress_root: std.Progress.Node = undefined;
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
 /// zls meta data url
-pub const zls_meta_url: []const u8 = "https://zigtools-releases.nyc3.digitaloceanspaces.com/zls/index.json";
+pub const zls_meta_url: []const u8 = "https://api.github.com/repos/zigtools/zls/releases";
 
 /// parsed zig url
 pub const zig_url = std.Uri.parse(zig_meta_url) catch unreachable;

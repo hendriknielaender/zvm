@@ -100,7 +100,7 @@ pub fn http_get(allocator: std.mem.Allocator, uri: std.Uri) ![]const u8 {
     defer client.deinit();
 
     // we ceate a buffer to store the http response
-    var buf: [1024]u8 = undefined; // 256 * 1024 = 262kb
+    var buf: [2048]u8 = undefined;
 
     // try open a request
     var req = try client.open(.GET, uri, .{ .server_header_buffer = &buf });
