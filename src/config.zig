@@ -28,4 +28,7 @@ pub const zig_name = switch (builtin.os.tag) {
 };
 
 /// zig archive_ext
-pub const zig_archive_ext = if (builtin.os.tag == .windows) "zip" else "tar.xz";
+pub const archive_ext = if (builtin.os.tag == .windows)
+    "zip"
+else
+    "tar.xz";

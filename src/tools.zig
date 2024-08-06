@@ -41,11 +41,36 @@ pub fn get_allocator() std.mem.Allocator {
 }
 
 /// Get zvm path segment
-pub fn get_zvm_path_segment(tmp_allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
-    return std.fs.path.join(
-        tmp_allocator,
-        &[_][]const u8{ get_home(), ".zm", segment },
-    );
+pub fn get_zvm_path_segment(allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
+    return try std.fs.path.join(allocator, &[_][]const u8{ get_home(), ".zm", segment });
+}
+
+pub fn get_zvm_current_zig(allocator: std.mem.Allocator) ![]u8 {
+    const current = try get_zvm_path_segment(allocator, "current");
+    defer allocator.free(current);
+    return try std.fs.path.join(allocator, &[_][]const u8{ current, "zig" });
+}
+
+pub fn get_zvm_current_zls(allocator: std.mem.Allocator) ![]u8 {
+    const current = try get_zvm_path_segment(allocator, "current");
+    defer allocator.free(current);
+    return try std.fs.path.join(allocator, &[_][]const u8{ current, "zls" });
+}
+
+pub fn get_zvm_store(allocator: std.mem.Allocator) ![]u8 {
+    return get_zvm_path_segment(allocator, "store");
+}
+
+pub fn get_zvm_zig_version(allocator: std.mem.Allocator) ![]u8 {
+    const current = try get_zvm_path_segment(allocator, "version");
+    defer allocator.free(current);
+    return try std.fs.path.join(allocator, &[_][]const u8{ current, "zig" });
+}
+
+pub fn get_zvm_zls_version(allocator: std.mem.Allocator) ![]u8 {
+    const current = try get_zvm_path_segment(allocator, "version");
+    defer allocator.free(current);
+    return try std.fs.path.join(allocator, &[_][]const u8{ current, "zls" });
 }
 
 /// Free str array
@@ -133,7 +158,7 @@ pub fn try_create_path(path: []const u8) !void {
 /// try to get zig version
 pub fn get_zig_version(allocator: std.mem.Allocator) ![]u8 {
     const home_dir = get_home();
-    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", config.zig_name });
+    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", "zig", config.zig_name });
     defer allocator.free(current_zig_path);
 
     // here we must use the absolute path, we can not just use "zig"
@@ -249,14 +274,14 @@ pub fn download(
                 return file;
             }
         }
-        try std.fs.deleteFileAbsolute(file_name);
+        try store.deleteFile(file_name);
     }
 
     // http client
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    var header_buffer: [1024]u8 = undefined; // 1024b
+    var header_buffer: [10240]u8 = undefined; // 1024b
 
     var req = try client.open(.GET, uri, .{ .server_header_buffer = &header_buffer });
     defer req.deinit();

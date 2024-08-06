@@ -6,19 +6,20 @@ const xz = std.compress.xz;
 const tar = std.tar;
 
 /// extract file to out_dir
-pub fn extrace(
+pub fn extract(
     out_dir: std.fs.Dir,
     file: std.fs.File,
     file_type: enum { tarxz, zip },
+    is_zls: bool,
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir(out_dir, file),
-        .tarxz => try extract_tarxz_to_dir(out_dir, file),
+        .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls),
     }
 }
 
 /// extract tar.xz to dir
-fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
+fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File, is_zls: bool) !void {
     var buffered_reader = std.io.bufferedReader(file.reader());
 
     var decompressed = try xz.decompress(tools.get_allocator(), buffered_reader.reader());
@@ -27,7 +28,7 @@ fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
     try tar.pipeToFileSystem(
         out_dir,
         decompressed.reader(),
-        .{ .mode_mode = .executable_bit_only, .strip_components = 1 },
+        .{ .mode_mode = .executable_bit_only, .strip_components = if (is_zls) 0 else 1 },
     );
 }
 

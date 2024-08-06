@@ -44,11 +44,6 @@ const command_opts = [_]CommandOption{
 
 /// Parse and handle commands
 pub fn handle_command(params: []const []const u8) !void {
-    if (builtin.os.tag != .windows) {
-        if (std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
-            try handle_alias(params);
-    }
-
     const command: CommandData = blk: {
         if (params.len < 2) break :blk CommandData{};
 
@@ -100,7 +95,13 @@ pub fn handle_command(params: []const []const u8) !void {
     }
 }
 
-fn handle_alias(params: []const []const u8) !void {
+/// handle alias, now only support zig
+pub fn handle_alias(params: []const []const u8) !void {
+    if (builtin.os.tag != .windows) {
+        if (!std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
+            return;
+    }
+
     var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
     defer arena.deinit();
 
@@ -108,8 +109,8 @@ fn handle_alias(params: []const []const u8) !void {
 
     const new_params = try allocator.dupe([]const u8, params);
 
-    const home = tools.get_home();
-    const current_zig_path = try std.fs.path.join(allocator, &.{ home, ".zm", "current", "zig" });
+    const current_zig = try tools.get_zvm_current_zig(allocator) ;
+    const current_zig_path = try std.fs.path.join(allocator, &.{ current_zig, "zig" });
 
     std.fs.accessAbsolute(current_zig_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
@@ -173,8 +174,11 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
                 std.debug.print("Please specify a version to install using 'install zig <version>'.\n", .{});
             }
         } else if (std.mem.eql(u8, scmd, "zls")) {
-            // Handle ZLS installation if supported
-            std.debug.print("[Unsupported] install zls\n", .{});
+            if (param) |version| {
+                try install.install_zls(version);
+            } else {
+                std.debug.print("Please specify a version to install using 'install zls <version>'.\n", .{});
+            }
         } else {
             std.debug.print("Unknown subcommand '{s}'. Use 'install zig <version>' or 'install zls <version>'.\n", .{scmd});
         }

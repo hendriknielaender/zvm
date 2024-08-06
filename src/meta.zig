@@ -136,6 +136,19 @@ pub const Zig = struct {
 pub const Zls = struct {
     data: jsonValue,
 
+    /// version data for zig
+    pub const VersionData = struct {
+        version: []const u8,
+        id: usize,
+        tarball: []const u8,
+        size: usize,
+
+        pub fn deinit(self: VersionData, allocator: Allocator) void {
+            allocator.free(self.version);
+            allocator.free(self.tarball);
+        }
+    };
+
     // init the zig data
     pub fn init(raw: []const u8, allocator: Allocator) !Zls {
         const data =
@@ -147,6 +160,46 @@ pub const Zls = struct {
     // deinit the zig data
     pub fn deinit(self: *Zls) void {
         self.data.deinit();
+    }
+
+    pub fn get_version_data(
+        self: *Zls,
+        version: []const u8,
+        platform_str: []const u8,
+        allocator: Allocator,
+    ) !?VersionData {
+        const file_name = try std.fmt.allocPrint(
+            allocator,
+            "zls-{s}.{s}",
+            .{ platform_str, config.archive_ext },
+        );
+        for (self.data.value.array.items) |item| {
+            const item_obj = item.object;
+
+            const tag = item_obj.get("tag_name") orelse continue;
+            if (!tools.eql_str(version, tag.string)) continue;
+
+            const assets = item_obj.get("assets") orelse continue;
+            for (assets.array.items) |asset| {
+                const asset_obj = asset.object;
+
+                const name = asset_obj.get("name") orelse continue;
+                if (!tools.eql_str(file_name, name.string)) continue;
+
+                const tarball = asset_obj.get("browser_download_url") orelse return null;
+                const id = asset_obj.get("id") orelse return null;
+                const size = asset_obj.get("size") orelse return null;
+
+                return VersionData{
+                    .version = try allocator.dupe(u8, version),
+                    .id = @intCast(id.integer),
+                    .tarball = try allocator.dupe(u8, tarball.string),
+                    .size = @intCast(size.integer),
+                };
+            }
+            break;
+        }
+        return null;
     }
 
     /// return the version list

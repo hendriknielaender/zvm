@@ -12,9 +12,22 @@ pub fn set_zig_version(version: []const u8) !void {
     defer arena.deinit();
     const arena_allocator = arena.allocator();
 
-    const user_home = tools.get_home();
-    const version_path = try std.fs.path.join(arena_allocator, &[_][]const u8{ user_home, ".zm", "version", version });
-    const symlink_path = try tools.get_zvm_path_segment(arena_allocator, "current");
+    try tools.try_create_path(try tools.get_zvm_path_segment(arena_allocator, "current"));
+
+    const version_path = try std.fs.path.join(
+        arena_allocator,
+        &.{ try tools.get_zvm_zig_version(arena_allocator), version },
+    );
+
+    std.fs.accessAbsolute(version_path, .{}) catch |err| {
+        if (err != error.FileNotFound)
+            return err;
+
+        std.debug.print("zig {s} is not installed, please install it!\n", .{version});
+        std.process.exit(1);
+    };
+
+    const symlink_path = try tools.get_zvm_current_zig(arena_allocator);
 
     try update_current(version_path, symlink_path);
     try verify_zig_version(version);
