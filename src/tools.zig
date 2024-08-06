@@ -156,14 +156,25 @@ pub fn try_create_path(path: []const u8) !void {
 }
 
 /// try to get zig version
-pub fn get_zig_version(allocator: std.mem.Allocator) ![]u8 {
-    const home_dir = get_home();
-    const current_zig_path = try std.fs.path.join(allocator, &.{ home_dir, ".zm", "current", "zig", config.zig_name });
-    defer allocator.free(current_zig_path);
+pub fn get_version(allocator: std.mem.Allocator, is_zls: bool) ![]u8 {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const current_path = try std.fs.path.join(arena_allocator, &.{
+        if (is_zls)
+            try get_zvm_current_zls(arena_allocator)
+        else
+            try get_zvm_current_zig(arena_allocator),
+        if (is_zls)
+            config.zls_name
+        else
+            config.zig_name,
+    });
 
     // here we must use the absolute path, we can not just use "zig"
     // because child process will use environment variable
-    var child_process = std.process.Child.init(&[_][]const u8{ current_zig_path, "version" }, allocator);
+    var child_process = std.process.Child.init(&[_][]const u8{ current_path, if (is_zls) "--version" else "version" }, arena_allocator);
 
     child_process.stdin_behavior = .Close;
     child_process.stdout_behavior = .Pipe;

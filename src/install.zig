@@ -35,7 +35,7 @@ pub fn install_zig(version: []const u8) !void {
     const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
 
     if (tools.does_path_exist(extract_path)) {
-        try alias.set_zig_version(version);
+        try alias.set_version(version, false);
         return;
     }
 
@@ -68,7 +68,7 @@ pub fn install_zig(version: []const u8) !void {
 
     try extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
 
-    try alias.set_zig_version(version);
+    try alias.set_version(version, false);
 }
 
 /// Try to install the specified version of zls
@@ -85,6 +85,16 @@ pub fn install_zls(version: []const u8) !void {
     defer arena.deinit();
 
     const arena_allocator = arena.allocator();
+
+    // get version path
+    const version_path = try tools.get_zvm_zls_version(arena_allocator);
+    // get extract path
+    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
+
+    if (tools.does_path_exist(extract_path)) {
+        try alias.set_version(version, true);
+        return;
+    }
 
     // get version data
     const version_data: meta.Zls.VersionData = blk: {
@@ -104,16 +114,12 @@ pub fn install_zls(version: []const u8) !void {
     const new_file = try tools.download(parsed_uri, file_name, null, version_data.size);
     defer new_file.close();
 
-    // get version path
-    const version_path = try tools.get_zvm_zls_version(arena_allocator);
-    // get extract path
-    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
-
     try tools.try_create_path(extract_path);
 
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
     try extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, true);
 
+    try alias.set_version(version, true);
     std.debug.print(
         \\zls version data:
         \\version: {s}

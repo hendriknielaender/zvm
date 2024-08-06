@@ -109,7 +109,7 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     const new_params = try allocator.dupe([]const u8, params);
 
-    const current_zig = try tools.get_zvm_current_zig(allocator) ;
+    const current_zig = try tools.get_zvm_current_zig(allocator);
     const current_zig_path = try std.fs.path.join(allocator, &.{ current_zig, "zig" });
 
     std.fs.accessAbsolute(current_zig_path, .{}) catch |err| {
@@ -191,7 +191,7 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
 
 fn use_version(params: ?[]const u8) !void {
     if (params) |version| {
-        try alias.set_zig_version(version);
+        try alias.set_version(version, false);
     } else {
         std.debug.print("Error: Please specify a version to use with 'use <version>'.\n", .{});
     }

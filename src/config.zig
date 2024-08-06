@@ -27,6 +27,13 @@ pub const zig_name = switch (builtin.os.tag) {
     else => @compileError("not support current platform"),
 };
 
+/// zig file name
+pub const zls_name = switch (builtin.os.tag) {
+    .windows => "zls.exe",
+    .linux, .macos => "zls",
+    else => @compileError("not support current platform"),
+};
+
 /// zig archive_ext
 pub const archive_ext = if (builtin.os.tag == .windows)
     "zip"
