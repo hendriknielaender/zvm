@@ -39,3 +39,16 @@ pub const archive_ext = if (builtin.os.tag == .windows)
     "zip"
 else
     "tar.xz";
+
+pub const zls_list_1 = [_][]const u8{
+    "0.12.1",
+};
+
+pub const zls_list_2 = [_][]const u8{
+    "0.12.0",
+};
+
+comptime {
+    if (zls_list_1.len != zls_list_2.len)
+        @compileError("zls_list_1 length not equal to zls_list_2!");
+}

@@ -59,7 +59,7 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     // when platform is not windows, this is execute here
 
     // when file exist(it is a systemlink), delete it
-    if (tools.does_path_exist(symlink_path)) try std.fs.cwd().deleteFile(symlink_path);
+    if (tools.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
 
     // system link it
     try std.posix.symlink(zig_path, symlink_path);

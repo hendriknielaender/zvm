@@ -80,25 +80,17 @@ fn install_zig(version: []const u8) !void {
     try alias.set_version(version, false);
 }
 
-const zls_list_1 = [_][]const u8{
-    "0.12.1",
-};
-
-const zls_list_2 = [_][]const u8{
-    "0.12.0",
-};
-
-comptime {
-    if (zls_list_1.len != zls_list_2.len)
-        @compileError("zls_list_1 length not equal to zls_list_2!");
-}
-
 /// Try to install the specified version of zls
 fn install_zls(version: []const u8) !void {
     const true_version = blk: {
-        for (zls_list_1, 0..) |val, i| {
+        if (tools.eql_str("master", version)) {
+            std.debug.print("sorry, now not support install zls, that need compile locally!", .{});
+            return;
+        }
+
+        for (config.zls_list_1, 0..) |val, i| {
             if (tools.eql_str(val, version))
-                break :blk zls_list_2[i];
+                break :blk config.zls_list_2[i];
         }
         break :blk version;
     };

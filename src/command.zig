@@ -4,6 +4,7 @@ const options = @import("options");
 
 const install = @import("install.zig");
 const alias = @import("alias.zig");
+const remove = @import("remove.zig");
 const tools = @import("tools.zig");
 const meta = @import("meta.zig");
 const config = @import("config.zig");
@@ -13,7 +14,8 @@ pub const Command = enum {
     List,
     Install,
     Use,
-    Default,
+    Remove,
+    // Default,
     Version,
     Help,
     Unknown,
@@ -36,10 +38,11 @@ const CommandOption = struct {
 const command_opts = [_]CommandOption{
     .{ .short_handle = "ls", .handle = "list", .cmd = Command.List },
     .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
-    .{ .short_handle = null, .handle = "use", .cmd = Command.Use },
+    .{ .short_handle = "u", .handle = "use", .cmd = Command.Use },
+    .{ .short_handle = "rm", .handle = "remove", .cmd = Command.Remove },
     .{ .short_handle = null, .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
-    .{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
+    // .{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
 };
 
 /// Parse and handle commands
@@ -88,7 +91,8 @@ pub fn handle_command(params: []const []const u8) !void {
         .List => try handle_list(command.param),
         .Install => try install_version(command.subcmd, command.param),
         .Use => try use_version(command.subcmd, command.param),
-        .Default => try set_default(),
+        .Remove => try remove_version(command.subcmd, command.param),
+        // .Default => try set_default(),
         .Version => try get_version(),
         .Help => try display_help(),
         .Unknown => try handle_unknown(),
@@ -229,6 +233,35 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     }
 }
 
+fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+    if (subcmd) |scmd| {
+        var is_zls: bool = undefined;
+
+        if (tools.eql_str(scmd, "zig")) {
+            is_zls = false;
+        } else if (tools.eql_str(scmd, "zls")) {
+            is_zls = true;
+        } else {
+            std.debug.print("Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n", .{scmd});
+            return;
+        }
+
+        const version = param orelse {
+            std.debug.print("Please specify a version to use: 'remove zig/zls <version>'.\n", .{});
+            return;
+        };
+
+        try remove.remove(version, is_zls);
+    } else if (param) |version| {
+        // set zig version
+        try remove.remove(version, false);
+        // set zls version
+        try remove.remove(version, true);
+    } else {
+        std.debug.print("Please specify a version to use: 'remove zig/zls <version>' or 'remove <version>'.\n", .{});
+    }
+}
+
 fn set_default() !void {
     std.debug.print("Handling 'default' command.\n", .{});
     // Your default code here
@@ -244,11 +277,12 @@ fn display_help() !void {
         \\    zvm <command> [args]
         \\
         \\Commands:
-        \\    ls, list       List the versions of Zig available to zvm.
-        \\    i, install     Install the specified version of Zig.
-        \\    use            Use the specified version of Zig.
-        \\    --version      Display the currently active Zig version.
-        \\    --default      Set a specified Zig version as the default for new shells.
+        \\    ls, list       List the versions of Zig or Zls available to zvm.
+        \\    i, install     Install the specified version of Zig or Zls.
+        \\    use            Use the specified version of Zig Zls.
+        \\    remove         Remove the specified version of Zig or Zls
+        \\    --version      Display zvm version.
+        // \\    --default      Set a specified Zig or Zls version as the default for new shells.
         \\    --help         Display this help message.
         \\
         \\Example:
@@ -256,6 +290,7 @@ fn display_help() !void {
         \\    zvm install zig 0.12.0    Install Zig version 0.12.0.
         \\    zvm use 0.12.0            Switch to using Zig version 0.12.0.
         \\    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.
+        \\    zvm remove zig 0.12.0     Remove Zig version 0.12.0.
         \\
         \\For additional information and contributions, please visit the GitHub repository.
         \\
