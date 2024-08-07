@@ -155,8 +155,8 @@ pub fn try_create_path(path: []const u8) !void {
         if (err != error.PathAlreadyExists) return err;
 }
 
-/// try to get zig version
-pub fn get_version(allocator: std.mem.Allocator, is_zls: bool) ![]u8 {
+/// try to get zig/zls version
+pub fn get_current_version(allocator: std.mem.Allocator, is_zls: bool) ![]u8 {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const arena_allocator = arena.allocator();

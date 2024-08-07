@@ -24,7 +24,7 @@ pub fn remove(version: []const u8, is_zls: bool) !void {
 
     // try remove current path
     if (tools.does_path_exist(current_path)) {
-        const current_version = try tools.get_version(allocator, is_zls);
+        const current_version = try tools.get_current_version(allocator, is_zls);
         if (tools.eql_str(current_version, true_version)) {
             if (builtin.os.tag == .windows) {
                 try std.fs.deleteTreeAbsolute(current_path);

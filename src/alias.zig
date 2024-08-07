@@ -69,7 +69,7 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
 fn verify_zig_version(expected_version: []const u8) !void {
     const allocator = tools.get_allocator();
 
-    const actual_version = try tools.get_version(allocator, false);
+    const actual_version = try tools.get_current_version(allocator, false);
     defer allocator.free(actual_version);
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
@@ -83,7 +83,7 @@ fn verify_zig_version(expected_version: []const u8) !void {
 fn verify_zls_version(expected_version: []const u8) !void {
     const allocator = tools.get_allocator();
 
-    const actual_version = try tools.get_version(allocator, true);
+    const actual_version = try tools.get_current_version(allocator, true);
     defer allocator.free(actual_version);
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
