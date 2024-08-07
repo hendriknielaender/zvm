@@ -1,3 +1,7 @@
+//! This file is used to parse the json information of zig and zls
+//! The json of zig comes from the official website
+//! The json of zls comes from the official github api
+//! We can get version list and version data
 const std = @import("std");
 const config = @import("config.zig");
 const tools = @import("tools.zig");

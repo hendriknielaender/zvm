@@ -1,3 +1,4 @@
+//! This file is used to decompress the file
 const std = @import("std");
 const builtin = @import("builtin");
 const tools = @import("tools.zig");

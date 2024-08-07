@@ -1,3 +1,6 @@
+//! This file is used to create soft links and verify version
+//! for Windows, we will use copy dir(when Windows create soft link it requires admin)
+//! for set version
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");

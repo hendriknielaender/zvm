@@ -1,3 +1,4 @@
+//! This file is used to install zig or zls
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");

@@ -1,4 +1,5 @@
 //! this file just contains util function
+//! these functions are generic
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");

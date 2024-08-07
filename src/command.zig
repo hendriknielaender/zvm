@@ -1,3 +1,4 @@
+//! This file stores command line parsing and processing
 const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("options");
