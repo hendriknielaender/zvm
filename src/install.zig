@@ -14,8 +14,17 @@ const Version = struct {
     shasum: ?[]const u8,
 };
 
+/// try install specified version
+pub fn install(version: []const u8, is_zls: bool) !void {
+    if (is_zls) {
+        try install_zls(version);
+    } else {
+        try install_zig(version);
+    }
+}
+
 /// Try to install the specified version of zig
-pub fn install_zig(version: []const u8) !void {
+fn install_zig(version: []const u8) !void {
     const allocator = tools.get_allocator();
 
     const platform_str = try architecture.platform_str(architecture.DetectParams{
@@ -71,8 +80,28 @@ pub fn install_zig(version: []const u8) !void {
     try alias.set_version(version, false);
 }
 
+const zls_list_1 = [_][]const u8{
+    "0.12.1",
+};
+
+const zls_list_2 = [_][]const u8{
+    "0.12.0",
+};
+
+comptime {
+    if (zls_list_1.len != zls_list_2.len)
+        @compileError("zls_list_1 length not equal to zls_list_2!");
+}
+
 /// Try to install the specified version of zls
-pub fn install_zls(version: []const u8) !void {
+fn install_zls(version: []const u8) !void {
+    const true_version = blk: {
+        for (zls_list_1, 0..) |val, i| {
+            if (tools.eql_str(val, version))
+                break :blk zls_list_2[i];
+        }
+        break :blk version;
+    };
     const allocator = tools.get_allocator();
 
     const reverse_platform_str = try architecture.platform_str(architecture.DetectParams{
@@ -89,10 +118,10 @@ pub fn install_zls(version: []const u8) !void {
     // get version path
     const version_path = try tools.get_zvm_zls_version(arena_allocator);
     // get extract path
-    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
+    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, true_version });
 
     if (tools.does_path_exist(extract_path)) {
-        try alias.set_version(version, true);
+        try alias.set_version(true_version, true);
         return;
     }
 
@@ -100,14 +129,14 @@ pub fn install_zls(version: []const u8) !void {
     const version_data: meta.Zls.VersionData = blk: {
         const res = try tools.http_get(arena_allocator, config.zls_url);
         var zls_meta = try meta.Zls.init(res, arena_allocator);
-        const tmp_val = try zls_meta.get_version_data(version, reverse_platform_str, arena_allocator);
+        const tmp_val = try zls_meta.get_version_data(true_version, reverse_platform_str, arena_allocator);
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
 
     const file_name = try std.mem.concat(
         arena_allocator,
         u8,
-        &.{ "zls-", reverse_platform_str, "-", version, ".", config.archive_ext },
+        &.{ "zls-", reverse_platform_str, "-", true_version, ".", config.archive_ext },
     );
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
@@ -119,7 +148,7 @@ pub fn install_zls(version: []const u8) !void {
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
     try extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, true);
 
-    try alias.set_version(version, true);
+    try alias.set_version(true_version, true);
     std.debug.print(
         \\zls version data:
         \\version: {s}

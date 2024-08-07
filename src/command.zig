@@ -87,7 +87,7 @@ pub fn handle_command(params: []const []const u8) !void {
     switch (command.cmd) {
         .List => try handle_list(command.param),
         .Install => try install_version(command.subcmd, command.param),
-        .Use => try use_version(command.param),
+        .Use => try use_version(command.subcmd, command.param),
         .Default => try set_default(),
         .Version => try get_version(),
         .Help => try display_help(),
@@ -97,10 +97,16 @@ pub fn handle_command(params: []const []const u8) !void {
 
 /// handle alias, now only support zig
 pub fn handle_alias(params: []const []const u8) !void {
-    if (builtin.os.tag != .windows) {
-        if (!std.mem.eql(u8, std.fs.path.basename(params[0]), "zig"))
-            return;
-    }
+    if (builtin.os.tag == .windows) return;
+
+    var is_zls: bool = undefined;
+
+    const basename = std.fs.path.basename(params[0]);
+    if (tools.eql_str(basename, "zig")) {
+        is_zls = false;
+    } else if (tools.eql_str(basename, "zls")) {
+        is_zls = true;
+    } else return;
 
     var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
     defer arena.deinit();
@@ -109,18 +115,18 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     const new_params = try allocator.dupe([]const u8, params);
 
-    const current_zig = try tools.get_zvm_current_zig(allocator);
-    const current_zig_path = try std.fs.path.join(allocator, &.{ current_zig, "zig" });
+    const current = try if (is_zls) tools.get_zvm_current_zls(allocator) else tools.get_zvm_current_zig(allocator);
+    const current_path = try std.fs.path.join(allocator, &.{ current, if (is_zls) "zls" else "zig" });
 
-    std.fs.accessAbsolute(current_zig_path, .{}) catch |err| {
+    std.fs.accessAbsolute(current_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
-            std.debug.print("Zig has not been installed yet, please install zig with zvm!\n", .{});
+            std.debug.print("{s} has not been installed yet, please install it fist!\n", .{if (is_zls) "Zls" else "Zig"});
             std.process.exit(1);
         }
         return err;
     };
 
-    new_params[0] = current_zig_path;
+    new_params[0] = current_path;
     return std.process.execv(allocator, new_params);
 }
 
@@ -167,33 +173,59 @@ fn handle_list(param: ?[]const u8) !void {
 
 fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     if (subcmd) |scmd| {
-        if (std.mem.eql(u8, scmd, "zig")) {
-            if (param) |version| {
-                try install.install_zig(version);
-            } else {
-                std.debug.print("Please specify a version to install using 'install zig <version>'.\n", .{});
-            }
-        } else if (std.mem.eql(u8, scmd, "zls")) {
-            if (param) |version| {
-                try install.install_zls(version);
-            } else {
-                std.debug.print("Please specify a version to install using 'install zls <version>'.\n", .{});
-            }
+        var is_zls: bool = undefined;
+
+        if (tools.eql_str(scmd, "zig")) {
+            is_zls = false;
+        } else if (tools.eql_str(scmd, "zls")) {
+            is_zls = true;
         } else {
-            std.debug.print("Unknown subcommand '{s}'. Use 'install zig <version>' or 'install zls <version>'.\n", .{scmd});
+            std.debug.print("Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n", .{scmd});
+            return;
         }
+
+        const version = param orelse {
+            std.debug.print("Please specify a version to install: 'install zig/zls <version>'.\n", .{});
+            return;
+        };
+
+        try install.install(version, is_zls);
     } else if (param) |version| {
-        try install.install_zig(version);
+        // set zig version
+        try install.install(version, false);
+        // set zls version
+        try install.install(version, true);
     } else {
-        std.debug.print("Error: Please specify a version to install using 'install <version>'.\n", .{});
+        std.debug.print("Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n", .{});
     }
 }
 
-fn use_version(params: ?[]const u8) !void {
-    if (params) |version| {
+fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+    if (subcmd) |scmd| {
+        var is_zls: bool = undefined;
+
+        if (tools.eql_str(scmd, "zig")) {
+            is_zls = false;
+        } else if (tools.eql_str(scmd, "zls")) {
+            is_zls = true;
+        } else {
+            std.debug.print("Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n", .{scmd});
+            return;
+        }
+
+        const version = param orelse {
+            std.debug.print("Please specify a version to use: 'use zig/zls <version>'.\n", .{});
+            return;
+        };
+
+        try alias.set_version(version, is_zls);
+    } else if (param) |version| {
+        // set zig version
         try alias.set_version(version, false);
+        // set zls version
+        try alias.set_version(version, true);
     } else {
-        std.debug.print("Error: Please specify a version to use with 'use <version>'.\n", .{});
+        std.debug.print("Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n", .{});
     }
 }
 
@@ -220,8 +252,10 @@ fn display_help() !void {
         \\    --help         Display this help message.
         \\
         \\Example:
-        \\    zvm install 0.8.0  Install Zig version 0.8.0.
-        \\    zvm use 0.8.0      Switch to using Zig version 0.8.0.
+        \\    zvm install 0.12.0        Install Zig and zls version 0.12.0.
+        \\    zvm install zig 0.12.0    Install Zig version 0.12.0.
+        \\    zvm use 0.12.0            Switch to using Zig version 0.12.0.
+        \\    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.
         \\
         \\For additional information and contributions, please visit the GitHub repository.
         \\
