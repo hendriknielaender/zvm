@@ -1,7 +1,7 @@
 //! This file is used to decompress the file
 const std = @import("std");
 const builtin = @import("builtin");
-const tools = @import("tools.zig");
+const data = @import("data.zig");
 
 const xz = std.compress.xz;
 const tar = std.tar;
@@ -23,7 +23,7 @@ pub fn extract(
 fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File, is_zls: bool) !void {
     var buffered_reader = std.io.bufferedReader(file.reader());
 
-    var decompressed = try xz.decompress(tools.get_allocator(), buffered_reader.reader());
+    var decompressed = try xz.decompress(data.get_allocator(), buffered_reader.reader());
     defer decompressed.deinit();
 
     try tar.pipeToFileSystem(
@@ -35,12 +35,12 @@ fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File, is_zls: bool) !v
 
 /// extract zip to directory
 fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
-    var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
+    var arena = std.heap.ArenaAllocator.init(data.get_allocator());
     defer arena.deinit();
 
     const allocator = arena.allocator();
     // for decompressing zig, we need to make a temp directory
-    const tmp_path = try tools.get_zvm_path_segment(allocator, "tmpdir");
+    const tmp_path = try data.get_zvm_path_segment(allocator, "tmpdir");
     defer std.fs.deleteDirAbsolute(tmp_path) catch unreachable;
 
     try std.fs.makeDirAbsolute(tmp_path);

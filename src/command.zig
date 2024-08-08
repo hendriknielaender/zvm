@@ -6,9 +6,12 @@ const options = @import("options");
 const install = @import("install.zig");
 const alias = @import("alias.zig");
 const remove = @import("remove.zig");
-const tools = @import("tools.zig");
+
 const meta = @import("meta.zig");
 const config = @import("config.zig");
+const util_data = @import("util/data.zig");
+const util_tool = @import("util/tool.zig");
+const util_http = @import("util/http.zig");
 
 // Command types
 pub const Command = enum {
@@ -103,21 +106,28 @@ pub fn handle_alias(params: []const []const u8) !void {
     var is_zls: bool = undefined;
 
     const basename = std.fs.path.basename(params[0]);
-    if (tools.eql_str(basename, "zig")) {
+    if (util_tool.eql_str(basename, "zig")) {
         is_zls = false;
-    } else if (tools.eql_str(basename, "zls")) {
+    } else if (util_tool.eql_str(basename, "zls")) {
         is_zls = true;
     } else return;
 
-    var arena = std.heap.ArenaAllocator.init(tools.get_allocator());
+    var arena = std.heap.ArenaAllocator.init(util_data.get_allocator());
     defer arena.deinit();
 
     const allocator = arena.allocator();
 
     const new_params = try allocator.dupe([]const u8, params);
 
-    const current = try if (is_zls) tools.get_zvm_current_zls(allocator) else tools.get_zvm_current_zig(allocator);
-    const current_path = try std.fs.path.join(allocator, &.{ current, if (is_zls) "zls" else "zig" });
+    const current = try if (is_zls)
+        util_data.get_zvm_current_zls(allocator)
+    else
+        util_data.get_zvm_current_zig(allocator);
+
+    const current_path = try std.fs.path.join(
+        allocator,
+        &.{ current, if (is_zls) "zls" else "zig" },
+    );
 
     std.fs.accessAbsolute(current_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
@@ -132,13 +142,13 @@ pub fn handle_alias(params: []const []const u8) !void {
 }
 
 fn handle_list(param: ?[]const u8) !void {
-    const allocator = tools.get_allocator();
+    const allocator = util_data.get_allocator();
 
     const version_list: [][]const u8 = blk: {
         if (param) |p| {
             // when zls
-            if (tools.eql_str(p, "zls")) {
-                const res = try tools.http_get(allocator, config.zls_url);
+            if (util_tool.eql_str(p, "zls")) {
+                const res = try util_http.http_get(allocator, config.zls_url);
                 defer allocator.free(res);
 
                 var zls_meta = try meta.Zls.init(res, allocator);
@@ -148,14 +158,14 @@ fn handle_list(param: ?[]const u8) !void {
                 break :blk version_list;
             } else
             // when not zig
-            if (!tools.eql_str(p, "zig")) {
+            if (!util_tool.eql_str(p, "zig")) {
                 std.debug.print("Error param, you can specify zig or zls\n", .{});
                 return;
             }
         }
 
         // when param is null
-        const res = try tools.http_get(allocator, config.zig_url);
+        const res = try util_http.http_get(allocator, config.zig_url);
         defer allocator.free(res);
 
         var zig_meta = try meta.Zig.init(res, allocator);
@@ -165,7 +175,7 @@ fn handle_list(param: ?[]const u8) !void {
         break :blk version_list;
     };
 
-    defer tools.free_str_array(version_list, allocator);
+    defer util_tool.free_str_array(version_list, allocator);
 
     for (version_list) |version| {
         std.debug.print("{s}\n", .{version});
@@ -176,9 +186,9 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
-        if (tools.eql_str(scmd, "zig")) {
+        if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
-        } else if (tools.eql_str(scmd, "zls")) {
+        } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
             std.debug.print("Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n", .{scmd});
@@ -205,9 +215,9 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
-        if (tools.eql_str(scmd, "zig")) {
+        if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
-        } else if (tools.eql_str(scmd, "zls")) {
+        } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
             std.debug.print("Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n", .{scmd});
@@ -234,9 +244,9 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
-        if (tools.eql_str(scmd, "zig")) {
+        if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
-        } else if (tools.eql_str(scmd, "zls")) {
+        } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
             std.debug.print("Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n", .{scmd});

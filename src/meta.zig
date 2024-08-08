@@ -4,13 +4,11 @@
 //! We can get version list and version data
 const std = @import("std");
 const config = @import("config.zig");
-const tools = @import("tools.zig");
+const util_tool = @import("util/tool.zig");
 
 const json = std.json;
 const Allocator = std.mem.Allocator;
 const jsonValue = std.json.Parsed(std.json.Value);
-
-const eql_str = tools.eql_str;
 
 pub const Zig = struct {
     data: jsonValue,
@@ -53,7 +51,7 @@ pub const Zig = struct {
         var it = self.data.value.object.iterator();
 
         while (it.next()) |entry| {
-            if (!eql_str(entry.key_ptr.*, version))
+            if (!util_tool.eql_str(entry.key_ptr.*, version))
                 continue;
 
             const now_version = entry.value_ptr;
@@ -70,19 +68,19 @@ pub const Zig = struct {
 
                 // get version
                 // only for "master" it will have "version" field
-                if (eql_str(version_info_key, "version")) {
+                if (util_tool.eql_str(version_info_key, "version")) {
                     result.version = try allocator.dupe(u8, version_info_entry_val.string);
                     is_set_version = true;
                 } else
                 // get date
-                if (eql_str(version_info_key, "date")) {
+                if (util_tool.eql_str(version_info_key, "date")) {
                     result.date = try allocator.dupe(
                         u8,
                         version_info_entry_val.string,
                     );
                 } else
                 // skip the useless entry
-                if (eql_str(version_info_key, platform_str)) {
+                if (util_tool.eql_str(version_info_key, platform_str)) {
                     var platform_info = version_info_entry_val.object.iterator();
 
                     while (platform_info.next()) |playform_info_entry| {
@@ -90,15 +88,15 @@ pub const Zig = struct {
                         const playform_info_entry_val = playform_info_entry.value_ptr;
 
                         // get tarball
-                        if (eql_str(platform_info_entry_key, "tarball")) {
+                        if (util_tool.eql_str(platform_info_entry_key, "tarball")) {
                             result.tarball = try allocator.dupe(u8, playform_info_entry_val.string);
                         } else
                         // get shasum
-                        if (eql_str(platform_info_entry_key, "shasum")) {
+                        if (util_tool.eql_str(platform_info_entry_key, "shasum")) {
                             result.shasum = playform_info_entry_val.string[0..64].*;
                         } else
                         // get size
-                        if (eql_str(platform_info_entry_key, "size")) {
+                        if (util_tool.eql_str(platform_info_entry_key, "size")) {
                             const size = try std.fmt.parseUnsigned(
                                 usize,
                                 playform_info_entry_val.string,
@@ -181,14 +179,14 @@ pub const Zls = struct {
             const item_obj = item.object;
 
             const tag = item_obj.get("tag_name") orelse continue;
-            if (!tools.eql_str(version, tag.string)) continue;
+            if (!util_tool.eql_str(version, tag.string)) continue;
 
             const assets = item_obj.get("assets") orelse continue;
             for (assets.array.items) |asset| {
                 const asset_obj = asset.object;
 
                 const name = asset_obj.get("name") orelse continue;
-                if (!tools.eql_str(file_name, name.string)) continue;
+                if (!util_tool.eql_str(file_name, name.string)) continue;
 
                 const tarball = asset_obj.get("browser_download_url") orelse return null;
                 const id = asset_obj.get("id") orelse return null;
