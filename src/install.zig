@@ -147,19 +147,6 @@ fn install_zls(version: []const u8) !void {
         .tarxz, true);
 
     try alias.set_version(true_version, true);
-    std.debug.print(
-        \\zls version data:
-        \\version: {s}
-        \\id: {}
-        \\size: {}
-        \\tarball: {s}
-        \\
-    , .{
-        version_data.version,
-        version_data.id,
-        version_data.size,
-        version_data.tarball,
-    });
 }
 
 pub fn build_zls() !void {}
