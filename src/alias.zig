@@ -32,7 +32,7 @@ pub fn set_version(version: []const u8, is_zls: bool) !void {
         if (err != error.FileNotFound)
             return err;
 
-        std.debug.print("zig {s} is not installed, please install it!\n", .{version});
+        std.debug.print("zig version {s} is not installed. Please install it before proceeding.\n", .{version});
         std.process.exit(1);
     };
 
@@ -90,8 +90,8 @@ fn verify_zls_version(expected_version: []const u8) !void {
     defer allocator.free(actual_version);
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
-        std.debug.print("Expected Zls version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
+        std.debug.print("Expected zls version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
     } else {
-        std.debug.print("Now using Zls version {s}\n", .{expected_version});
+        std.debug.print("Now using zls version {s}\n", .{expected_version});
     }
 }

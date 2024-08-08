@@ -85,7 +85,7 @@ fn install_zig(version: []const u8) !void {
 fn install_zls(version: []const u8) !void {
     const true_version = blk: {
         if (tools.eql_str("master", version)) {
-            std.debug.print("sorry, now not support install zls, that need compile locally!", .{});
+            std.debug.print("Sorry, the 'install zls' feature is not supported at this time. Please compile zls locally.", .{});
             return;
         }
 

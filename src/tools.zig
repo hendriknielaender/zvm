@@ -14,16 +14,12 @@ pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
         try std.process.getEnvVarOwned(config.allocator, "USERPROFILE")
     else
         std.posix.getenv("HOME") orelse ".";
-
-    // config.progress_root = std.Progress.start(.{ .root_name = "zvm" });
 }
 
 /// Deinitialize the data.
 pub fn data_deinit() void {
     if (builtin.os.tag == .windows)
         config.allocator.free(config.home_dir);
-
-    // config.progress_root.end();
 }
 
 /// new progress node
@@ -138,7 +134,7 @@ pub fn http_get(allocator: std.mem.Allocator, uri: std.Uri) ![]const u8 {
     try req.wait();
 
     if (req.response.status != .ok) {
-        return error.ListResponseNotOk;
+        return error.HttpRequestFailed;
     }
 
     const res = try req.reader().readAllAlloc(allocator, 256 * 1024);
@@ -199,7 +195,7 @@ pub fn does_path_exist(path: []const u8) bool {
     return true;
 }
 
-// check dir exist
+// Check if directory path exists
 pub fn does_path_exist2(dir: std.fs.Dir, path: []const u8) bool {
     dir.access(path, .{}) catch |err| {
         if (err == error.FileNotFound) return false;

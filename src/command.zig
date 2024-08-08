@@ -16,7 +16,6 @@ pub const Command = enum {
     Install,
     Use,
     Remove,
-    // Default,
     Version,
     Help,
     Unknown,
@@ -53,7 +52,6 @@ pub fn handle_command(params: []const []const u8) !void {
 
         const args = params[1..];
 
-        // for (args, 0..) |arg, index| {
         const arg = args[0];
         for (command_opts) |opt| {
             const is_eql_short_handle = if (opt.short_handle) |short_handle|
@@ -84,7 +82,6 @@ pub fn handle_command(params: []const []const u8) !void {
                 .param = param,
             };
         }
-        // }
         break :blk CommandData{};
     };
 
@@ -93,7 +90,6 @@ pub fn handle_command(params: []const []const u8) !void {
         .Install => try install_version(command.subcmd, command.param),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
-        // .Default => try set_default(),
         .Version => try get_version(),
         .Help => try display_help(),
         .Unknown => try handle_unknown(),
@@ -248,13 +244,13 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         }
 
         const version = param orelse {
-            std.debug.print("Please specify a version to use: 'remove zig/zls <version>'.\n", .{});
+            std.debug.print("Please specify a version: 'remove zig <version>' or 'remove zls <version>'.\n", .{});
             return;
         };
 
         try remove.remove(version, is_zls);
     } else if (param) |version| {
-        // set zig version
+        // remove zig version
         try remove.remove(version, false);
         // set zls version
         try remove.remove(version, true);
@@ -278,12 +274,11 @@ fn display_help() !void {
         \\    zvm <command> [args]
         \\
         \\Commands:
-        \\    ls, list       List the versions of Zig or Zls available to zvm.
+        \\    ls, list       List the versions of Zig or zls available to zvm.
         \\    i, install     Install the specified version of Zig or Zls.
         \\    use            Use the specified version of Zig Zls.
         \\    remove         Remove the specified version of Zig or Zls
         \\    --version      Display zvm version.
-        // \\    --default      Set a specified Zig or Zls version as the default for new shells.
         \\    --help         Display this help message.
         \\
         \\Example:
