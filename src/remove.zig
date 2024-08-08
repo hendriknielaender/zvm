@@ -2,9 +2,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");
-const util_data=@import("util/data.zig");
-const util_tool=@import("util/tool.zig");
-
+const util_data = @import("util/data.zig");
+const util_tool = @import("util/tool.zig");
 
 /// try remove specified version
 pub fn remove(version: []const u8, is_zls: bool) !void {
