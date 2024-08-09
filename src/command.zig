@@ -131,7 +131,7 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     std.fs.accessAbsolute(current_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
-            std.debug.print("{s} has not been installed yet, please install it fist!\n", .{if (is_zls) "Zls" else "Zig"});
+            std.debug.print("{s} has not been installed yet, please install it fist!\n", .{if (is_zls) "zls" else "Zig"});
             std.process.exit(1);
         }
         return err;
@@ -285,9 +285,9 @@ fn display_help() !void {
         \\
         \\Commands:
         \\    ls, list       List the versions of Zig or zls available to zvm.
-        \\    i, install     Install the specified version of Zig or Zls.
-        \\    use            Use the specified version of Zig Zls.
-        \\    remove         Remove the specified version of Zig or Zls
+        \\    i, install     Install the specified version of Zig or zls.
+        \\    use            Use the specified version of Zig or zls.
+        \\    remove         Remove the specified version of Zig or zls
         \\    --version      Display zvm version.
         \\    --help         Display this help message.
         \\
