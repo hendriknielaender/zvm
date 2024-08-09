@@ -1,10 +1,8 @@
 const std = @import("std");
-const crypto = std.crypto;
-const testing = std.testing;
-const mem = std.mem;
 
-pub fn verify_hash(computed_hash: [32]u8, actual_hash_string: []const u8) bool {
-    if (actual_hash_string.len != 64) return false; // SHA256 hash should be 64 hex characters
+/// For verifying hash
+pub fn verify_hash(computed_hash: [32]u8, actual_hash_string: [64]u8) bool {
+    // if (actual_hash_string.len != 64) return false; // SHA256 hash should be 64 hex characters
 
     var actual_hash_bytes: [32]u8 = undefined;
     var i: usize = 0;
@@ -35,6 +33,6 @@ test "verify_hash basic test" {
     var sample_hash_hex: [64]u8 = undefined;
     _ = std.fmt.bufPrint(&sample_hash_hex, "{}", .{std.fmt.fmtSliceHexLower(sample_hash[0..])}) catch unreachable;
 
-    try testing.expect(verify_hash(sample_hash, &sample_hash_hex));
-    try testing.expect(!verify_hash(sample_hash, "incorrect_hash"));
+    try std.testing.expect(verify_hash(sample_hash, &sample_hash_hex));
+    try std.testing.expect(!verify_hash(sample_hash, "incorrect_hash"));
 }
