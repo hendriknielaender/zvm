@@ -1,16 +1,14 @@
+//! This file is used to install zig or zls
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");
-const hash = @import("hash.zig");
-const download = @import("download.zig");
-const architecture = @import("architecture.zig");
-const tools = @import("tools.zig");
-const Allocator = std.mem.Allocator;
-const io = std.io;
-const json = std.json;
-const fs = std.fs;
-const crypto = std.crypto;
-const os = std.os;
+const alias = @import("alias.zig");
+const meta = @import("meta.zig");
+const util_arch = @import("util/arch.zig");
+const util_data = @import("util/data.zig");
+const util_extract = @import("util/extract.zig");
+const util_tool = @import("util/tool.zig");
+const util_http = @import("util/http.zig");
 
 const Version = struct {
     name: []const u8,
@@ -19,87 +17,20 @@ const Version = struct {
     shasum: ?[]const u8,
 };
 
-const Error = error{
-    HttpError,
-    UnsupportedVersion,
-    JSONParsingFailed,
-    MissingExpectedFields,
-    FileError,
-    HashMismatch,
-    ContentMissing,
-};
-
-fn fetch_version_data(allocator: Allocator, requested_version: []const u8, sub_key: []const u8) !?Version {
-    const uri = std.Uri.parse(config.download_manifest_url) catch unreachable;
-
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    var buffer: [262144]u8 = undefined; // 256 * 1024 = 262kb
-
-    var req = try client.open(.GET, uri, .{ .server_header_buffer = &buffer });
-    defer req.deinit();
-    try req.send();
-    try req.wait();
-
-    try std.testing.expect(req.response.status == .ok);
-
-    const read_len = try req.readAll(buffer[0..]);
-
-    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, buffer[0..read_len], .{});
-    defer parsed.deinit();
-    const root = parsed.value;
-
-    var it = root.object.iterator();
-    while (it.next()) |entry| {
-        if (std.mem.eql(u8, entry.key_ptr.*, requested_version)) {
-            var version: ?[]const u8 = "not_set";
-            var date: ?[]const u8 = null;
-            var tarball: ?[]const u8 = null;
-            var shasum: ?[]const u8 = null;
-
-            var val_obj = entry.value_ptr.*.object.iterator();
-            while (val_obj.next()) |value| {
-                if (std.mem.eql(u8, value.key_ptr.*, "version")) {
-                    version = value.value_ptr.*.string;
-                }
-                if (std.mem.eql(u8, value.key_ptr.*, "date")) {
-                    date = value.value_ptr.*.string;
-                } else if (std.mem.eql(u8, value.key_ptr.*, sub_key)) {
-                    var nested_obj = value.value_ptr.*.object.iterator();
-                    while (nested_obj.next()) |nested_value| {
-                        if (std.mem.eql(u8, nested_value.key_ptr.*, "tarball")) {
-                            tarball = nested_value.value_ptr.*.string;
-                        }
-                        if (std.mem.eql(u8, nested_value.key_ptr.*, "shasum")) {
-                            shasum = nested_value.value_ptr.*.string;
-                        }
-                    }
-                }
-            }
-
-            if (date == null or tarball == null or shasum == null) {
-                return Error.MissingExpectedFields;
-            }
-
-            const version_name = if (std.mem.eql(u8, requested_version, "master")) version.? else requested_version;
-
-            return Version{
-                .name = try allocator.dupe(u8, version_name),
-                .date = try allocator.dupe(u8, date.?),
-                .tarball = try allocator.dupe(u8, tarball.?),
-                .shasum = try allocator.dupe(u8, shasum.?),
-            };
-        }
+/// try install specified version
+pub fn install(version: []const u8, is_zls: bool) !void {
+    if (is_zls) {
+        try install_zls(version);
+    } else {
+        try install_zig(version);
     }
-
-    return null;
 }
 
-pub fn from_version(version: []const u8) !void {
-    const allocator = tools.get_allocator();
+/// Try to install the specified version of zig
+fn install_zig(version: []const u8) !void {
+    const allocator = util_data.get_allocator();
 
-    const platform_str = try architecture.platform_str(architecture.DetectParams{
+    const platform_str = try util_arch.platform_str(.{
         .os = builtin.os.tag,
         .arch = builtin.cpu.arch,
         .reverse = true,
@@ -108,19 +39,126 @@ pub fn from_version(version: []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const version_data = try fetch_version_data(arena.allocator(), version, platform_str);
-    if (version_data) |data| {
-        std.debug.print("Install {s}\n", .{data.name});
+    const arena_allocator = arena.allocator();
 
-        if (data.shasum) |actual_shasum| {
-            const computed_hash = try download.content(allocator, data.name, data.tarball.?);
-            if (computed_hash) |shasum| {
-                if (!hash.verify_hash(shasum, actual_shasum)) {
-                    return error.HashMismatch;
-                }
-            }
-        }
-    } else {
-        return Error.UnsupportedVersion;
+    // get version path
+    const version_path = try util_data.get_zvm_zig_version(arena_allocator);
+    // get extract path
+    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
+
+    if (util_tool.does_path_exist(extract_path)) {
+        try alias.set_version(version, false);
+        return;
     }
+
+    // get version data
+    const version_data: meta.Zig.VersionData = blk: {
+        const res = try util_http.http_get(arena_allocator, config.zig_url);
+        var zig_meta = try meta.Zig.init(res, arena_allocator);
+        const tmp_val = try zig_meta.get_version_data(version, platform_str, arena_allocator);
+        break :blk tmp_val orelse return error.UnsupportedVersion;
+    };
+
+    const reverse_platform_str = try util_arch.platform_str(.{
+        .os = builtin.os.tag,
+        .arch = builtin.cpu.arch,
+        .reverse = false,
+    }) orelse unreachable;
+
+    const file_name = try std.mem.concat(
+        arena_allocator,
+        u8,
+        &.{ "zig-", reverse_platform_str, "-", version, ".", config.archive_ext },
+    );
+
+    const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
+    const new_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
+    defer new_file.close();
+
+    try util_tool.try_create_path(extract_path);
+    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+
+    try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
+
+    // mv
+    const sub_path = try std.fs.path.join(arena_allocator, &.{
+        extract_path, try std.mem.concat(
+            arena_allocator,
+            u8,
+            &.{ "zig-", reverse_platform_str, "-", version },
+        ),
+    });
+    defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
+
+    try util_tool.copy_dir(sub_path, extract_path);
+
+    try alias.set_version(version, false);
 }
+
+/// Try to install the specified version of zls
+fn install_zls(version: []const u8) !void {
+    const true_version = blk: {
+        if (util_tool.eql_str("master", version)) {
+            std.debug.print("Sorry, the 'install zls' feature is not supported at this time. Please compile zls locally.", .{});
+            return;
+        }
+
+        for (config.zls_list_1, 0..) |val, i| {
+            if (util_tool.eql_str(val, version))
+                break :blk config.zls_list_2[i];
+        }
+        break :blk version;
+    };
+    const allocator = util_data.get_allocator();
+
+    const reverse_platform_str = try util_arch.platform_str(.{
+        .os = builtin.os.tag,
+        .arch = builtin.cpu.arch,
+        .reverse = true,
+    }) orelse unreachable;
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
+    // get version path
+    const version_path = try util_data.get_zvm_zls_version(arena_allocator);
+    // get extract path
+    const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, true_version });
+
+    if (util_tool.does_path_exist(extract_path)) {
+        try alias.set_version(true_version, true);
+        return;
+    }
+
+    // get version data
+    const version_data: meta.Zls.VersionData = blk: {
+        const res = try util_http.http_get(arena_allocator, config.zls_url);
+        var zls_meta = try meta.Zls.init(res, arena_allocator);
+        const tmp_val = try zls_meta.get_version_data(true_version, reverse_platform_str, arena_allocator);
+        break :blk tmp_val orelse return error.UnsupportedVersion;
+    };
+
+    const file_name = try std.mem.concat(
+        arena_allocator,
+        u8,
+        &.{ "zls-", reverse_platform_str, "-", true_version, ".", config.archive_ext },
+    );
+
+    const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
+    const new_file = try util_http.download(parsed_uri, file_name, null, version_data.size);
+    defer new_file.close();
+
+    try util_tool.try_create_path(extract_path);
+
+    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows)
+        .zip
+    else
+        .tarxz, true);
+
+    try alias.set_version(true_version, true);
+}
+
+pub fn build_zls() !void {}

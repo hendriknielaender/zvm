@@ -1,5 +1,5 @@
 const std = @import("std");
-const tools = @import("tools.zig");
+const util_data = @import("util/data.zig");
 const command = @import("command.zig");
 
 pub fn main() !void {
@@ -8,16 +8,19 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("memory leaked!");
 
     // init some useful data
-    try tools.data_init(gpa.allocator());
+    try util_data.data_init(gpa.allocator());
     // deinit some data
-    defer tools.data_deinit();
+    defer util_data.data_deinit();
 
     // get allocator
-    const allocator = tools.get_allocator();
+    const allocator = util_data.get_allocator();
 
     // get and free args
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
+
+    // try handle alias
+    try command.handle_alias(args);
 
     // parse the args and handle command
     try command.handle_command(args);

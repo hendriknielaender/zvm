@@ -1,3 +1,4 @@
+//! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
 
 pub const DetectParams = struct {
