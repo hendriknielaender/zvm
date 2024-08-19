@@ -80,6 +80,18 @@ fn install_zig(version: []const u8) !void {
 
     try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
 
+    // mv
+    const sub_path = try std.fs.path.join(arena_allocator, &.{
+        extract_path, try std.mem.concat(
+            arena_allocator,
+            u8,
+            &.{ "zig-", reverse_platform_str, "-", version },
+        ),
+    });
+    defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
+
+    try util_tool.copy_dir(sub_path, extract_path);
+
     try alias.set_version(version, false);
 }
 
