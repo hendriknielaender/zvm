@@ -12,6 +12,10 @@ pub var progress_root: std.Progress.Node = undefined;
 
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
+
+/// zig minisign public key
+pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
+
 /// zls meta data url
 pub const zls_meta_url: []const u8 = "https://api.github.com/repos/zigtools/zls/releases";
 
