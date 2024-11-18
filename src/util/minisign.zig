@@ -35,16 +35,9 @@ pub const Signature = struct {
     global_signature: [64]u8,
 
     pub fn get_algorithm(self: Signature) !Algorithm {
-        const legacy_alg = "Ed";
-        const prehash_alg = "ED";
-
-        if (self.signature_algorithm == prehash_alg) {
-            return .prehash;
-        } else if (self.signature_algorithm == legacy_alg) {
-            return .legacy;
-        } else {
-            return Error.unsupported_algorithm;
-        }
+        const signature_algorithm = self.signature_algorithm;
+        const prehashed = if (signature_algorithm[0] == 0x45 and signature_algorithm[1] == 0x64) false else if (signature_algorithm[0] == 0x45 and signature_algorithm[1] == 0x44) true else return error.UnsupportedAlgorithm;
+        return if (prehashed) .Prehash else .Legacy;
     }
 
     pub fn decode(_: *std.mem.Allocator, lines: []const u8) !Signature {
@@ -59,7 +52,7 @@ pub const Signature = struct {
         const trusted_comment_prefix = "trusted comment: ";
         const comment_line = tokenizer.next() orelse return Error.invalid_encoding;
         if (!mem.startsWith(u8, comment_line, trusted_comment_prefix)) {
-            return Error.invalid_encoding;
+            return error.invalid_encoding;
         }
         const trusted_comment = comment_line[trusted_comment_prefix.len..];
 
@@ -136,43 +129,42 @@ pub const Verifier = struct {
 
     pub fn init(public_key: PublicKey, signature: Signature) !Verifier {
         const algorithm = try signature.get_algorithm();
+        const ed25519_pk = try Ed25519.PublicKey.fromBytes(public_key.key);
         return Verifier{
             .public_key = public_key,
             .signature = signature,
             .hasher = switch (algorithm) {
-                .prehash => Blake2b512.init(.{}),
-                .legacy => try Ed25519.Verifier.fromBytes(signature.signature),
+                .Prehash => .{ .Prehash = Blake2b512.init(.{}) },
+                .Legacy => .{ .Legacy = try Ed25519.Signature.fromBytes(signature.signature).verifier(ed25519_pk) },
             },
         };
     }
 
     pub fn update(self: *Verifier, data: []const u8) void {
         switch (self.hasher) {
-            .prehash => |prehash| prehash.update(data),
-            .legacy => |legacy| legacy.update(data),
+            .Prehash => |*prehash| prehash.update(data),
+            .Legacy => |*legacy| legacy.update(data),
         }
     }
 
     pub fn finalize(self: *Verifier) !void {
         const public_key = try Ed25519.PublicKey.fromBytes(self.public_key.key);
         switch (self.hasher) {
-            .prehash => |prehash| {
+            .Prehash => |*prehash| {
                 var digest: [64]u8 = undefined;
                 prehash.final(&digest);
-                const signature = try Ed25519.Signature.fromBytes(self.signature.signature);
-                try signature.verify(&digest, public_key);
+                try Ed25519.Signature.fromBytes(self.signature.signature).verify(&digest, public_key);
             },
-            .legacy => |legacy| {
+            .Legacy => |*legacy| {
                 try legacy.verify();
             },
         }
 
         // Verify Global Signature
         var global_data: [128]u8 = undefined;
-        mem.copy(u8, global_data[0..64], self.signature.signature);
-        mem.copy(u8, global_data[64..128], self.signature.trusted_comment);
-        const global_signature = try Ed25519.Signature.fromBytes(self.signature.global_signature);
-        try global_signature.verify(&global_data, public_key);
+        mem.copyForwards(u8, global_data[0..64], &self.signature.signature);
+        mem.copyForwards(u8, global_data[64..128], self.signature.trusted_comment);
+        try Ed25519.Signature.fromBytes(self.signature.global_signature).verify(&global_data, public_key);
     }
 };
 
