@@ -29,6 +29,8 @@ pub fn install(version: []const u8, is_zls: bool) !void {
 
 /// Try to install the specified version of zig
 fn install_zig(version: []const u8) !void {
+    std.debug.print("install start", .{});
+
     var allocator = util_data.get_allocator();
 
     const platform_str = try util_arch.platform_str(.{
@@ -74,29 +76,37 @@ fn install_zig(version: []const u8) !void {
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
 
+    std.debug.print("parsed url: {any}", .{parsed_uri});
+
     // Download the tarball
     const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
     defer tarball_file.close();
 
-    // Derive signature URI by appending ".minisign" to the tarball URL
+    std.debug.print("download done", .{});
+
+    // Derive signature URI by appending ".minisig" to the tarball URL
+    // https://ziglang.org/builds/zig-0.14.0-dev.2261+fbcb00fbb.tar.xz.minisig
+    const minisig_url = try remove_arch_from_url(arena_allocator, version_data.tarball);
     var signature_uri_buffer: [1024]u8 = undefined;
     const signature_uri_buf = try std.fmt.bufPrint(
         &signature_uri_buffer,
-        "{s}.minisign",
-        .{version_data.tarball},
+        "{s}.minisig",
+        .{minisig_url},
     );
+
     const signature_uri = try std.Uri.parse(signature_uri_buffer[0..signature_uri_buf.len]);
+
+    std.debug.print("signature url {any}", .{signature_uri});
 
     // Define signature file name
     const signature_file_name = try std.mem.concat(
         arena_allocator,
         u8,
-        &.{ file_name, ".minisign" },
+        &.{ file_name, ".minisig" },
     );
 
     // Download the signature file using the corrected signature_uri
     const signature_data = try util_http.http_get(arena_allocator, signature_uri);
-    defer allocator.free(signature_data);
 
     // Save the signature file to disk
     const store_path = try std.fs.path.join(arena_allocator, &.{ "store", signature_file_name });
@@ -199,3 +209,24 @@ fn install_zls(version: []const u8) !void {
 }
 
 pub fn build_zls() !void {}
+
+fn remove_arch_from_url(allocator: std.mem.Allocator, url: []const u8) ![]const u8 {
+    const prefix = "zig-";
+    const version_marker = "-0."; // A reliable marker for version information
+
+    const prefix_index = std.mem.indexOf(u8, url, prefix) orelse return url;
+    const version_start = std.mem.indexOf(u8, url, version_marker) orelse return url;
+
+    // Ensure proper removal of redundant dashes
+    const prefix_end = prefix_index + prefix.len;
+
+    // Rebuild the URL without platform/architecture
+    return try std.mem.concat(
+        allocator,
+        u8,
+        &.{
+            url[0..prefix_end], // Keep everything up to and including `zig-`
+            url[version_start + 1 ..],
+        },
+    );
+}
