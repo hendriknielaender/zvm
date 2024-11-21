@@ -97,7 +97,6 @@ fn install_zig(version: []const u8) !void {
     const signature_uri = try std.Uri.parse(signature_uri_buffer[0..signature_uri_buf.len]);
 
     std.debug.print("signature url {any}", .{signature_uri});
-
     // Define signature file name
     const signature_file_name = try std.mem.concat(
         arena_allocator,
@@ -106,21 +105,19 @@ fn install_zig(version: []const u8) !void {
     );
 
     // Download the signature file using the corrected signature_uri
-    const signature_data = try util_http.http_get(arena_allocator, signature_uri);
+    const minisig_file = try util_http.download(signature_uri, signature_file_name, null, null);
+    defer minisig_file.close();
 
-    // Save the signature file to disk
-    const store_path = try std.fs.path.join(arena_allocator, &.{ "store", signature_file_name });
-    const signature_file = try std.fs.cwd().createFile(store_path, .{ .truncate = true });
-
-    defer signature_file.close();
-    try signature_file.writeAll(signature_data);
+    const zvm_path = try util_data.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(zvm_path);
+    const sig_path = try std.fs.path.join(arena_allocator, &.{ zvm_path, signature_file_name });
 
     // Perform Minisign Verification
     try util_minisign.verify(
         &allocator,
+        sig_path,
         config.ZIG_MINISIGN_PUBLIC_KEY,
-        file_name,
-        store_path,
+        extract_path,
     );
 
     // Proceed with extraction after successful verification

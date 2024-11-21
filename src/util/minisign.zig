@@ -176,6 +176,7 @@ pub fn verify(
     file_path: []const u8,
 ) !void {
     // Load Signature
+    std.debug.print("signature_path: {s}", .{signature_path});
     const signature = try Signature.from_file(allocator, signature_path);
     defer allocator.free(signature.trusted_comment);
 
