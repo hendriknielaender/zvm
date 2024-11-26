@@ -9,7 +9,6 @@ const io = std.io;
 const Endian = std.builtin.Endian;
 const Ed25519 = crypto.sign.Ed25519;
 const Blake2b512 = crypto.hash.blake2.Blake2b512;
-const debug = std.debug;
 
 // Error Definitions
 const Error = error{
@@ -52,40 +51,33 @@ pub const Signature = struct {
         var line: []const u8 = undefined;
         while (true) {
             line = tokenizer.next() orelse {
-                debug.print("No more lines to read. Invalid encoding.\n", .{});
+                std.debug.print("No more lines to read. Invalid encoding.\n", .{});
                 return Error.invalid_encoding;
             };
             const trimmed_line = mem.trim(u8, line, " \t\r\n");
-            debug.print("Read line: '{s}'\n", .{trimmed_line});
 
             if (!mem.startsWith(u8, trimmed_line, "untrusted comment:")) {
                 break;
             }
-            debug.print("Skipping untrusted comment line.\n", .{});
             // Optionally, store or process the untrusted comment if needed
         }
 
         // Now 'line' should be the Base64 encoded signature
         const sig_line_trimmed = mem.trim(u8, line, " \t\r\n");
-        debug.print("Signature line (trimmed): '{s}'\n", .{sig_line_trimmed});
-        debug.print("Signature line length: {d}\n", .{sig_line_trimmed.len});
 
         var sig_bin: [74]u8 = undefined;
         try base64.standard.Decoder.decode(&sig_bin, sig_line_trimmed);
 
-        debug.print("Signature binary length: {d}\n", .{sig_bin.len});
-
         // Decode trusted comment
         const comment_line = tokenizer.next() orelse {
-            debug.print("Expected trusted comment line but none found.\n", .{});
+            std.debug.print("Expected trusted comment line but none found.\n", .{});
             return Error.invalid_encoding;
         };
         const comment_line_trimmed = mem.trim(u8, comment_line, " \t\r\n");
-        debug.print("Trusted comment line (trimmed): '{s}'\n", .{comment_line_trimmed});
 
         const trusted_comment_prefix = "trusted comment: ";
         if (!mem.startsWith(u8, comment_line_trimmed, trusted_comment_prefix)) {
-            debug.print("Trusted comment line does not start with the expected prefix.\n", .{});
+            std.debug.print("Trusted comment line does not start with the expected prefix.\n", .{});
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
@@ -93,21 +85,15 @@ pub const Signature = struct {
         const trusted_comment = try allocator.alloc(u8, trusted_comment_slice.len);
         mem.copyForwards(u8, trusted_comment, trusted_comment_slice);
 
-        debug.print("Trusted comment: '{s}'\n", .{trusted_comment});
-
         // Decode global signature
         const global_sig_line = tokenizer.next() orelse {
-            debug.print("Expected global signature line but none found.\n", .{});
+            std.debug.print("Expected global signature line but none found.\n", .{});
             return Error.invalid_encoding;
         };
         const global_sig_line_trimmed = mem.trim(u8, global_sig_line, " \t\r\n");
-        debug.print("Global signature line (trimmed): '{s}'\n", .{global_sig_line_trimmed});
-        debug.print("Global signature line length: {d}\n", .{global_sig_line_trimmed.len});
 
         var global_sig_bin: [64]u8 = undefined;
         try base64.standard.Decoder.decode(&global_sig_bin, global_sig_line_trimmed);
-
-        debug.print("Global signature binary length: {d}\n", .{global_sig_bin.len});
 
         return Signature{
             .signature_algorithm = sig_bin[0..2].*,
@@ -119,18 +105,11 @@ pub const Signature = struct {
     }
 
     pub fn from_file(allocator: *std.mem.Allocator, path: []const u8) !Signature {
-        debug.print("Loading signature from file: {s}\n", .{path});
         const file = try fs.cwd().openFile(path, .{ .mode = .read_only });
         defer file.close();
 
         const sig_str = try file.readToEndAlloc(allocator.*, 4096);
-        // Do not free sig_str here since we're slicing into it in decode
-        // defer allocator.free(sig_str); // Remove this line
-
-        debug.print("Signature file content:\n{s}\n", .{sig_str});
-
         const signature = try decode(allocator, sig_str);
-        // Now that we've copied the necessary data, we can free sig_str
         allocator.free(sig_str);
 
         return signature;
@@ -145,8 +124,6 @@ pub const PublicKey = struct {
 
     pub fn decode(str: []const u8) !PublicKey {
         const trimmed_str = std.mem.trim(u8, str, " \t\r\n");
-        std.debug.print("Public key string (trimmed): '{s}'\n", .{trimmed_str});
-        std.debug.print("Public key string length: {d}\n", .{trimmed_str.len});
 
         if (trimmed_str.len != 56) { // Base64 for 42-byte key
             std.debug.print("Error: Public key string length is {d}, expected 56.\n", .{trimmed_str.len});
@@ -155,10 +132,8 @@ pub const PublicKey = struct {
 
         var bin: [42]u8 = undefined;
         try base64.standard.Decoder.decode(&bin, trimmed_str);
-        std.debug.print("Decoded public key binary length: {d}\n", .{bin.len});
 
         const signature_algorithm = bin[0..2];
-        std.debug.print("Signature algorithm bytes: {x}\n", .{signature_algorithm});
 
         if (bin[0] != 0x45 or (bin[1] != 0x64 and bin[1] != 0x44)) {
             std.debug.print("Unsupported signature algorithm: {x}\n", .{signature_algorithm});
@@ -166,10 +141,7 @@ pub const PublicKey = struct {
         }
 
         const key_id = bin[2..10];
-        std.debug.print("Key ID: {x}\n", .{key_id});
-
         const public_key = bin[10..42];
-        std.debug.print("Public key bytes: {x}\n", .{public_key});
 
         return PublicKey{
             .signature_algorithm = signature_algorithm.*,
@@ -248,26 +220,17 @@ pub fn verify(
     public_key_str: []const u8,
     file_path: []const u8,
 ) !void {
-    debug.print("Starting verification process.\n", .{});
-    debug.print("Signature path: {s}\n", .{signature_path});
-    debug.print("Public key string: {s}\n", .{public_key_str});
-    debug.print("File path: {s}\n", .{file_path});
-
     // Load Signature
     var signature = try Signature.from_file(allocator, signature_path);
     defer signature.deinit(allocator); // Ensure we free the allocated memory
-    debug.print("Loaded signature successfully.\n", .{});
 
     // Load Public Key from String
     const public_key = try PublicKey.decode(public_key_str);
-    debug.print("Loaded public key successfully.\n", .{});
 
     // Initialize Verifier
-    debug.print("Initializing verifier.\n", .{});
     var verifier = try Verifier.init(public_key, signature);
 
     // Open File to Verify
-    debug.print("Opening file to verify: {s}\n", .{file_path});
     const file = try fs.cwd().openFile(file_path, .{ .mode = .read_only });
     defer file.close();
 
@@ -280,7 +243,5 @@ pub fn verify(
     }
 
     // Finalize Verification
-    debug.print("Finalizing verification.\n", .{});
     try verifier.finalize(allocator);
-    debug.print("Verification succeeded.\n", .{});
 }

@@ -55,8 +55,6 @@ fn install_zig(version: []const u8) !void {
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
 
-    std.debug.print("version: {s}\n", .{version_data.version});
-
     if (util_tool.does_path_exist(extract_path)) {
         try alias.set_version(version, false);
         return;
@@ -111,16 +109,15 @@ fn install_zig(version: []const u8) !void {
 
     try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
 
-    const sub_path = try std.fs.path.join(arena_allocator, &.{
-        extract_path, try std.mem.concat(
-            arena_allocator,
-            u8,
-            &.{},
-        ),
-    });
-    defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
-
     //TODO: not needed (macOS) still needed for unix and windows?
+    // const sub_path = try std.fs.path.join(arena_allocator, &.{
+    //     extract_path, try std.mem.concat(
+    //         arena_allocator,
+    //         u8,
+    //         &.{},
+    //     ),
+    // });
+    //
     //try util_tool.copy_dir(sub_path, extract_path);
 
     try alias.set_version(version, false);
