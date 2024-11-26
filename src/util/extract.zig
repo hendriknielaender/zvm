@@ -7,35 +7,46 @@ const tool = @import("tool.zig");
 const xz = std.compress.xz;
 const tar = std.tar;
 
-/// extract file to out_dir
+/// Extract file to out_dir
 pub fn extract(
     out_dir: std.fs.Dir,
     file: std.fs.File,
     file_type: enum { tarxz, zip },
     is_zls: bool,
+    root_node: std.Progress.Node,
 ) !void {
     switch (file_type) {
-        .zip => try extract_zip_dir(out_dir, file),
-        .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls),
+        .zip => try extract_zip_dir(out_dir, file, root_node),
+        .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls, root_node),
     }
 }
 
-/// extract tar.xz to dir
-fn extract_tarxz_to_dir(out_dir: std.fs.Dir, file: std.fs.File, is_zls: bool) !void {
+/// Extract tar.xz to dir
+fn extract_tarxz_to_dir(
+    out_dir: std.fs.Dir,
+    file: std.fs.File,
+    is_zls: bool,
+    root_node: std.Progress.Node,
+) !void {
     var buffered_reader = std.io.bufferedReader(file.reader());
 
     var decompressed = try xz.decompress(data.get_allocator(), buffered_reader.reader());
     defer decompressed.deinit();
+
+    // Start extraction with an indeterminate progress indicator
+    root_node.setEstimatedTotalItems(0);
 
     try tar.pipeToFileSystem(
         out_dir,
         decompressed.reader(),
         .{ .mode_mode = .executable_bit_only, .strip_components = if (is_zls) 0 else 1 },
     );
+
+    root_node.setCompletedItems(1);
 }
 
-/// extract zip to directory
-fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File) !void {
+/// Extract zip to directory
+fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File, _: std.Progress.Node) !void {
     var arena = std.heap.ArenaAllocator.init(data.get_allocator());
     defer arena.deinit();
 

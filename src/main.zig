@@ -7,6 +7,12 @@ pub fn main() !void {
     // this will detect the memory whether leak
     defer if (gpa.deinit() == .leak) @panic("memory leaked!");
 
+    // Initialize the root progress node
+    const root_node = std.Progress.start(.{
+        .root_name = "zig installation",
+        .estimated_total_items = 6,
+    });
+
     // init some useful data
     try util_data.data_init(gpa.allocator());
     // deinit some data
@@ -23,5 +29,5 @@ pub fn main() !void {
     try command.handle_alias(args);
 
     // parse the args and handle command
-    try command.handle_command(args);
+    try command.handle_command(args, root_node);
 }

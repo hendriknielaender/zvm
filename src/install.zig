@@ -20,16 +20,16 @@ const Version = struct {
 };
 
 /// try install specified version
-pub fn install(version: []const u8, is_zls: bool) !void {
+pub fn install(version: []const u8, is_zls: bool, root_node: Progress.Node) !void {
     if (is_zls) {
         try install_zls(version);
     } else {
-        try install_zig(version);
+        try install_zig(version, root_node);
     }
 }
 
 /// Try to install the specified version of zig
-fn install_zig(version: []const u8) !void {
+fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     var allocator = util_data.get_allocator();
 
     const platform_str = try util_arch.platform_str(.{
@@ -42,15 +42,6 @@ fn install_zig(version: []const u8) !void {
     defer arena.deinit();
 
     const arena_allocator = arena.allocator();
-
-    // Determine the number of steps
-    const total_steps = 6;
-
-    // Initialize progress root node
-    const root_node = std.Progress.start(.{
-        .root_name = "Installing Zig",
-        .estimated_total_items = total_steps,
-    });
 
     var items_done: usize = 0;
 
@@ -85,9 +76,9 @@ fn install_zig(version: []const u8) !void {
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
 
     // Create a child progress node for the download
-    const download_node = root_node.start("Downloading Zig tarball", version_data.size);
-    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
-    defer tarball_file.close();
+    const download_node = root_node.start("download zig", version_data.size);
+    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size, download_node);
+    // defer tarball_file.close();
     download_node.end();
     items_done += 1;
 
@@ -110,10 +101,10 @@ fn install_zig(version: []const u8) !void {
     );
 
     // Create a child progress node for the signature download
-    const sig_download_node = root_node.start("Downloading Signature File", 0);
-    const minisig_file = try util_http.download(signature_uri, signature_file_name, null, null);
+    const sig_download_node = root_node.start("verifying file signature", 0);
+    const minisig_file = try util_http.download(signature_uri, signature_file_name, null, null, sig_download_node);
     defer minisig_file.close();
-    sig_download_node.end();
+    // sig_download_node.end();
     items_done += 1;
     root_node.setCompletedItems(items_done);
 
@@ -133,10 +124,10 @@ fn install_zig(version: []const u8) !void {
     root_node.setCompletedItems(items_done);
 
     // Proceed with extraction after successful verification
-    const extract_node = root_node.start("Extracting Zig tarball", 0);
+    const extract_node = root_node.start("Extracting zig", 0);
     try util_tool.try_create_path(extract_path);
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
-    try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
+    try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false, extract_node);
     extract_node.end();
     items_done += 1;
     root_node.setCompletedItems(items_done);
@@ -174,24 +165,44 @@ fn install_zls(version: []const u8) !void {
 
     const arena_allocator = arena.allocator();
 
-    // get version path
+    // Determine total steps
+    const total_steps = 4;
+
+    // Initialize progress root node
+    const root_node = std.Progress.start(.{
+        .root_name = "Installing ZLS",
+        .estimated_total_items = total_steps,
+    });
+
+    var items_done: usize = 0;
+
+    // Step 1: Get version path
     const version_path = try util_data.get_zvm_zls_version(arena_allocator);
-    // get extract path
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
+
+    // Step 2: Get extract path
     const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, true_version });
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
 
     if (util_tool.does_path_exist(extract_path)) {
         try alias.set_version(true_version, true);
+        root_node.end();
         return;
     }
 
-    // get version data
+    // Step 3: Get version data
     const version_data: meta.Zls.VersionData = blk: {
         const res = try util_http.http_get(arena_allocator, config.zls_url);
         var zls_meta = try meta.Zls.init(res, arena_allocator);
         const tmp_val = try zls_meta.get_version_data(true_version, reverse_platform_str, arena_allocator);
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
 
+    // Step 4: Download the tarball
     const file_name = try std.mem.concat(
         arena_allocator,
         u8,
@@ -199,16 +210,23 @@ fn install_zls(version: []const u8) !void {
     );
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
-    const new_file = try util_http.download(parsed_uri, file_name, null, version_data.size);
+
+    // Create a child progress node for the download
+    const download_node = root_node.start("Downloading ZLS tarball", version_data.size);
+    const new_file = try util_http.download(parsed_uri, file_name, null, version_data.size, download_node);
     defer new_file.close();
+    download_node.end();
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
 
+    // Proceed with extraction
+    const extract_node = root_node.start("Extracting ZLS tarball", 0);
     try util_tool.try_create_path(extract_path);
-
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
-    try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows)
-        .zip
-    else
-        .tarxz, true);
+    try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, true, extract_node);
+    extract_node.end();
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
 
     try alias.set_version(true_version, true);
 }

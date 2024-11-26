@@ -49,7 +49,7 @@ const command_opts = [_]CommandOption{
 };
 
 /// Parse and handle commands
-pub fn handle_command(params: []const []const u8) !void {
+pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) !void {
     const command: CommandData = blk: {
         if (params.len < 2) break :blk CommandData{};
 
@@ -90,7 +90,7 @@ pub fn handle_command(params: []const []const u8) !void {
 
     switch (command.cmd) {
         .List => try handle_list(command.param),
-        .Install => try install_version(command.subcmd, command.param),
+        .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
         .Version => try get_version(),
@@ -182,7 +182,7 @@ fn handle_list(param: ?[]const u8) !void {
     }
 }
 
-fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progress.Node) !void {
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
@@ -200,12 +200,10 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
             return;
         };
 
-        try install.install(version, is_zls);
+        try install.install(version, is_zls, root_node);
     } else if (param) |version| {
         // set zig version
-        try install.install(version, false);
-        // set zls version
-        //try install.install(version, true);
+        try install.install(version, false, root_node);
     } else {
         std.debug.print("Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n", .{});
     }
