@@ -64,23 +64,13 @@ fn install_zig(version: []const u8) !void {
         return;
     }
 
-    const reverse_platform_str = try util_arch.platform_str(.{
-        .os = builtin.os.tag,
-        .arch = builtin.cpu.arch,
-        .reverse = false,
-    }) orelse unreachable;
-
-    const file_name_base = std.fs.path.basename(version_data.tarball);
+    const file_name = std.fs.path.basename(version_data.tarball);
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
 
-    std.debug.print("parsed url: {s}\n", .{version_data.tarball});
-
     // Download the tarball
-    const tarball_file = try util_http.download(parsed_uri, file_name_base, version_data.shasum, version_data.size);
+    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
     defer tarball_file.close();
-
-    std.debug.print("download done\n", .{});
 
     // Derive signature URI by appending ".minisig" to the tarball URL
     var signature_uri_buffer: [1024]u8 = undefined;
@@ -92,13 +82,11 @@ fn install_zig(version: []const u8) !void {
 
     const signature_uri = try std.Uri.parse(signature_uri_buffer[0..signature_uri_buf.len]);
 
-    std.debug.print("signature url: {s}\n", .{signature_uri_buffer[0..signature_uri_buf.len]});
-
     // Define signature file name
     const signature_file_name = try std.mem.concat(
         arena_allocator,
         u8,
-        &.{ file_name_base, ".minisig" },
+        &.{ file_name, ".minisig" },
     );
 
     // Download the signature file
@@ -108,7 +96,7 @@ fn install_zig(version: []const u8) !void {
     // Get paths to the tarball and signature files
     const zvm_store_path = try util_data.get_zvm_path_segment(allocator, "store");
     defer allocator.free(zvm_store_path);
-    const tarball_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, file_name_base });
+    const tarball_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, file_name });
     const sig_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, signature_file_name });
 
     // Perform Minisign Verification
@@ -129,14 +117,13 @@ fn install_zig(version: []const u8) !void {
         extract_path, try std.mem.concat(
             arena_allocator,
             u8,
-            &.{ "zig-", reverse_platform_str, "-", version },
+            &.{},
         ),
     });
     defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
 
-    std.debug.print("sub path: {s}\n", .{sub_path});
-
-    try util_tool.copy_dir(sub_path, extract_path);
+    //TODO: not needed (macOS) still needed for unix and windows?
+    //try util_tool.copy_dir(sub_path, extract_path);
 
     try alias.set_version(version, false);
 }

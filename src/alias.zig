@@ -54,9 +54,6 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     assert(zig_path.len > 0);
     assert(symlink_path.len > 0);
 
-    std.debug.print("zig_path: {s}\n", .{zig_path});
-    std.debug.print("symlink_path: {s}\n", .{symlink_path});
-
     if (builtin.os.tag == .windows) {
         if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
         try util_tool.copy_dir(zig_path, symlink_path);
