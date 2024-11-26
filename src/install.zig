@@ -49,11 +49,6 @@ fn install_zig(version: []const u8) !void {
     // Get extract path
     const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
 
-    if (util_tool.does_path_exist(extract_path)) {
-        try alias.set_version(version, false);
-        return;
-    }
-
     // Get version data
     const version_data: meta.Zig.VersionData = blk: {
         const res = try util_http.http_get(arena_allocator, config.zig_url);
@@ -62,62 +57,66 @@ fn install_zig(version: []const u8) !void {
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
 
+    std.debug.print("version: {s}\n", .{version_data.version});
+
+    if (util_tool.does_path_exist(extract_path)) {
+        try alias.set_version(version, false);
+        return;
+    }
+
     const reverse_platform_str = try util_arch.platform_str(.{
         .os = builtin.os.tag,
         .arch = builtin.cpu.arch,
         .reverse = false,
     }) orelse unreachable;
 
-    const file_name = try std.mem.concat(
-        arena_allocator,
-        u8,
-        &.{ "zig-", reverse_platform_str, "-", version, ".", config.archive_ext },
-    );
+    const file_name_base = std.fs.path.basename(version_data.tarball);
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
 
-    std.debug.print("parsed url: {any}", .{parsed_uri});
+    std.debug.print("parsed url: {s}\n", .{version_data.tarball});
 
     // Download the tarball
-    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
+    const tarball_file = try util_http.download(parsed_uri, file_name_base, version_data.shasum, version_data.size);
     defer tarball_file.close();
 
-    std.debug.print("download done", .{});
+    std.debug.print("download done\n", .{});
 
     // Derive signature URI by appending ".minisig" to the tarball URL
-    // https://ziglang.org/builds/zig-0.14.0-dev.2261+fbcb00fbb.tar.xz.minisig
-    const minisig_url = try remove_arch_from_url(arena_allocator, version_data.tarball);
     var signature_uri_buffer: [1024]u8 = undefined;
     const signature_uri_buf = try std.fmt.bufPrint(
         &signature_uri_buffer,
         "{s}.minisig",
-        .{minisig_url},
+        .{version_data.tarball}, // Use the original tarball URL
     );
 
     const signature_uri = try std.Uri.parse(signature_uri_buffer[0..signature_uri_buf.len]);
 
-    std.debug.print("signature url {any}", .{signature_uri});
+    std.debug.print("signature url: {s}\n", .{signature_uri_buffer[0..signature_uri_buf.len]});
+
     // Define signature file name
     const signature_file_name = try std.mem.concat(
         arena_allocator,
         u8,
-        &.{ file_name, ".minisig" },
+        &.{ file_name_base, ".minisig" },
     );
 
-    // Download the signature file using the corrected signature_uri
+    // Download the signature file
     const minisig_file = try util_http.download(signature_uri, signature_file_name, null, null);
     defer minisig_file.close();
 
-    const zvm_path = try util_data.get_zvm_path_segment(allocator, "store");
-    defer allocator.free(zvm_path);
-    const sig_path = try std.fs.path.join(arena_allocator, &.{ zvm_path, signature_file_name });
+    // Get paths to the tarball and signature files
+    const zvm_store_path = try util_data.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(zvm_store_path);
+    const tarball_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, file_name_base });
+    const sig_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, signature_file_name });
 
     // Perform Minisign Verification
     try util_minisign.verify(
         &allocator,
         sig_path,
         config.ZIG_MINISIGN_PUBLIC_KEY,
-        extract_path,
+        tarball_path,
     );
 
     // Proceed with extraction after successful verification
@@ -126,13 +125,16 @@ fn install_zig(version: []const u8) !void {
 
     try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
 
-    // Move extracted files if necessary
-    const sub_path = try std.fs.path.join(arena_allocator, &.{ extract_path, try std.mem.concat(
-        arena_allocator,
-        u8,
-        &.{ "zig-", reverse_platform_str, "-", version },
-    ) });
+    const sub_path = try std.fs.path.join(arena_allocator, &.{
+        extract_path, try std.mem.concat(
+            arena_allocator,
+            u8,
+            &.{ "zig-", reverse_platform_str, "-", version },
+        ),
+    });
     defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
+
+    std.debug.print("sub path: {s}\n", .{sub_path});
 
     try util_tool.copy_dir(sub_path, extract_path);
 
@@ -206,24 +208,3 @@ fn install_zls(version: []const u8) !void {
 }
 
 pub fn build_zls() !void {}
-
-fn remove_arch_from_url(allocator: std.mem.Allocator, url: []const u8) ![]const u8 {
-    const prefix = "zig-";
-    const version_marker = "-0."; // A reliable marker for version information
-
-    const prefix_index = std.mem.indexOf(u8, url, prefix) orelse return url;
-    const version_start = std.mem.indexOf(u8, url, version_marker) orelse return url;
-
-    // Ensure proper removal of redundant dashes
-    const prefix_end = prefix_index + prefix.len;
-
-    // Rebuild the URL without platform/architecture
-    return try std.mem.concat(
-        allocator,
-        u8,
-        &.{
-            url[0..prefix_end], // Keep everything up to and including `zig-`
-            url[version_start + 1 ..],
-        },
-    );
-}
