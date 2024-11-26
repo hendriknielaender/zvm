@@ -29,8 +29,6 @@ pub fn install(version: []const u8, is_zls: bool) !void {
 
 /// Try to install the specified version of zig
 fn install_zig(version: []const u8) !void {
-    std.debug.print("install start", .{});
-
     var allocator = util_data.get_allocator();
 
     const platform_str = try util_arch.platform_str(.{
