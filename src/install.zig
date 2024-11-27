@@ -124,7 +124,7 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     root_node.setCompletedItems(items_done);
 
     // Proceed with extraction after successful verification
-    const extract_node = root_node.start("Extracting zig", 0);
+    const extract_node = root_node.start("extracting zig", 0);
     try util_tool.try_create_path(extract_path);
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
     try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false, extract_node);
@@ -132,10 +132,10 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     items_done += 1;
     root_node.setCompletedItems(items_done);
 
-    root_node.end();
-
     // Set the version alias
     try alias.set_version(version, false);
+
+    root_node.end();
 }
 
 /// Try to install the specified version of zls
