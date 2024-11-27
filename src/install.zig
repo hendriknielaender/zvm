@@ -9,6 +9,7 @@ const util_data = @import("util/data.zig");
 const util_extract = @import("util/extract.zig");
 const util_tool = @import("util/tool.zig");
 const util_http = @import("util/http.zig");
+const util_minisign = @import("util/minisign.zig");
 
 const Version = struct {
     name: []const u8,
@@ -28,7 +29,7 @@ pub fn install(version: []const u8, is_zls: bool) !void {
 
 /// Try to install the specified version of zig
 fn install_zig(version: []const u8) !void {
-    const allocator = util_data.get_allocator();
+    var allocator = util_data.get_allocator();
 
     const platform_str = try util_arch.platform_str(.{
         .os = builtin.os.tag,
@@ -41,17 +42,12 @@ fn install_zig(version: []const u8) !void {
 
     const arena_allocator = arena.allocator();
 
-    // get version path
+    // Get version path
     const version_path = try util_data.get_zvm_zig_version(arena_allocator);
-    // get extract path
+    // Get extract path
     const extract_path = try std.fs.path.join(arena_allocator, &.{ version_path, version });
 
-    if (util_tool.does_path_exist(extract_path)) {
-        try alias.set_version(version, false);
-        return;
-    }
-
-    // get version data
+    // Get version data
     const version_data: meta.Zig.VersionData = blk: {
         const res = try util_http.http_get(arena_allocator, config.zig_url);
         var zig_meta = try meta.Zig.init(res, arena_allocator);
@@ -59,38 +55,70 @@ fn install_zig(version: []const u8) !void {
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
 
-    const reverse_platform_str = try util_arch.platform_str(.{
-        .os = builtin.os.tag,
-        .arch = builtin.cpu.arch,
-        .reverse = false,
-    }) orelse unreachable;
+    if (util_tool.does_path_exist(extract_path)) {
+        try alias.set_version(version, false);
+        return;
+    }
 
-    const file_name = try std.mem.concat(
-        arena_allocator,
-        u8,
-        &.{ "zig-", reverse_platform_str, "-", version, ".", config.archive_ext },
-    );
+    const file_name = std.fs.path.basename(version_data.tarball);
 
     const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
-    const new_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
-    defer new_file.close();
 
+    // Download the tarball
+    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size);
+    defer tarball_file.close();
+
+    // Derive signature URI by appending ".minisig" to the tarball URL
+    var signature_uri_buffer: [1024]u8 = undefined;
+    const signature_uri_buf = try std.fmt.bufPrint(
+        &signature_uri_buffer,
+        "{s}.minisig",
+        .{version_data.tarball}, // Use the original tarball URL
+    );
+
+    const signature_uri = try std.Uri.parse(signature_uri_buffer[0..signature_uri_buf.len]);
+
+    // Define signature file name
+    const signature_file_name = try std.mem.concat(
+        arena_allocator,
+        u8,
+        &.{ file_name, ".minisig" },
+    );
+
+    // Download the signature file
+    const minisig_file = try util_http.download(signature_uri, signature_file_name, null, null);
+    defer minisig_file.close();
+
+    // Get paths to the tarball and signature files
+    const zvm_store_path = try util_data.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(zvm_store_path);
+    const tarball_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, file_name });
+    const sig_path = try std.fs.path.join(arena_allocator, &.{ zvm_store_path, signature_file_name });
+
+    // Perform Minisign Verification
+    try util_minisign.verify(
+        &allocator,
+        sig_path,
+        config.ZIG_MINISIGN_PUBLIC_KEY,
+        tarball_path,
+    );
+
+    // Proceed with extraction after successful verification
     try util_tool.try_create_path(extract_path);
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
 
-    try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
+    try util_extract.extract(extract_dir, tarball_file, if (builtin.os.tag == .windows) .zip else .tarxz, false);
 
-    // mv
-    const sub_path = try std.fs.path.join(arena_allocator, &.{
-        extract_path, try std.mem.concat(
-            arena_allocator,
-            u8,
-            &.{ "zig-", reverse_platform_str, "-", version },
-        ),
-    });
-    defer std.fs.deleteTreeAbsolute(sub_path) catch unreachable;
-
-    try util_tool.copy_dir(sub_path, extract_path);
+    //TODO: not needed (macOS) still needed for unix and windows?
+    // const sub_path = try std.fs.path.join(arena_allocator, &.{
+    //     extract_path, try std.mem.concat(
+    //         arena_allocator,
+    //         u8,
+    //         &.{},
+    //     ),
+    // });
+    //
+    //try util_tool.copy_dir(sub_path, extract_path);
 
     try alias.set_version(version, false);
 }

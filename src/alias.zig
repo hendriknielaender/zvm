@@ -60,16 +60,14 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
         return;
     }
 
-    // when platform is not windows, this is execute here
-
-    // when file exist(it is a systemlink), delete it
+    // Remove existing symlink if it exists
     if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
 
-    // system link it
+    // Create symlink to the version directory
     try std.posix.symlink(zig_path, symlink_path);
 }
 
-/// verify current zig version
+/// Verify current zig version
 fn verify_zig_version(expected_version: []const u8) !void {
     const allocator = util_data.get_allocator();
 

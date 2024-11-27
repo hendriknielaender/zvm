@@ -205,7 +205,7 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         // set zig version
         try install.install(version, false);
         // set zls version
-        try install.install(version, true);
+        //try install.install(version, true);
     } else {
         std.debug.print("Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n", .{});
     }
@@ -234,7 +234,7 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         // set zig version
         try alias.set_version(version, false);
         // set zls version
-        try alias.set_version(version, true);
+        // try alias.set_version(version, true);
     } else {
         std.debug.print("Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n", .{});
     }
