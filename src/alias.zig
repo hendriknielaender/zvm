@@ -74,7 +74,9 @@ fn verify_zig_version(expected_version: []const u8) !void {
     const actual_version = try util_data.get_current_version(allocator, false);
     defer allocator.free(actual_version);
 
-    if (!std.mem.eql(u8, expected_version, actual_version)) {
+    if (std.mem.eql(u8, expected_version, "master")) {
+        std.debug.print("Now using Zig version {s}\n", .{actual_version});
+    } else if (!std.mem.eql(u8, expected_version, actual_version)) {
         std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
     } else {
         std.debug.print("Now using Zig version {s}\n", .{expected_version});
