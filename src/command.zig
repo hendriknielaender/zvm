@@ -282,12 +282,12 @@ fn display_help() !void {
         \\    zvm <command> [args]
         \\
         \\Commands:
-        \\    ls, list       List the versions of Zig or zls available to zvm.
+        \\    ls, list       List all available versions of Zig or zls.
         \\    i, install     Install the specified version of Zig or zls.
         \\    use            Use the specified version of Zig or zls.
         \\    remove         Remove the specified version of Zig or zls
-        \\    --version      Display zvm version.
-        \\    --help         Display this help message.
+        \\    --version      Display the current version of zvm.
+        \\    --help         Show this help message.
         \\
         \\Example:
         \\    zvm install 0.12.0        Install Zig and zls version 0.12.0.
@@ -296,8 +296,7 @@ fn display_help() !void {
         \\    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.
         \\    zvm remove zig 0.12.0     Remove Zig version 0.12.0.
         \\
-        \\For additional information and contributions, please visit the GitHub repository.
-        \\
+        \\For additional information and contributions, please visit https://github.com/hendriknielaender/zvm
     ;
 
     std.debug.print(help_message, .{});
