@@ -142,7 +142,8 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
 fn install_zls(version: []const u8) !void {
     const true_version = blk: {
         if (util_tool.eql_str("master", version)) {
-            std.debug.print("Sorry, the 'install zls' feature is not supported at this time. Please compile zls locally.", .{});
+            const zls_message = "Sorry, the 'install zls' feature is not supported at this time. Please compile zls locally.";
+            try std.io.getStdOut().writer().print("{s}", .{zls_message});
             return;
         }
 

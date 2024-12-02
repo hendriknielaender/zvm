@@ -51,7 +51,8 @@ pub const Signature = struct {
         var line: []const u8 = undefined;
         while (true) {
             line = tokenizer.next() orelse {
-                std.debug.print("No more lines to read. Invalid encoding.\n", .{});
+                const err_msg = "No more lines to read. Invalid encoding.\n";
+                try std.io.getStdErr().writer().print(err_msg, .{});
                 return Error.invalid_encoding;
             };
             const trimmed_line = mem.trim(u8, line, " \t\r\n");
@@ -70,14 +71,16 @@ pub const Signature = struct {
 
         // Decode trusted comment
         const comment_line = tokenizer.next() orelse {
-            std.debug.print("Expected trusted comment line but none found.\n", .{});
+            const err_msg = "Expected trusted comment line but none found.\n";
+            try std.io.getStdErr().writer().print(err_msg, .{});
             return Error.invalid_encoding;
         };
         const comment_line_trimmed = mem.trim(u8, comment_line, " \t\r\n");
 
         const trusted_comment_prefix = "trusted comment: ";
         if (!mem.startsWith(u8, comment_line_trimmed, trusted_comment_prefix)) {
-            std.debug.print("Trusted comment line does not start with the expected prefix.\n", .{});
+            const err_msg = "Trusted comment line does not start with the expected prefix.\n";
+            try std.io.getStdErr().writer().print(err_msg, .{});
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
@@ -87,7 +90,8 @@ pub const Signature = struct {
 
         // Decode global signature
         const global_sig_line = tokenizer.next() orelse {
-            std.debug.print("Expected global signature line but none found.\n", .{});
+            const err_msg = "Expected global signature line but none found.\n";
+            try std.io.getStdErr().writer().print(err_msg, .{});
             return Error.invalid_encoding;
         };
         const global_sig_line_trimmed = mem.trim(u8, global_sig_line, " \t\r\n");
@@ -126,7 +130,8 @@ pub const PublicKey = struct {
         const trimmed_str = std.mem.trim(u8, str, " \t\r\n");
 
         if (trimmed_str.len != 56) { // Base64 for 42-byte key
-            std.debug.print("Error: Public key string length is {d}, expected 56.\n", .{trimmed_str.len});
+            const err_msg = "Error: Public key string length is {d}, expected 56.\n";
+            try std.io.getStdErr().writer().print(err_msg, .{trimmed_str.len});
             return Error.public_key_format_error;
         }
 
@@ -136,7 +141,8 @@ pub const PublicKey = struct {
         const signature_algorithm = bin[0..2];
 
         if (bin[0] != 0x45 or (bin[1] != 0x64 and bin[1] != 0x44)) {
-            std.debug.print("Unsupported signature algorithm: {x}\n", .{signature_algorithm});
+            const err_msg = "Unsupported signature algorithm: {any}\n";
+            try std.io.getStdErr().writer().print(err_msg, .{signature_algorithm});
             return Error.unsupported_algorithm;
         }
 

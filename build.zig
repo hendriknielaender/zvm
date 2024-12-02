@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const Build = std.Build;
 
 const min_zig_string = "0.13.0";
-// Semantic version of your application
-const version = std.SemanticVersion{ .major = 0, .minor = 5, .patch = 0 };
+const semver = std.SemanticVersion{ .major = 0, .minor = 5, .patch = 0 };
+const semver_string = "0.5.0";
 
 const CrossTargetInfo = struct {
     crossTarget: std.zig.CrossTarget,
@@ -32,14 +32,14 @@ pub fn build(b: *Build) void {
     // Add a global option for versioning
     const options = b.addOptions();
     options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
-    options.addOption(std.SemanticVersion, "zvm_version", version);
+    options.addOption([]const u8, "version", semver_string);
 
     const exe = b.addExecutable(.{
         .name = "zvm",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .version = version,
+        .version = semver,
     });
 
     const exe_options_module = options.createModule();
