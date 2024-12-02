@@ -12,6 +12,7 @@ const config = @import("config.zig");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
 const util_http = @import("util/http.zig");
+const util_color = @import("util/color.zig");
 
 // Command types
 pub const Command = enum {
@@ -93,8 +94,8 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
-        .Version => try get_version(),
-        .Help => try display_help(),
+        .Version => get_version(),
+        .Help => display_help(),
         .Unknown => try handle_unknown(),
     }
 }
@@ -272,36 +273,46 @@ fn set_default() !void {
     // Your default code here
 }
 
-fn get_version() !void {
-    std.debug.print("zvm {}\n", .{options.zvm_version});
+fn get_version() void {
+    comptime var color = util_color.Style.init();
+
+    const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
+
+    std.debug.print("{s}", .{version_message});
 }
 
-fn display_help() !void {
-    const help_message =
-        \\Usage:
-        \\    zvm <command> [args]
-        \\
-        \\Commands:
-        \\    ls, list       List all available versions of Zig or zls.
-        \\    i, install     Install the specified version of Zig or zls.
-        \\    use            Use the specified version of Zig or zls.
-        \\    remove         Remove the specified version of Zig or zls
-        \\    --version      Display the current version of zvm.
-        \\    --help         Show this help message.
-        \\
-        \\Example:
-        \\    zvm install 0.12.0        Install Zig and zls version 0.12.0.
-        \\    zvm install zig 0.12.0    Install Zig version 0.12.0.
-        \\    zvm use 0.12.0            Switch to using Zig version 0.12.0.
-        \\    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.
-        \\    zvm remove zig 0.12.0     Remove Zig version 0.12.0.
-        \\
-        \\For additional information and contributions, please visit https://github.com/hendriknielaender/zvm
-    ;
+fn display_help() void {
+    comptime var color = util_color.Style.init();
 
-    std.debug.print(help_message, .{});
+    const usage_title = color.bold().magenta().fmt("Usage:");
+    const commands_title = color.bold().magenta().fmt("Commands:");
+    const examples_title = color.bold().magenta().fmt("Examples:");
+    const additional_info_title = color.bold().magenta().fmt("Additional Information:");
+
+    const help_message =
+        usage_title ++
+        "\n    zvm <command> [args]\n\n" ++
+        commands_title ++
+        "\n    ls, list       List all available versions of Zig or zls.\n" ++
+        "    i, install     Install the specified version of Zig or zls.\n" ++
+        "    use            Use the specified version of Zig or zls.\n" ++
+        "    remove         Remove the specified version of Zig or zls.\n" ++
+        "    --version      Display the current version of zvm.\n" ++
+        "    --help         Show this help message.\n\n" ++
+        examples_title ++
+        "\n    zvm install 0.12.0        Install Zig and zls version 0.12.0.\n" ++
+        "    zvm install zig 0.12.0    Install Zig version 0.12.0.\n" ++
+        "    zvm use 0.12.0            Switch to using Zig version 0.12.0.\n" ++
+        "    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.\n" ++
+        "    zvm remove zig 0.12.0     Remove Zig version 0.12.0.\n\n" ++
+        additional_info_title ++
+        "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
+
+    std.debug.print("{s}", .{help_message});
 }
 
 fn handle_unknown() !void {
-    std.debug.print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
+    comptime var color = util_color.Style.init();
+    const error_message = color.bold().red().fmt("Unknown command. Use 'zvm --help' for usage information.\n");
+    try std.io.getStdErr().writer().print("{s}", .{error_message});
 }
