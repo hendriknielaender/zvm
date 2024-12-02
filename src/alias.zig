@@ -1,6 +1,6 @@
 //! This file is used to create soft links and verify version
-//! for Windows, we will use copy dir(when Windows create soft link it requires admin)
-//! for set version
+//! for Windows, we will use copy dir (creating symlinks requires admin privileges)
+//! for setting versions.
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
@@ -8,9 +8,9 @@ const config = @import("config.zig");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
 
-/// try to set zig version
-/// this will use system link on unix-like
-/// for windows, this will use copy dir
+/// Try to set the Zig version.
+/// This will use a symlink on Unix-like systems.
+/// For Windows, this will copy the directory.
 pub fn set_version(version: []const u8, is_zls: bool) !void {
     var arena = std.heap.ArenaAllocator.init(util_data.get_allocator());
     defer arena.deinit();
@@ -33,7 +33,8 @@ pub fn set_version(version: []const u8, is_zls: bool) !void {
         if (err != error.FileNotFound)
             return err;
 
-        std.debug.print("zig version {s} is not installed. Please install it before proceeding.\n", .{version});
+        const err_msg = "{s} version {s} is not installed. Please install it before proceeding.\n";
+        try std.io.getStdErr().writer().print(err_msg, .{ if (is_zls) "zls" else "Zig", version });
         std.process.exit(1);
     };
 
@@ -67,32 +68,38 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     try std.posix.symlink(zig_path, symlink_path);
 }
 
-/// Verify current zig version
+/// Verify the current Zig version
 fn verify_zig_version(expected_version: []const u8) !void {
     const allocator = util_data.get_allocator();
 
     const actual_version = try util_data.get_current_version(allocator, false);
     defer allocator.free(actual_version);
 
+    var stdout = std.io.getStdOut().writer();
+
     if (std.mem.eql(u8, expected_version, "master")) {
-        std.debug.print("Now using Zig version {s}\n", .{actual_version});
+        try stdout.print("Now using Zig version {s}\n", .{actual_version});
     } else if (!std.mem.eql(u8, expected_version, actual_version)) {
-        std.debug.print("Expected Zig version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
+        const err_msg = "Expected Zig version {s}, but currently using {s}. Please check.\n";
+        try std.io.getStdErr().writer().print(err_msg, .{ expected_version, actual_version });
     } else {
-        std.debug.print("Now using Zig version {s}\n", .{expected_version});
+        try stdout.print("Now using Zig version {s}\n", .{expected_version});
     }
 }
 
-/// verify current zig version
+/// Verify the current zls version
 fn verify_zls_version(expected_version: []const u8) !void {
     const allocator = util_data.get_allocator();
 
     const actual_version = try util_data.get_current_version(allocator, true);
     defer allocator.free(actual_version);
 
+    var stdout = std.io.getStdOut().writer();
+
     if (!std.mem.eql(u8, expected_version, actual_version)) {
-        std.debug.print("Expected zls version {s}, but currently using {s}. Please check.\n", .{ expected_version, actual_version });
+        const err_msg = "Expected zls version {s}, but currently using {s}. Please check.\n";
+        try std.io.getStdErr().writer().print(err_msg, .{ expected_version, actual_version });
     } else {
-        std.debug.print("Now using zls version {s}\n", .{expected_version});
+        try stdout.print("Now using zls version {s}\n", .{expected_version});
     }
 }

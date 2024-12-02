@@ -94,8 +94,8 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
-        .Version => get_version(),
-        .Help => display_help(),
+        .Version => try get_version(),
+        .Help => try display_help(),
         .Unknown => try handle_unknown(),
     }
 }
@@ -132,7 +132,8 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     std.fs.accessAbsolute(current_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
-            std.debug.print("{s} has not been installed yet, please install it fist!\n", .{if (is_zls) "zls" else "Zig"});
+            const error_message = "{s} has not been installed yet, please install it first!\n";
+            try std.io.getStdErr().writer().print(error_message, .{if (is_zls) "zls" else "Zig"});
             std.process.exit(1);
         }
         return err;
@@ -160,7 +161,8 @@ fn handle_list(param: ?[]const u8) !void {
             } else
             // when not zig
             if (!util_tool.eql_str(p, "zig")) {
-                std.debug.print("Error param, you can specify zig or zls\n", .{});
+                const error_message = "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n";
+                try std.io.getStdErr().writer().print(error_message, .{p});
                 return;
             }
         }
@@ -178,8 +180,9 @@ fn handle_list(param: ?[]const u8) !void {
 
     defer util_tool.free_str_array(version_list, allocator);
 
+    var stdout = std.io.getStdOut().writer();
     for (version_list) |version| {
-        std.debug.print("{s}\n", .{version});
+        try stdout.print("{s}\n", .{version});
     }
 }
 
@@ -192,12 +195,14 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            std.debug.print("Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n", .{scmd});
+            const error_message = "Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         }
 
         const version = param orelse {
-            std.debug.print("Please specify a version to install: 'install zig/zls <version>'.\n", .{});
+            const error_message = "Please specify a version to install: 'install {s} <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         };
 
@@ -206,7 +211,8 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         // set zig version
         try install.install(version, false, root_node);
     } else {
-        std.debug.print("Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n", .{});
+        const error_message = "Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n";
+        try std.io.getStdErr().writer().print(error_message, .{});
     }
 }
 
@@ -219,12 +225,14 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            std.debug.print("Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n", .{scmd});
+            const error_message = "Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         }
 
         const version = param orelse {
-            std.debug.print("Please specify a version to use: 'use zig/zls <version>'.\n", .{});
+            const error_message = "Please specify a version to use: 'use {s} <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         };
 
@@ -232,10 +240,9 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     } else if (param) |version| {
         // set zig version
         try alias.set_version(version, false);
-        // set zls version
-        // try alias.set_version(version, true);
     } else {
-        std.debug.print("Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n", .{});
+        const error_message = "Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n";
+        try std.io.getStdErr().writer().print(error_message, .{});
     }
 }
 
@@ -248,12 +255,14 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            std.debug.print("Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n", .{scmd});
+            const error_message = "Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         }
 
         const version = param orelse {
-            std.debug.print("Please specify a version: 'remove zig <version>' or 'remove zls <version>'.\n", .{});
+            const error_message = "Please specify a version: 'remove {s} <version>'.\n";
+            try std.io.getStdErr().writer().print(error_message, .{scmd});
             return;
         };
 
@@ -264,24 +273,23 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         // set zls version
         try remove.remove(version, true);
     } else {
-        std.debug.print("Please specify a version to use: 'remove zig/zls <version>' or 'remove <version>'.\n", .{});
+        const error_message = "Please specify a version to remove: 'remove zig/zls <version>' or 'remove <version>'.\n";
+        try std.io.getStdErr().writer().print(error_message, .{});
     }
 }
 
 fn set_default() !void {
-    std.debug.print("Handling 'default' command.\n", .{});
-    // Your default code here
+    const default_message = "Handling 'default' command.\n";
+    try std.io.getStdOut().writer().print("{s}", .{default_message});
 }
 
-fn get_version() void {
+fn get_version() !void {
     comptime var color = util_color.Style.init();
-
     const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
-
-    std.debug.print("{s}", .{version_message});
+    try std.io.getStdOut().writer().print("{s}", .{version_message});
 }
 
-fn display_help() void {
+fn display_help() !void {
     comptime var color = util_color.Style.init();
 
     const usage_title = color.bold().magenta().fmt("Usage:");
@@ -289,8 +297,7 @@ fn display_help() void {
     const examples_title = color.bold().magenta().fmt("Examples:");
     const additional_info_title = color.bold().magenta().fmt("Additional Information:");
 
-    const help_message =
-        usage_title ++
+    const help_message = usage_title ++
         "\n    zvm <command> [args]\n\n" ++
         commands_title ++
         "\n    ls, list       List all available versions of Zig or zls.\n" ++
@@ -308,7 +315,7 @@ fn display_help() void {
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
-    std.debug.print("{s}", .{help_message});
+    try std.io.getStdOut().writer().print("{s}", .{help_message});
 }
 
 fn handle_unknown() !void {
