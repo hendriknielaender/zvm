@@ -1,4 +1,4 @@
-//! This file stores command line parsing and processing
+// command.zig
 const std = @import("std");
 const builtin = @import("builtin");
 const options = @import("options");
@@ -116,7 +116,7 @@ pub fn handle_alias(params: []const []const u8) !void {
     var arena = std.heap.ArenaAllocator.init(util_data.get_allocator());
     defer arena.deinit();
 
-    const allocator = arena.allocator();
+    var allocator = arena.allocator();
 
     const new_params = try allocator.dupe([]const u8, params);
 
@@ -132,8 +132,13 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     std.fs.accessAbsolute(current_path, .{}) catch |err| {
         if (err == std.fs.Dir.AccessError.FileNotFound) {
-            const error_message = "{s} has not been installed yet, please install it first!\n";
-            try std.io.getStdErr().writer().print(error_message, .{if (is_zls) "zls" else "Zig"});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "{s} has not been installed yet, please install it first!\n",
+                .{if (is_zls) "zls" else "Zig"},
+            );
             std.process.exit(1);
         }
         return err;
@@ -146,10 +151,14 @@ pub fn handle_alias(params: []const []const u8) !void {
 fn handle_list(param: ?[]const u8) !void {
     const allocator = util_data.get_allocator();
 
+    var color = try util_color.Color.RuntimeStyle.init(allocator);
+    defer color.deinit();
+
+    var is_zls = false;
     const version_list: [][]const u8 = blk: {
         if (param) |p| {
-            // when zls
             if (util_tool.eql_str(p, "zls")) {
+                is_zls = true;
                 const res = try util_http.http_get(allocator, config.zls_url);
                 defer allocator.free(res);
 
@@ -158,16 +167,16 @@ fn handle_list(param: ?[]const u8) !void {
 
                 const version_list = try zls_meta.get_version_list(allocator);
                 break :blk version_list;
-            } else
-            // when not zig
-            if (!util_tool.eql_str(p, "zig")) {
-                const error_message = "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n";
-                try std.io.getStdErr().writer().print(error_message, .{p});
+            } else if (!util_tool.eql_str(p, "zig")) {
+                try color.bold().red().printErr(
+                    "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
+                    .{p},
+                );
                 return;
             }
         }
 
-        // when param is null
+        // When param is null or 'zig'
         const res = try util_http.http_get(allocator, config.zig_url);
         defer allocator.free(res);
 
@@ -180,13 +189,32 @@ fn handle_list(param: ?[]const u8) !void {
 
     defer util_tool.free_str_array(version_list, allocator);
 
-    var stdout = std.io.getStdOut().writer();
+    // Fetch the current version
+    var current_version: ?[]const u8 = null;
+    current_version = (if (is_zls)
+        util_data.get_zvm_current_zls(allocator)
+    else
+        util_data.get_zvm_current_zig(allocator)) catch null;
+
+    // Ensure current_version is freed after use
+    defer if (current_version) |cv| {
+        allocator.free(cv);
+    };
+
     for (version_list) |version| {
-        try stdout.print("{s}\n", .{version});
+        if (current_version != null and std.mem.eql(u8, version, current_version.?)) {
+            // Highlight the current version
+            try color.bold().cyan().print("* {s}\n", .{version});
+        } else {
+            // Colorize other versions
+            try color.green().print("  {s}\n", .{version});
+        }
     }
 }
 
 fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progress.Node) !void {
+    const allocator = util_data.get_allocator();
+
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
@@ -195,14 +223,24 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            const error_message = "Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n",
+                .{scmd},
+            );
             return;
         }
 
         const version = param orelse {
-            const error_message = "Please specify a version to install: 'install {s} <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Please specify a version to install: 'install {s} <version>'.\n",
+                .{scmd},
+            );
             return;
         };
 
@@ -211,12 +249,19 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         // set zig version
         try install.install(version, false, root_node);
     } else {
-        const error_message = "Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n";
-        try std.io.getStdErr().writer().print(error_message, .{});
+        var color = try util_color.Color.RuntimeStyle.init(allocator);
+        defer color.deinit();
+
+        try color.bold().red().printErr(
+            "Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n",
+            .{},
+        );
     }
 }
 
 fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+    const allocator = util_data.get_allocator();
+
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
@@ -225,14 +270,24 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            const error_message = "Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n",
+                .{scmd},
+            );
             return;
         }
 
         const version = param orelse {
-            const error_message = "Please specify a version to use: 'use {s} <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Please specify a version to use: 'use {s} <version>'.\n",
+                .{scmd},
+            );
             return;
         };
 
@@ -241,12 +296,19 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         // set zig version
         try alias.set_version(version, false);
     } else {
-        const error_message = "Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n";
-        try std.io.getStdErr().writer().print(error_message, .{});
+        var color = try util_color.Color.RuntimeStyle.init(allocator);
+        defer color.deinit();
+
+        try color.bold().red().printErr(
+            "Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n",
+            .{},
+        );
     }
 }
 
 fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
+    const allocator = util_data.get_allocator();
+
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
 
@@ -255,14 +317,24 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            const error_message = "Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n",
+                .{scmd},
+            );
             return;
         }
 
         const version = param orelse {
-            const error_message = "Please specify a version: 'remove {s} <version>'.\n";
-            try std.io.getStdErr().writer().print(error_message, .{scmd});
+            var color = try util_color.Color.RuntimeStyle.init(allocator);
+            defer color.deinit();
+
+            try color.bold().red().printErr(
+                "Please specify a version: 'remove {s} <version>'.\n",
+                .{scmd},
+            );
             return;
         };
 
@@ -273,24 +345,25 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         // set zls version
         try remove.remove(version, true);
     } else {
-        const error_message = "Please specify a version to remove: 'remove zig/zls <version>' or 'remove <version>'.\n";
-        try std.io.getStdErr().writer().print(error_message, .{});
+        var color = try util_color.Color.RuntimeStyle.init(allocator);
+        defer color.deinit();
+
+        try color.bold().red().printErr(
+            "Please specify a version to remove: 'remove zig/zls <version>' or 'remove <version>'.\n",
+            .{},
+        );
     }
 }
 
-fn set_default() !void {
-    const default_message = "Handling 'default' command.\n";
-    try std.io.getStdOut().writer().print("{s}", .{default_message});
-}
-
 fn get_version() !void {
-    comptime var color = util_color.Style.init();
+    comptime var color = util_color.Color.ComptimeStyle.init();
+
     const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
-    try std.io.getStdOut().writer().print("{s}", .{version_message});
+    try color.print("{s}", .{version_message});
 }
 
 fn display_help() !void {
-    comptime var color = util_color.Style.init();
+    comptime var color = util_color.Color.ComptimeStyle.init();
 
     const usage_title = color.bold().magenta().fmt("Usage:");
     const commands_title = color.bold().magenta().fmt("Commands:");
@@ -315,11 +388,10 @@ fn display_help() !void {
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
-    try std.io.getStdOut().writer().print("{s}", .{help_message});
+    try color.print("{s}", .{help_message});
 }
 
 fn handle_unknown() !void {
-    comptime var color = util_color.Style.init();
-    const error_message = color.bold().red().fmt("Unknown command. Use 'zvm --help' for usage information.\n");
-    try std.io.getStdErr().writer().print("{s}", .{error_message});
+    comptime var color = util_color.Color.ComptimeStyle.init();
+    try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
 }
