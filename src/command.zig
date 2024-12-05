@@ -29,6 +29,7 @@ const CommandData = struct {
     cmd: Command = .Unknown,
     subcmd: ?[]const u8 = null,
     param: ?[]const u8 = null,
+    system: bool = false,
 };
 
 const CommandOption = struct {
@@ -46,51 +47,73 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = "rm", .handle = "remove", .cmd = Command.Remove },
     .{ .short_handle = null, .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
-    // .{ .short_handle = null, .handle = "--default", .cmd = Command.Default },
 };
 
 /// Parse and handle commands
 pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) !void {
-    const command: CommandData = blk: {
-        if (params.len < 2) break :blk CommandData{};
+    var command = CommandData{};
 
+    if (params.len < 2) {
+        // No command passed
+        command.cmd = .Unknown;
+    } else {
         const args = params[1..];
 
-        const arg = args[0];
-        for (command_opts) |opt| {
-            const is_eql_short_handle = if (opt.short_handle) |short_handle|
-                std.mem.eql(u8, arg, short_handle)
-            else
-                false;
+        // Identify the main command first
+        {
+            var found_cmd: bool = false;
+            const arg = args[0];
 
-            const is_eql_handle = std.mem.eql(u8, arg, opt.handle);
+            for (command_opts) |opt| {
+                const matches_short = if (opt.short_handle) |sh| std.mem.eql(u8, arg, sh) else false;
+                const matches_full = std.mem.eql(u8, arg, opt.handle);
+                if (matches_short or matches_full) {
+                    command.cmd = opt.cmd;
 
-            if (!is_eql_short_handle and !is_eql_handle)
-                continue;
+                    // subcmd is the second arg if present
+                    if (args.len > 1) command.subcmd = args[1];
 
-            const subcmd = if (args.len > 2) args[1] else null;
-            const param = kk: {
-                if (subcmd != null) {
-                    break :kk args[2];
+                    // param is the third arg if present
+                    if (args.len > 2) command.param = args[2];
+
+                    found_cmd = true;
+                    break;
                 }
+            }
 
-                if (args.len > 1)
-                    break :kk args[1];
-
-                break :kk null;
-            };
-
-            break :blk CommandData{
-                .cmd = opt.cmd,
-                .subcmd = subcmd,
-                .param = param,
-            };
+            if (!found_cmd) {
+                // Command not recognized
+                command.cmd = .Unknown;
+            }
         }
-        break :blk CommandData{};
-    };
 
+        // Check if --system flag is present in any of the args beyond the command:
+        // e.g. `zvm ls --system`, `zvm list zig --system`
+        // The flag can appear as either the subcmd or the param.
+        var has_system_flag = false;
+        if (command.subcmd) |scmd| {
+            if (std.mem.eql(u8, scmd, "--system")) {
+                has_system_flag = true;
+                command.subcmd = null; // remove it as a subcmd since it's a flag
+            }
+        }
+        // Check if we haven't found the system flag yet
+        if (!has_system_flag) {
+            // Now try to unwrap command.param
+            if (command.param) |p| {
+                if (std.mem.eql(u8, p, "--system")) {
+                    has_system_flag = true;
+                    command.param = null; // remove it as a param since it's a flag
+                }
+            }
+        }
+
+        command.system = has_system_flag;
+    }
+
+    // Dispatch based on command
     switch (command.cmd) {
-        .List => try handle_list(command.param),
+        .List => try handle_list(command.subcmd, command.param, command.system),
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
@@ -105,108 +128,176 @@ pub fn handle_alias(params: []const []const u8) !void {
     if (builtin.os.tag == .windows) return;
 
     var is_zls: bool = undefined;
-
     const basename = std.fs.path.basename(params[0]);
+
     if (util_tool.eql_str(basename, "zig")) {
         is_zls = false;
     } else if (util_tool.eql_str(basename, "zls")) {
         is_zls = true;
-    } else return;
+    } else {
+        return;
+    }
 
     var arena = std.heap.ArenaAllocator.init(util_data.get_allocator());
     defer arena.deinit();
 
-    var allocator = arena.allocator();
-
+    const allocator = arena.allocator();
     const new_params = try allocator.dupe([]const u8, params);
 
-    const current = try if (is_zls)
-        util_data.get_zvm_current_zls(allocator)
-    else
-        util_data.get_zvm_current_zig(allocator);
+    const current_path = blk: {
+        const current = if (is_zls)
+            (util_data.get_zvm_current_zls(allocator) catch null)
+        else
+            (util_data.get_zvm_current_zig(allocator) catch null);
 
-    const current_path = try std.fs.path.join(
-        allocator,
-        &.{ current, if (is_zls) "zls" else "zig" },
-    );
-
-    std.fs.accessAbsolute(current_path, .{}) catch |err| {
-        if (err == std.fs.Dir.AccessError.FileNotFound) {
+        if (current == null) {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "{s} has not been installed yet, please install it first!\n",
                 .{if (is_zls) "zls" else "Zig"},
             );
             std.process.exit(1);
         }
-        return err;
+
+        break :blk try std.fs.path.join(
+            allocator,
+            &.{ current.?, if (is_zls) "zls" else "zig" },
+        );
+    };
+
+    std.fs.accessAbsolute(current_path, .{}) catch |err| {
+        return err; // if not found or something else, just return
     };
 
     new_params[0] = current_path;
     return std.process.execv(allocator, new_params);
 }
 
-fn handle_list(param: ?[]const u8) !void {
+fn handle_list(subcmd: ?[]const u8, param: ?[]const u8, system: bool) !void {
     const allocator = util_data.get_allocator();
-
     var color = try util_color.Color.RuntimeStyle.init(allocator);
     defer color.deinit();
 
     var is_zls = false;
-    const version_list: [][]const u8 = blk: {
-        if (param) |p| {
-            if (util_tool.eql_str(p, "zls")) {
-                is_zls = true;
-                const res = try util_http.http_get(allocator, config.zls_url);
-                defer allocator.free(res);
+    var requested_param: []const u8 = "zig";
+    if (subcmd) |scmd| {
+        if (util_tool.eql_str(scmd, "zls")) {
+            is_zls = true;
+            requested_param = "zls";
+        } else if (!util_tool.eql_str(scmd, "zig")) {
+            try color.bold().red().printErr(
+                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
+                .{scmd},
+            );
+            return;
+        }
+    } else if (param) |p| {
+        // If param is "zig" or "zls" when no subcmd was given
+        if (util_tool.eql_str(p, "zls")) {
+            is_zls = true;
+            requested_param = "zls";
+        } else if (!util_tool.eql_str(p, "zig")) {
+            try color.bold().red().printErr(
+                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
+                .{p},
+            );
+            return;
+        }
+    }
 
-                var zls_meta = try meta.Zls.init(res, allocator);
-                defer zls_meta.deinit();
+    // If system flag is set, list only local installed versions
+    if (system) {
+        try list_local_versions(is_zls, allocator, &color);
+        return;
+    }
 
-                const version_list = try zls_meta.get_version_list(allocator);
-                break :blk version_list;
-            } else if (!util_tool.eql_str(p, "zig")) {
-                try color.bold().red().printErr(
-                    "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
-                    .{p},
-                );
-                return;
-            }
+    // Default behavior: fetch and show remote available versions
+    try list_remote_versions(is_zls, allocator, &color);
+}
+
+/// Lists locally installed versions of either Zig or ZLS.
+fn list_local_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util_color.Color.RuntimeStyle) !void {
+    // Tiger Style: minimal scope, explicit conditions.
+    const version_path = if (is_zls)
+        try util_data.get_zvm_zls_version(allocator)
+    else
+        try util_data.get_zvm_zig_version(allocator);
+
+    defer allocator.free(version_path);
+
+    // Open the directory and read entries
+    const fs = std.fs.cwd();
+    var dir = try fs.openDir(version_path, .{});
+    defer dir.close();
+
+    var it = dir.iterate();
+    var current_version: ?[]const u8 = null;
+    current_version = (if (is_zls)
+        util_data.get_zvm_current_zls(allocator)
+    else
+        util_data.get_zvm_current_zig(allocator)) catch null;
+    defer if (current_version) |cv| allocator.free(cv);
+
+    var found_any = false;
+    while (true) {
+        const entry = try it.next() orelse break;
+        if (entry.kind != .directory) continue;
+
+        // Ignore '.' and '..' if they appear
+        if (entry.name[0] == '.' and (entry.name.len == 1 or (entry.name.len == 2 and entry.name[1] == '.'))) {
+            continue;
         }
 
-        // When param is null or 'zig'
+        found_any = true;
+        if (current_version != null and std.mem.eql(u8, entry.name, current_version.?)) {
+            try color.bold().cyan().print("* {s}\n", .{entry.name});
+        } else {
+            try color.green().print("  {s}\n", .{entry.name});
+        }
+    }
+
+    if (!found_any) {
+        try color.bold().red().print("No local versions installed.\n", .{});
+    }
+}
+
+/// Lists remote available versions from meta (default behavior)
+fn list_remote_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util_color.Color.RuntimeStyle) !void {
+    var version_list: [][]const u8 = undefined;
+
+    if (is_zls) {
+        const res = try util_http.http_get(allocator, config.zls_url);
+        defer allocator.free(res);
+
+        var zls_meta = try meta.Zls.init(res, allocator);
+        defer zls_meta.deinit();
+
+        version_list = try zls_meta.get_version_list(allocator);
+    } else {
         const res = try util_http.http_get(allocator, config.zig_url);
         defer allocator.free(res);
 
         var zig_meta = try meta.Zig.init(res, allocator);
         defer zig_meta.deinit();
 
-        const version_list = try zig_meta.get_version_list(allocator);
-        break :blk version_list;
-    };
+        version_list = try zig_meta.get_version_list(allocator);
+    }
 
     defer util_tool.free_str_array(version_list, allocator);
 
-    // Fetch the current version
     var current_version: ?[]const u8 = null;
     current_version = (if (is_zls)
         util_data.get_zvm_current_zls(allocator)
     else
         util_data.get_zvm_current_zig(allocator)) catch null;
 
-    // Ensure current_version is freed after use
-    defer if (current_version) |cv| {
-        allocator.free(cv);
-    };
+    defer if (current_version) |cv| allocator.free(cv);
 
     for (version_list) |version| {
         if (current_version != null and std.mem.eql(u8, version, current_version.?)) {
-            // Highlight the current version
             try color.bold().cyan().print("* {s}\n", .{version});
         } else {
-            // Colorize other versions
             try color.green().print("  {s}\n", .{version});
         }
     }
@@ -225,7 +316,6 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         } else {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n",
                 .{scmd},
@@ -236,7 +326,6 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
         const version = param orelse {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Please specify a version to install: 'install {s} <version>'.\n",
                 .{scmd},
@@ -251,7 +340,6 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
     } else {
         var color = try util_color.Color.RuntimeStyle.init(allocator);
         defer color.deinit();
-
         try color.bold().red().printErr(
             "Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n",
             .{},
@@ -264,7 +352,6 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
 
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
-
         if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
         } else if (util_tool.eql_str(scmd, "zls")) {
@@ -272,7 +359,6 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n",
                 .{scmd},
@@ -283,7 +369,6 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         const version = param orelse {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Please specify a version to use: 'use {s} <version>'.\n",
                 .{scmd},
@@ -298,7 +383,6 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     } else {
         var color = try util_color.Color.RuntimeStyle.init(allocator);
         defer color.deinit();
-
         try color.bold().red().printErr(
             "Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n",
             .{},
@@ -311,7 +395,6 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
 
     if (subcmd) |scmd| {
         var is_zls: bool = undefined;
-
         if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
         } else if (util_tool.eql_str(scmd, "zls")) {
@@ -319,7 +402,6 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n",
                 .{scmd},
@@ -330,7 +412,6 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         const version = param orelse {
             var color = try util_color.Color.RuntimeStyle.init(allocator);
             defer color.deinit();
-
             try color.bold().red().printErr(
                 "Please specify a version: 'remove {s} <version>'.\n",
                 .{scmd},
@@ -342,12 +423,11 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     } else if (param) |version| {
         // remove zig version
         try remove.remove(version, false);
-        // set zls version
+        // also try remove zls version if it matches
         try remove.remove(version, true);
     } else {
         var color = try util_color.Color.RuntimeStyle.init(allocator);
         defer color.deinit();
-
         try color.bold().red().printErr(
             "Please specify a version to remove: 'remove zig/zls <version>' or 'remove <version>'.\n",
             .{},
@@ -357,7 +437,6 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
 
 fn get_version() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
-
     const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
     try color.print("{s}", .{version_message});
 }
@@ -373,18 +452,19 @@ fn display_help() !void {
     const help_message = usage_title ++
         "\n    zvm <command> [args]\n\n" ++
         commands_title ++
-        "\n    ls, list       List all available versions of Zig or zls.\n" ++
+        "\n    ls, list       List all available versions (remote) or use --system for local.\n" ++
         "    i, install     Install the specified version of Zig or zls.\n" ++
         "    use            Use the specified version of Zig or zls.\n" ++
         "    remove         Remove the specified version of Zig or zls.\n" ++
         "    --version      Display the current version of zvm.\n" ++
         "    --help         Show this help message.\n\n" ++
         examples_title ++
-        "\n    zvm install 0.12.0        Install Zig and zls version 0.12.0.\n" ++
-        "    zvm install zig 0.12.0    Install Zig version 0.12.0.\n" ++
-        "    zvm use 0.12.0            Switch to using Zig version 0.12.0.\n" ++
-        "    zvm use zig 0.12.0        Switch to using Zig version 0.12.0.\n" ++
-        "    zvm remove zig 0.12.0     Remove Zig version 0.12.0.\n\n" ++
+        "\n    zvm ls                  List all available remote Zig versions.\n" ++
+        "    zvm ls --system         List all locally installed Zig versions.\n" ++
+        "    zvm ls zls --system     List all locally installed ZLS versions.\n" ++
+        "    zvm install 0.12.0      Install Zig and zls version 0.12.0.\n" ++
+        "    zvm use zig 0.12.0      Switch to using Zig version 0.12.0.\n" ++
+        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n\n" ++
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
