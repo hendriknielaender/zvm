@@ -9,10 +9,11 @@ zvm is a command-line tool that allows you to easily install, manage, and switch
 
 ## Features
 
-- List available Zig versions.
-- Install specific Zig versions.
-- Switch between installed Zig versions.
-- Set a default Zig version.
+- List available Zig/zls versions (both remote and local).
+- Install specific Zig or zls versions.
+- Switch between installed Zig or zls versions.
+- Remove installed Zig or zls versions.
+- Display the current zvm version and helpful usage information.
 
 
 ## Install
@@ -45,14 +46,71 @@ powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/maste
 ```
 
 ## Usage
+
+**General Syntax:**
 ```bash
-zvm list                # List all available Zig versions
-zvm install <version>   # Install a specified Zig version
-zvm use <version>       # Switch to a specified Zig version for the current session
-zvm default <version>   # Set a specified version as the default
-zvm current             # Display the currently active Zig version
-zvm --help              # Displays help information
-zvm --version           # Display zvm version
+zvm <command> [arguments]
+```
+
+**Available Commands:**
+- `zvm ls` or `zvm list`  
+  Lists all available versions of Zig or zls remotely by default.  
+  Use `--system` to list only locally installed versions.
+  ```bash
+  zvm ls
+  zvm ls --system
+  zvm ls zls --system
+  ```
+
+- `zvm i` or `zvm install`  
+  Installs the specified version of Zig or zls.
+  ```bash
+  zvm install <version>         # Installs Zig and zls for the specified version
+  zvm install zig <version>     # Installs only Zig for the specified version
+  zvm install zls <version>     # Installs only zls for the specified version
+  ```
+
+- `zvm use`  
+  Switches to using the specified installed version of Zig or zls.
+  ```bash
+  zvm use <version>         # Use this version of Zig and zls if installed
+  zvm use zig <version>     # Use this version of Zig only
+  zvm use zls <version>     # Use this version of zls only
+  ```
+
+- `zvm remove`  
+  Removes the specified installed version of Zig or ZLS.
+  ```bash
+  zvm remove <version>      # Removes this version of Zig and/or zls if installed
+  zvm remove zig <version>  # Removes only the specified Zig version
+  zvm remove zls <version>  # Removes only the specified zls version
+  ```
+
+- `zvm --version`  
+  Displays the current version of zvm.
+
+- `zvm --help`  
+  Displays detailed usage information.
+
+**Examples:**
+```bash
+# List all available remote Zig versions
+zvm ls
+
+# List all installed local Zig versions
+zvm ls --system
+
+# List all installed local zls versions
+zvm ls zls --system
+
+# Install Zig version 0.12.0
+zvm install 0.12.0
+
+# Use Zig version 0.12.0
+zvm use zig 0.12.0
+
+# Remove Zig version 0.12.0
+zvm remove zig 0.12.0
 ```
 
 ### Compatibility Notes
