@@ -45,7 +45,7 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
     .{ .short_handle = "u", .handle = "use", .cmd = Command.Use },
     .{ .short_handle = "rm", .handle = "remove", .cmd = Command.Remove },
-    .{ .short_handle = null, .handle = "--version", .cmd = Command.Version },
+    .{ .short_handle = "-v", .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
 };
 
