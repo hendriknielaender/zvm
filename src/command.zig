@@ -438,7 +438,7 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
 fn get_version() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
     const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
-    try color.print("{s}", .{version_message});
+    try color.print(version_message);
 }
 
 fn display_help() !void {
@@ -455,23 +455,25 @@ fn display_help() !void {
         "\n    ls, list       List all available versions (remote) or use --system for local.\n" ++
         "    i, install     Install the specified version of Zig or zls.\n" ++
         "    use            Use the specified version of Zig or zls.\n" ++
-        "    remove         Remove the specified version of Zig or zls.\n" ++
-        "    --version      Display the current version of zvm.\n" ++
+        "    rm, remove     Remove the specified version of Zig or zls.\n" ++
+        "    clean          Remove old download artifacts from the store.\n" ++
+        "    -v, --version  Display the current version of zvm.\n" ++
         "    --help         Show this help message.\n\n" ++
         examples_title ++
         "\n    zvm ls                  List all available remote Zig versions.\n" ++
         "    zvm ls --system         List all locally installed Zig versions.\n" ++
-        "    zvm ls zls --system     List all locally installed ZLS versions.\n" ++
+        "    zvm ls zls --system     List all locally installed zls versions.\n" ++
         "    zvm install 0.12.0      Install Zig and zls version 0.12.0.\n" ++
         "    zvm use zig 0.12.0      Switch to using Zig version 0.12.0.\n" ++
-        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n\n" ++
+        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n" ++
+        "    zvm clean               Remove old download artifacts.\n\n" ++
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
-    try color.print("{s}", .{help_message});
+    try color.print(help_message);
 }
 
 fn handle_unknown() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
-    try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
+    try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n");
 }
