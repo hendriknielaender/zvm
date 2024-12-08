@@ -85,6 +85,8 @@ zvm <command> [arguments]
   zvm remove zig <version>  # Removes only the specified Zig version
   zvm remove zls <version>  # Removes only the specified zls version
   ```
+- `zvm clean`
+  Remove old download artifacts.
 
 - `zvm --version`  
   Displays the current version of zvm.
@@ -111,6 +113,9 @@ zvm use zig 0.12.0
 
 # Remove Zig version 0.12.0
 zvm remove zig 0.12.0
+
+# Remove old download artifacts.
+zvm clean
 ```
 
 ### Compatibility Notes
