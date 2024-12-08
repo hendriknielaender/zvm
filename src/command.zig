@@ -20,6 +20,7 @@ pub const Command = enum {
     Install,
     Use,
     Remove,
+    Clean,
     Version,
     Help,
     Unknown,
@@ -45,6 +46,7 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
     .{ .short_handle = "u", .handle = "use", .cmd = Command.Use },
     .{ .short_handle = "rm", .handle = "remove", .cmd = Command.Remove },
+    .{ .short_handle = null, .handle = "clean", .cmd = Command.Clean },
     .{ .short_handle = "-v", .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
 };
@@ -117,6 +119,7 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
+        .Clean => try clean_store(),
         .Version => try get_version(),
         .Help => try display_help(),
         .Unknown => try handle_unknown(),
@@ -433,6 +436,81 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
             .{},
         );
     }
+}
+
+/// Handle the `clean` command
+fn clean_store() !void {
+    var allocator = util_data.get_allocator();
+    var color = try util_color.Color.RuntimeStyle.init(allocator);
+    defer color.deinit();
+
+    // Path to the store directory
+    const store_path = try util_data.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(store_path);
+
+    const fs = std.fs.cwd();
+    var store_dir = try fs.openDir(store_path, .{});
+    defer store_dir.close();
+
+    var it = store_dir.iterate();
+    var files_removed: usize = 0;
+    var bytes_freed: u64 = 0;
+
+    while (true) {
+        const entry = try it.next() orelse break;
+
+        // Get file size before deletion
+        const file_path = try std.fs.path.join(allocator, &.{ store_path, entry.name });
+        defer allocator.free(file_path);
+
+        const file = try fs.openFile(file_path, .{});
+        const file_info = try file.stat();
+        const file_size = file_info.size;
+        file.close();
+
+        // Delete the file
+        try store_dir.deleteFile(entry.name);
+
+        files_removed += 1;
+        bytes_freed += file_size;
+    }
+
+    // Format bytes_freed into a human-readable format
+    var formatted_size: []const u8 = undefined;
+    if (bytes_freed > 0) {
+        formatted_size = try format_bytes(bytes_freed, allocator);
+        defer allocator.free(formatted_size); // Ensure the buffer is freed after usage
+    }
+
+    std.debug.print("{s} ", .{formatted_size});
+
+    if (files_removed > 0) {
+        try color.bold().green().print(
+            "Cleaned up {d} old download artifact(s), freeing {s} of space.\n",
+            .{ files_removed, formatted_size },
+        );
+    } else {
+        try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
+    }
+}
+
+/// Formats bytes into a human-readable string (e.g., KB, MB, GB)
+fn format_bytes(bytes: u64, allocator: std.mem.Allocator) ![]const u8 {
+    const units = [_][]const u8{ "B", "KB", "MB", "GB", "TB" };
+    var size = bytes;
+    var unit_index: usize = 0;
+
+    while (size >= 1024 and unit_index < units.len - 1) : (unit_index += 1) {
+        size /= 1024;
+    }
+
+    // Allocate buffer for the formatted string
+    const buffer = try allocator.alloc(u8, 20);
+
+    // Format the string
+    _ = try std.fmt.bufPrint(buffer, "{d} {s}", .{ size, units[unit_index] });
+
+    return buffer;
 }
 
 fn get_version() !void {
