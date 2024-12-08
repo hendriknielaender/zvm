@@ -17,11 +17,6 @@ pub fn data_deinit() void {
         config.allocator.free(config.home_dir);
 }
 
-/// new progress node
-pub fn new_progress_node(name: []const u8, estimated_total_items: usize) std.Progress.Node {
-    return config.progress_root.start(name, estimated_total_items);
-}
-
 /// Get home directory.
 pub fn get_home() []const u8 {
     return config.home_dir;

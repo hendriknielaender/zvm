@@ -13,15 +13,15 @@ pub const Color = struct {
             return self.open ++ text ++ self.close;
         }
 
-        pub inline fn print(self: *ComptimeStyle, comptime format: []const u8, _: anytype) !void {
+        pub inline fn print(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
-            const formatted_text = self.fmt(format);
+            const formatted_text = self.fmt(text);
             try std.io.getStdOut().writer().print("{s}", .{formatted_text});
         }
 
-        pub inline fn printErr(self: *ComptimeStyle, comptime format: []const u8, _: anytype) !void {
+        pub inline fn printErr(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
-            const formatted_text = self.fmt(format);
+            const formatted_text = self.fmt(text);
             try std.io.getStdErr().writer().print("{s}", .{formatted_text});
         }
 

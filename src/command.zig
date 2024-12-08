@@ -20,6 +20,7 @@ pub const Command = enum {
     Install,
     Use,
     Remove,
+    Clean,
     Version,
     Help,
     Unknown,
@@ -45,6 +46,7 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = "i", .handle = "install", .cmd = Command.Install },
     .{ .short_handle = "u", .handle = "use", .cmd = Command.Use },
     .{ .short_handle = "rm", .handle = "remove", .cmd = Command.Remove },
+    .{ .short_handle = null, .handle = "clean", .cmd = Command.Clean },
     .{ .short_handle = "-v", .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
 };
@@ -117,6 +119,7 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
+        .Clean => try clean_store(),
         .Version => try get_version(),
         .Help => try display_help(),
         .Unknown => try handle_unknown(),
@@ -435,10 +438,57 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     }
 }
 
+/// Handle the `clean` command
+fn clean_store() !void {
+    var allocator = util_data.get_allocator();
+    var color = try util_color.Color.RuntimeStyle.init(allocator);
+    defer color.deinit();
+
+    // Path to the store directory
+    const store_path = try util_data.get_zvm_path_segment(allocator, "store");
+    defer allocator.free(store_path);
+
+    const fs = std.fs.cwd();
+    var store_dir = try fs.openDir(store_path, .{});
+    defer store_dir.close();
+
+    var it = store_dir.iterate();
+    var files_removed: usize = 0;
+    var bytes_freed: u64 = 0;
+
+    while (true) {
+        const entry = try it.next() orelse break;
+
+        // Get file size before deletion
+        const file_path = try std.fs.path.join(allocator, &.{ store_path, entry.name });
+        defer allocator.free(file_path);
+
+        const file = try fs.openFile(file_path, .{});
+        const file_info = try file.stat();
+        const file_size = file_info.size;
+        file.close();
+
+        // Delete the file
+        try store_dir.deleteFile(entry.name);
+
+        files_removed += 1;
+        bytes_freed += file_size;
+    }
+
+    if (files_removed > 0) {
+        try color.bold().green().print(
+            "Cleaned up {d} old download artifact(s).\n",
+            .{files_removed},
+        );
+    } else {
+        try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
+    }
+}
+
 fn get_version() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
     const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
-    try color.print("{s}", .{version_message});
+    try color.print(version_message);
 }
 
 fn display_help() !void {
@@ -455,23 +505,25 @@ fn display_help() !void {
         "\n    ls, list       List all available versions (remote) or use --system for local.\n" ++
         "    i, install     Install the specified version of Zig or zls.\n" ++
         "    use            Use the specified version of Zig or zls.\n" ++
-        "    remove         Remove the specified version of Zig or zls.\n" ++
-        "    --version      Display the current version of zvm.\n" ++
+        "    rm, remove     Remove the specified version of Zig or zls.\n" ++
+        "    clean          Remove old download artifacts from the store.\n" ++
+        "    -v, --version  Display the current version of zvm.\n" ++
         "    --help         Show this help message.\n\n" ++
         examples_title ++
         "\n    zvm ls                  List all available remote Zig versions.\n" ++
         "    zvm ls --system         List all locally installed Zig versions.\n" ++
-        "    zvm ls zls --system     List all locally installed ZLS versions.\n" ++
+        "    zvm ls zls --system     List all locally installed zls versions.\n" ++
         "    zvm install 0.12.0      Install Zig and zls version 0.12.0.\n" ++
         "    zvm use zig 0.12.0      Switch to using Zig version 0.12.0.\n" ++
-        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n\n" ++
+        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n" ++
+        "    zvm clean               Remove old download artifacts.\n\n" ++
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
-    try color.print("{s}", .{help_message});
+    try color.print(help_message);
 }
 
 fn handle_unknown() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
-    try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n", .{});
+    try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n");
 }
