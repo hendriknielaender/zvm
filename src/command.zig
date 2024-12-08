@@ -475,42 +475,14 @@ fn clean_store() !void {
         bytes_freed += file_size;
     }
 
-    // Format bytes_freed into a human-readable format
-    var formatted_size: []const u8 = undefined;
-    if (bytes_freed > 0) {
-        formatted_size = try format_bytes(bytes_freed, allocator);
-        defer allocator.free(formatted_size); // Ensure the buffer is freed after usage
-    }
-
-    std.debug.print("{s} ", .{formatted_size});
-
     if (files_removed > 0) {
         try color.bold().green().print(
-            "Cleaned up {d} old download artifact(s), freeing {s} of space.\n",
-            .{ files_removed, formatted_size },
+            "Cleaned up {d} old download artifact(s).\n",
+            .{files_removed},
         );
     } else {
         try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
     }
-}
-
-/// Formats bytes into a human-readable string (e.g., KB, MB, GB)
-fn format_bytes(bytes: u64, allocator: std.mem.Allocator) ![]const u8 {
-    const units = [_][]const u8{ "B", "KB", "MB", "GB", "TB" };
-    var size = bytes;
-    var unit_index: usize = 0;
-
-    while (size >= 1024 and unit_index < units.len - 1) : (unit_index += 1) {
-        size /= 1024;
-    }
-
-    // Allocate buffer for the formatted string
-    const buffer = try allocator.alloc(u8, 20);
-
-    // Format the string
-    _ = try std.fmt.bufPrint(buffer, "{d} {s}", .{ size, units[unit_index] });
-
-    return buffer;
 }
 
 fn get_version() !void {
