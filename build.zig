@@ -76,7 +76,7 @@ pub fn build(b: *Build) void {
             .name = "zvm",
             .root_source_file = b.path("src/main.zig"),
             .target = resolved_target,
-            .optimize = .ReleaseSafe,
+            .optimize = .ReleaseFast,
             .strip = true,
         });
 
