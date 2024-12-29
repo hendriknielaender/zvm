@@ -487,7 +487,10 @@ fn clean_store() !void {
 
 fn get_version() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
-    const version_message = color.cyan().fmt("zvm " ++ options.version ++ "\n");
+
+    try color.print(util_data.zvm_logo);
+
+    const version_message = color.fmt(options.version ++ "\n");
     try color.print(version_message);
 }
 
