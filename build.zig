@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const Build = std.Build;
 
 const min_zig_string = "0.13.0";
-const semver = std.SemanticVersion{ .major = 0, .minor = 7, .patch = 0 };
-const semver_string = "0.7.0";
+const semver = std.SemanticVersion{ .major = 0, .minor = 8, .patch = 0 };
+const semver_string = "0.8.0";
 
 const CrossTargetInfo = struct {
     crossTarget: std.zig.CrossTarget,
