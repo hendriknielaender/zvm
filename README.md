@@ -51,37 +51,32 @@ powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/maste
 
 ### Zsh
 
-1. **Generate** the Zsh completion script:
+ **Generate** the Zsh completion script:
    ```bash
    zvm completions zsh > _zvm
    ```
-2. **Move** `_zvm` into a directory that Zsh checks for autoloaded completion scripts. For example:
+ **Move** `_zvm` into a directory that Zsh checks for autoloaded completion scripts. For example:
    ```bash
    mkdir -p ~/.zsh/completions
    mv _zvm ~/.zsh/completions
    ```
-3. **Add** this to your `~/.zshrc`:
+ **Add** this to your `~/.zshrc`:
    ```bash
    fpath+=(~/.zsh/completions)
    autoload -U compinit && compinit
    ```
-4. **Reload** your shell:
+ **Reload** your shell:
    ```bash
    source ~/.zshrc
    ```
-5. **Test**:
-   ```bash
-   zvm <TAB>
-   ```
-   You should see a list of subcommands like `ls`, `install`, `use`, etc.
 
 ### Bash
 
-1. **Generate** the Bash completion script:
+**Generate** the Bash completion script:
    ```bash
    zvm completions bash > zvm.bash
    ```
-2. **Source** it in your `~/.bashrc` (or `~/.bash_profile`):
+**Source** it in your `~/.bashrc` (or `~/.bash_profile`):
    ```bash
    echo "source $(pwd)/zvm.bash" >> ~/.bashrc
    source ~/.bashrc
