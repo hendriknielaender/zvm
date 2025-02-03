@@ -23,6 +23,7 @@ pub const Command = enum {
     Clean,
     Version,
     Help,
+    Completions,
     Unknown,
 };
 
@@ -49,6 +50,7 @@ const command_opts = [_]CommandOption{
     .{ .short_handle = null, .handle = "clean", .cmd = Command.Clean },
     .{ .short_handle = "-v", .handle = "--version", .cmd = Command.Version },
     .{ .short_handle = null, .handle = "--help", .cmd = Command.Help },
+    .{ .short_handle = null, .handle = "completions", .cmd = .Completions },
 };
 
 /// Parse and handle commands
@@ -122,6 +124,7 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Clean => try clean_store(),
         .Version => try get_version(),
         .Help => try display_help(),
+        .Completions => try handle_completions(params),
         .Unknown => try handle_unknown(),
     }
 }
@@ -524,6 +527,95 @@ fn display_help() !void {
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 
     try color.print(help_message);
+}
+
+fn handle_completions(params: []const []const u8) !void {
+    if (params.len < 3) {
+        std.debug.print("Usage: zvm completions [zsh|bash]\n", .{});
+        return;
+    }
+
+    const shell = params[2];
+
+    if (std.mem.eql(u8, shell, "zsh")) {
+        try handle_completions_zsh();
+    } else if (std.mem.eql(u8, shell, "bash")) {
+        try handle_completions_bash();
+    } else {
+        std.debug.print("Unsupported shell: {s}\n", .{shell});
+        std.debug.print("Usage: zvm completions [zsh|bash]\n", .{});
+    }
+}
+
+fn handle_completions_zsh() !void {
+    const zsh_script =
+        \\#compdef zvm
+        \\
+        \\# ZVM top-level commands (example)
+        \\local -a _zvm_commands
+        \\_zvm_commands=(
+        \\  'ls:List local or remote versions'
+        \\  'install:Install a version of Zig or zls'
+        \\  'use:Switch to a local version of Zig or zls'
+        \\  'remove:Remove a local version of Zig or zls'
+        \\  'clean:Remove old artifacts'
+        \\  '--version:Show zvm version'
+        \\  '--help:Show help message'
+        \\  'completions:Generate completion script'
+        \\)
+        \\
+        \\_arguments \
+        \\  '1: :->cmds' \
+        \\  '*:: :->args'
+        \\
+        \\case $state in
+        \\  cmds)
+        \\    _describe -t commands "zvm command" _zvm_commands
+        \\  ;;
+        \\  args)
+        \\    # Subcommand-specific completions if needed
+        \\  ;;
+        \\esac
+    ;
+
+    const out = std.io.getStdOut().writer();
+    try out.print("{s}\n", .{zsh_script});
+}
+
+fn handle_completions_bash() !void {
+    const bash_script =
+        \\#!/usr/bin/env bash
+        \\# zvm Bash completion
+        \\
+        \\_zvm_completions() {
+        \\    local cur prev words cword
+        \\    _init_completion || return
+        \\
+        \\    local commands="ls install use remove clean --version --help completions"
+        \\
+        \\    if [[ $cword -eq 1 ]]; then
+        \\        COMPREPLY=( $( compgen -W "$commands" -- "$cur" ) )
+        \\    else
+        \\        # Add subcommand-specific logic here
+        \\        case "$prev" in
+        \\            install)
+        \\                # e.g. list remote versions
+        \\                ;;
+        \\            use)
+        \\                # e.g. list local versions
+        \\                ;;
+        \\            remove)
+        \\                # e.g. remove local versions
+        \\                ;;
+        \\        esac
+        \\    fi
+        \\}
+        \\
+        \\complete -F _zvm_completions zvm
+    ;
+
+    const out = std.io.getStdOut().writer();
+    try out.print("{s}\n", .{bash_script});
 }
 
 fn handle_unknown() !void {
