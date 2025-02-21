@@ -311,45 +311,44 @@ fn list_remote_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util
 
 fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progress.Node) !void {
     const allocator = util_data.get_allocator();
+    var color = try util_color.Color.RuntimeStyle.init(allocator);
+    defer color.deinit();
 
     if (subcmd) |scmd| {
-        var is_zls: bool = undefined;
-
         if (util_tool.eql_str(scmd, "zig")) {
-            is_zls = false;
+            if (param) |version| {
+                try install.install(version, false, root_node);
+            } else {
+                try color.bold().print("No version specified, installing latest Zig...\n", .{});
+                const latest_version = try get_latest_version(allocator, false);
+                defer allocator.free(latest_version);
+                try install.install(latest_version, false, root_node);
+            }
         } else if (util_tool.eql_str(scmd, "zls")) {
-            is_zls = true;
+            if (param) |version| {
+                try install.install(version, true, root_node);
+            } else {
+                try color.bold().print("No version specified, installing latest zls...\n", .{});
+                const latest_version = try get_latest_version(allocator, true);
+                defer allocator.free(latest_version);
+                try install.install(latest_version, true, root_node);
+            }
         } else {
-            var color = try util_color.Color.RuntimeStyle.init(allocator);
-            defer color.deinit();
             try color.bold().red().printErr(
-                "Unknown subcommand '{s}'. Use 'install zig/zls <version>'.\n",
+                "Unknown subcommand '{s}'. Use 'zvm install zig <version>' or 'zvm install zls <version>'.\n",
                 .{scmd},
             );
             return;
         }
-
-        const version = param orelse {
-            var color = try util_color.Color.RuntimeStyle.init(allocator);
-            defer color.deinit();
-            try color.bold().red().printErr(
-                "Please specify a version to install: 'install {s} <version>'.\n",
-                .{scmd},
-            );
-            return;
-        };
-
-        try install.install(version, is_zls, root_node);
-    } else if (param) |version| {
-        // set zig version
-        try install.install(version, false, root_node);
     } else {
-        var color = try util_color.Color.RuntimeStyle.init(allocator);
-        defer color.deinit();
-        try color.bold().red().printErr(
-            "Please specify a version to install: 'install zig/zls <version>' or 'install <version>'.\n",
-            .{},
-        );
+        if (param) |version| {
+            try install.install(version, false, root_node);
+        } else {
+            try color.bold().print("No version specified, installing latest Zig...\n", .{});
+            const latest_version = try get_latest_version(allocator, false);
+            defer allocator.free(latest_version);
+            try install.install(latest_version, false, root_node);
+        }
     }
 }
 
@@ -621,4 +620,36 @@ fn handle_completions_bash() !void {
 fn handle_unknown() !void {
     comptime var color = util_color.Color.ComptimeStyle.init();
     try color.bold().red().print("Unknown command. Use 'zvm --help' for usage information.\n");
+}
+
+fn get_latest_version(allocator: std.mem.Allocator, is_zls: bool) ![]const u8 {
+    if (is_zls) {
+        const res = try util_http.http_get(allocator, config.zls_url);
+        defer allocator.free(res);
+
+        var zls_meta = try meta.Zls.init(res, allocator);
+        defer zls_meta.deinit();
+
+        const version_list = try zls_meta.get_version_list(allocator);
+        defer util_tool.free_str_array(version_list, allocator);
+
+        if (version_list.len == 0) {
+            return error.NoVersions;
+        }
+        return try allocator.dupe(u8, version_list[0]);
+    } else {
+        const res = try util_http.http_get(allocator, config.zig_url);
+        defer allocator.free(res);
+
+        var zig_meta = try meta.Zig.init(res, allocator);
+        defer zig_meta.deinit();
+
+        const version_list = try zig_meta.get_version_list(allocator);
+        defer util_tool.free_str_array(version_list, allocator);
+
+        if (version_list.len == 0) {
+            return error.NoVersions;
+        }
+        return try allocator.dupe(u8, version_list[0]);
+    }
 }
