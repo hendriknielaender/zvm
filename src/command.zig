@@ -172,9 +172,7 @@ pub fn handle_alias(params: []const []const u8) !void {
         );
     };
 
-    std.fs.accessAbsolute(current_path, .{}) catch |err| {
-        return err; // if not found or something else, just return
-    };
+    try std.fs.accessAbsolute(current_path, .{});
 
     new_params[0] = current_path;
     return std.process.execv(allocator, new_params);
