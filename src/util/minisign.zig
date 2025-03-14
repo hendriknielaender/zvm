@@ -3,10 +3,7 @@ const base64 = std.base64;
 const crypto = std.crypto;
 const fs = std.fs;
 const mem = std.mem;
-const fmt = std.fmt;
-const heap = std.heap;
-const io = std.io;
-const Endian = std.builtin.Endian;
+
 const Ed25519 = crypto.sign.Ed25519;
 const Blake2b512 = crypto.hash.blake2.Blake2b512;
 

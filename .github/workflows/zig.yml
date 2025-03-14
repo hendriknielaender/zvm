@@ -26,3 +26,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v1
       - run: zig fmt --check src/*.zig
+      - uses: DonIsaac/zlint-action@v0

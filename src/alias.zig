@@ -4,7 +4,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const config = @import("config.zig");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
 

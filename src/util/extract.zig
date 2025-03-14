@@ -1,6 +1,5 @@
 //! This file is used to decompress the file
 const std = @import("std");
-const builtin = @import("builtin");
 const data = @import("data.zig");
 const tool = @import("tool.zig");
 

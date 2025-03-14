@@ -12,13 +12,6 @@ const util_http = @import("util/http.zig");
 const util_minisign = @import("util/minisign.zig");
 const Progress = std.Progress;
 
-const Version = struct {
-    name: []const u8,
-    date: ?[]const u8,
-    tarball: ?[]const u8,
-    shasum: ?[]const u8,
-};
-
 /// try install specified version
 pub fn install(version: []const u8, is_zls: bool, root_node: Progress.Node) !void {
     if (is_zls) {
