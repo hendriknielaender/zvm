@@ -60,8 +60,12 @@ pub fn build(b: *Build) void {
         .{ .cpu_arch = .x86, .os_tag = .linux },
         .{ .cpu_arch = .x86, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .linux },
+        .{ .cpu_arch = .aarch64, .os_tag = .windows },
         .{ .cpu_arch = .aarch64, .os_tag = .macos },
         .{ .cpu_arch = .riscv64, .os_tag = .linux },
+        .{ .cpu_arch = .powerpc64le, .os_tag = .linux },
+        .{ .cpu_arch = .arm, .os_tag = .linux },
+        .{ .cpu_arch = .loongarch64, .os_tag = .linux },
     };
 
     for (release_targets) |target_query| {
