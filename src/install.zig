@@ -66,7 +66,7 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
 
     // Step 4: Download the tarball
     const file_name = std.fs.path.basename(version_data.tarball);
-    const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
+    const parsed_uri = try std.Uri.parse(version_data.tarball);
 
     // Create a child progress node for the download
     const download_node = root_node.start("download zig", version_data.size);
@@ -203,7 +203,7 @@ fn install_zls(version: []const u8) !void {
         &.{ "zls-", reverse_platform_str, "-", true_version, ".", config.archive_ext },
     );
 
-    const parsed_uri = std.Uri.parse(version_data.tarball) catch unreachable;
+    const parsed_uri = std.Uri.parse(version_data.tarball) catch @panic("Invalid tarball data");
 
     // Create a child progress node for the download
     const download_node = root_node.start("Downloading ZLS tarball", version_data.size);

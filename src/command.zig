@@ -133,6 +133,7 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
 pub fn handle_alias(params: []const []const u8) !void {
     if (builtin.os.tag == .windows) return;
 
+    // SAFETY: Value is set immediately after declaration before any reads
     var is_zls: bool = undefined;
     const basename = std.fs.path.basename(params[0]);
 
@@ -268,6 +269,7 @@ fn list_local_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util_
 
 /// Lists remote available versions from meta (default behavior)
 fn list_remote_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util_color.Color.RuntimeStyle) !void {
+    // SAFETY: Initialized before use in the next statement
     var version_list: [][]const u8 = undefined;
 
     if (is_zls) {
@@ -354,6 +356,7 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     const allocator = util_data.get_allocator();
 
     if (subcmd) |scmd| {
+        // SAFETY: Value is set immediately after declaration based on string comparison
         var is_zls: bool = undefined;
         if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;
@@ -397,6 +400,7 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
     const allocator = util_data.get_allocator();
 
     if (subcmd) |scmd| {
+        // SAFETY: Value is set immediately after declaration based on string comparison
         var is_zls: bool = undefined;
         if (util_tool.eql_str(scmd, "zig")) {
             is_zls = false;

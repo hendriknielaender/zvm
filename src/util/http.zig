@@ -108,7 +108,7 @@ pub fn download(
     });
     defer new_file.close();
 
-    // Initialize hashsum if needed
+    // SAFETY: Only used in conditional branch where if_hash is false, so never accessed
     var sha256 = if (if_hash) std.crypto.hash.sha2.Sha256.init(.{}) else undefined;
 
     // Buffer for reading data

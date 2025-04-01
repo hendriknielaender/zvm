@@ -45,6 +45,7 @@ pub const Signature = struct {
         var tokenizer = mem.tokenizeScalar(u8, lines, '\n');
 
         // Skip untrusted comment lines
+        // SAFETY: Assigned in the loop before being used
         var line: []const u8 = undefined;
         while (true) {
             line = tokenizer.next() orelse {

@@ -2,12 +2,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// global allocator
+// SAFETY: Initialized in the program entry point before any use
 pub var allocator: std.mem.Allocator = undefined;
-/// home dir environment variable
+// SAFETY: Set during initialization before any code accesses it
 pub var home_dir: []const u8 = undefined;
 
-/// global progress root node
+// SAFETY: Initialized during program startup before progress reporting begins
 pub var progress_root: std.Progress.Node = undefined;
 
 /// zig meta data url
@@ -20,9 +20,9 @@ pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+
 pub const zls_meta_url: []const u8 = "https://api.github.com/repos/zigtools/zls/releases";
 
 /// parsed zig url
-pub const zig_url = std.Uri.parse(zig_meta_url) catch unreachable;
+pub const zig_url = std.Uri.parse(zig_meta_url) catch @panic("Invalid zig_meta_url");
 /// parsed zls url
-pub const zls_url = std.Uri.parse(zls_meta_url) catch unreachable;
+pub const zls_url = std.Uri.parse(zls_meta_url) catch @panic("Invalid zls_meta_url");
 
 /// zig file name
 pub const zig_name = switch (builtin.os.tag) {

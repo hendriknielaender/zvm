@@ -57,6 +57,7 @@ pub const Zig = struct {
             const now_version = entry.value_ptr;
             var version_info = now_version.object.iterator();
 
+            // SAFETY: All fields will be populated before this value is read
             var result: VersionData = undefined;
             // for "version" field
             var is_set_version = false;
