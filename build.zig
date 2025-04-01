@@ -10,7 +10,7 @@ const semver_string = "0.9.0";
 // comptime detect the zig version
 comptime {
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse(min_zig_string) catch unreachable;
+    const min_zig = std.SemanticVersion.parse(min_zig_string) catch @panic("Invalid version string");
     if (current_zig.order(min_zig) == .lt) {
         const error_msg = std.fmt.comptimePrint(
             "Your Zig version v{} does not meet the minimum build requirement of v{}",

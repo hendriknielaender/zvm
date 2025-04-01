@@ -52,7 +52,9 @@ fn extract_zip_dir(out_dir: std.fs.Dir, file: std.fs.File, _: std.Progress.Node)
     const allocator = arena.allocator();
     // for decompressing zig, we need to make a temp directory
     const tmp_path = try data.get_zvm_path_segment(allocator, "tmpdir");
-    defer std.fs.deleteTreeAbsolute(tmp_path) catch unreachable;
+    defer std.fs.deleteTreeAbsolute(tmp_path) catch |err| {
+        std.debug.print("Failed to delete temporary directory: {}\n", .{err});
+    };
 
     try std.fs.makeDirAbsolute(tmp_path);
     var tmp_dir = try std.fs.openDirAbsolute(tmp_path, .{ .iterate = true });

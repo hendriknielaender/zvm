@@ -87,9 +87,13 @@ pub const Color = struct {
         /// Adds a style code to the Style instance.
         pub fn addStyle(self: *RuntimeStyle, style_code: []const u8) *RuntimeStyle {
             // Ignore allocation errors for simplicity
-            self.open.appendSlice(style_code) catch {};
+            self.open.appendSlice(style_code) catch |err| {
+                std.log.warn("Failed to append style code: {}", .{err});
+            };
             // For correct closure, we need to append the corresponding reset code
-            self.close.appendSlice("\x1b[0m") catch {};
+            self.close.appendSlice("\x1b[0m") catch |err| {
+                std.log.warn("Failed to append reset code: {}", .{err});
+            };
             return self;
         }
 
