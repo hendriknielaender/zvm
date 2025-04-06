@@ -65,19 +65,12 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     }
 
     // Step 4: Download the tarball
-    const file_name = std.fs.path.basename(version_data.tarball);
-    const parsed_uri = try std.Uri.parse(version_data.tarball);
-
-    // Create a child progress node for the download
-    const download_node = root_node.start("download zig", version_data.size);
-    const tarball_file = try util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size, download_node);
-    // defer tarball_file.close();
-    download_node.end();
-    items_done += 1;
+    const tarball_file = try download_with_mirrors(version_data, root_node, &items_done);
 
     root_node.setCompletedItems(items_done);
 
     // Step 5: Download the signature file
+    const file_name = std.fs.path.basename(version_data.tarball);
     var signature_uri_buffer: [1024]u8 = undefined;
     const signature_uri_buf = try std.fmt.bufPrint(
         &signature_uri_buffer,
@@ -129,6 +122,132 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     try alias.set_version(version, false);
 
     root_node.end();
+}
+
+/// Attempts to download the Zig tarball from the primary source or mirrors
+/// Returns the downloaded file handle on success
+fn download_with_mirrors(
+    version_data: meta.Zig.VersionData,
+    root_node: Progress.Node,
+    items_done: *usize,
+) !std.fs.File {
+    const allocator = util_data.get_allocator();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    const file_name = std.fs.path.basename(version_data.tarball);
+
+    // Try preferred mirror first if specified
+    if (config.preferred_mirror) |mirror_index| {
+        if (mirror_index < config.zig_mirrors.len) {
+            const mirror_url = config.zig_mirrors[mirror_index][0];
+
+            // Construct the full mirror URL for the specific file
+            const mirror_uri = try construct_mirror_uri(arena_allocator, mirror_url, file_name);
+
+            const download_node = root_node.start(try std.fmt.allocPrint(arena_allocator, "download zig (mirror {d}): {s}", .{ mirror_index, mirror_url }), version_data.size);
+
+            const result = util_http.download(mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
+                download_node.end();
+                std.log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
+                // Continue to try official source and other mirrors
+                return try download_with_fallbacks(version_data, file_name, root_node, items_done);
+            };
+            download_node.end();
+            items_done.* += 1;
+            return result;
+        } else {
+            std.log.warn("Specified mirror index {d} is out of range (0-{d})", .{ mirror_index, config.zig_mirrors.len - 1 });
+        }
+    } else {
+        std.log.debug("No preferred mirror specified, using official source", .{});
+    }
+
+    // Try official source first, then fall back to mirrors if that fails
+    return try download_with_fallbacks(version_data, file_name, root_node, items_done);
+}
+
+fn download_with_fallbacks(
+    version_data: meta.Zig.VersionData,
+    file_name: []const u8,
+    root_node: Progress.Node,
+    items_done: *usize,
+) !std.fs.File {
+    const allocator = util_data.get_allocator();
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const arena_allocator = arena.allocator();
+
+    // Try official source first
+    const parsed_uri = try std.Uri.parse(version_data.tarball);
+
+    // Log that we're using the official source
+    std.log.info("Downloading from official source: {s}", .{version_data.tarball});
+
+    const download_node = root_node.start(try std.fmt.allocPrint(arena_allocator, "download zig (official): {s}", .{version_data.tarball}), version_data.size);
+
+    const result = util_http.download(parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
+        download_node.end();
+        std.log.warn("Failed to download from official source: {s}", .{@errorName(err)});
+
+        // Try each mirror in sequence
+        return try download_from_mirrors(arena_allocator, version_data, file_name, root_node);
+    };
+
+    download_node.end();
+    items_done.* += 1;
+    return result;
+}
+
+/// Attempts to download from each mirror in sequence until one succeeds
+fn download_from_mirrors(
+    allocator: std.mem.Allocator,
+    version_data: meta.Zig.VersionData,
+    file_name: []const u8,
+    root_node: Progress.Node,
+) !std.fs.File {
+    for (config.zig_mirrors, 0..) |mirror_info, i| {
+        const mirror_url = mirror_info[0];
+        const mirror_maintainer = mirror_info[1];
+
+        // Log which mirror we're trying
+        std.log.info("Trying mirror {d}/{d}: {s} ({s})", .{ i + 1, config.zig_mirrors.len, mirror_url, mirror_maintainer });
+
+        const mirror_uri = try construct_mirror_uri(allocator, mirror_url, file_name);
+        const mirror_node = root_node.start(
+            try std.fmt.allocPrint(allocator, "mirror {d}/{d}: {s}", .{ i + 1, config.zig_mirrors.len, mirror_url }),
+            version_data.size,
+        );
+
+        const result = util_http.download(mirror_uri, file_name, version_data.shasum, version_data.size, mirror_node) catch |err| {
+            mirror_node.end();
+            std.log.warn("Mirror {s} ({s}) failed: {s}", .{ mirror_url, mirror_maintainer, @errorName(err) });
+            continue;
+        };
+
+        mirror_node.end();
+        std.log.info("Successfully downloaded from mirror: {s} ({s})", .{ mirror_url, mirror_maintainer });
+        return result;
+    }
+
+    return error.AllMirrorsFailed;
+}
+
+/// Constructs a URI for a mirror download
+fn construct_mirror_uri(allocator: std.mem.Allocator, mirror_url: []const u8, file_name: []const u8) !std.Uri {
+    // Extract version and platform from filename
+    // Format is typically: zig-<os>-<arch>-<version>.<ext>
+    const version_start = std.mem.lastIndexOfScalar(u8, file_name, '-') orelse return error.InvalidFileName;
+    const version = file_name[version_start + 1 .. std.mem.indexOf(u8, file_name, ".") orelse file_name.len];
+
+    const mirror_path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{
+        mirror_url,
+        version,
+        file_name,
+    });
+
+    return std.Uri.parse(mirror_path);
 }
 
 /// Try to install the specified version of zls
@@ -206,7 +325,7 @@ fn install_zls(version: []const u8) !void {
     const parsed_uri = std.Uri.parse(version_data.tarball) catch @panic("Invalid tarball data");
 
     // Create a child progress node for the download
-    const download_node = root_node.start("Downloading ZLS tarball", version_data.size);
+    const download_node = root_node.start(try std.fmt.allocPrint(arena_allocator, "Downloading zls: {s}", .{version_data.tarball}), version_data.size);
     const new_file = try util_http.download(parsed_uri, file_name, null, version_data.size, download_node);
     defer new_file.close();
     download_node.end();
@@ -214,7 +333,7 @@ fn install_zls(version: []const u8) !void {
     root_node.setCompletedItems(items_done);
 
     // Proceed with extraction
-    const extract_node = root_node.start("Extracting ZLS tarball", 0);
+    const extract_node = root_node.start("Extracting zls tarball", 0);
     try util_tool.try_create_path(extract_path);
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
     try util_extract.extract(extract_dir, new_file, if (builtin.os.tag == .windows) .zip else .tarxz, true, extract_node);
