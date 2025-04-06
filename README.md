@@ -103,6 +103,7 @@ zvm <command> [arguments]
   Installs the specified version of Zig or zls.
   ```bash
   zvm install <version>         # Installs Zig and zls for the specified version
+  zvm install --mirror=0        # Installs Zig with a specified mirror url
   zvm install zig <version>     # Installs only Zig for the specified version
   zvm install zls <version>     # Installs only zls for the specified version
   ```
@@ -141,6 +142,9 @@ zvm ls --system
 
 # List all installed local zls versions
 zvm ls zls --system
+
+# List of available Zig mirrors
+zvm ls --mirror
 
 # Install Zig version 0.12.0
 zvm install 0.12.0
