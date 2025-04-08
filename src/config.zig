@@ -13,6 +13,19 @@ pub var progress_root: std.Progress.Node = undefined;
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
 
+/// Alternative mirrors for downloading Zig binaries
+/// Format: [url, maintainer]
+pub const zig_mirrors = [_][2][]const u8{
+    [_][]const u8{ "https://pkg.machengine.org/zig", "slimsag <stephen@hexops.com>" },
+    [_][]const u8{ "https://zigmirror.hryx.net/zig", "hryx <codroid@gmail.com>" },
+    [_][]const u8{ "https://zig.linus.dev/zig", "linusg <mail@linusgroh.de>" },
+    [_][]const u8{ "https://fs.liujiacai.net/zigbuilds", "jiacai2050 <hello@liujiacai.net>" },
+    [_][]const u8{ "https://zigmirror.nesovic.dev/zig", "kaynetik <aleksandar@nesovic.dev>" },
+    [_][]const u8{ "https://zig.nekos.space/zig", "0t4u <rattley@nekos.space>" },
+};
+
+pub var preferred_mirror: ?usize = null;
+
 /// zig minisign public key
 pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
 

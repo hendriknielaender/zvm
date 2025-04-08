@@ -32,6 +32,7 @@ const CommandData = struct {
     subcmd: ?[]const u8 = null,
     param: ?[]const u8 = null,
     system: bool = false,
+    mirror: ?usize = null,
 };
 
 const CommandOption = struct {
@@ -54,8 +55,10 @@ const command_opts = [_]CommandOption{
 };
 
 /// Parse and handle commands
+/// Parse and handle commands
 pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) !void {
     var command = CommandData{};
+    var show_mirrors = false;
 
     if (params.len < 2) {
         // No command passed
@@ -91,33 +94,60 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
             }
         }
 
-        // Check if --system flag is present in any of the args beyond the command:
-        // e.g. `zvm ls --system`, `zvm list zig --system`
-        // The flag can appear as either the subcmd or the param.
-        var has_system_flag = false;
-        if (command.subcmd) |scmd| {
-            if (std.mem.eql(u8, scmd, "--system")) {
-                has_system_flag = true;
-                command.subcmd = null; // remove it as a subcmd since it's a flag
-            }
-        }
-        // Check if we haven't found the system flag yet
-        if (!has_system_flag) {
-            // Now try to unwrap command.param
-            if (command.param) |p| {
-                if (std.mem.eql(u8, p, "--system")) {
-                    has_system_flag = true;
-                    command.param = null; // remove it as a param since it's a flag
+        // Check ALL command arguments for flags, regardless of position
+        for (args) |arg| {
+            // Check for specific flags
+            if (std.mem.eql(u8, arg, "--system")) {
+                command.system = true;
+
+                // Clear this arg if it was set as subcmd or param
+                if (command.subcmd != null and std.mem.eql(u8, command.subcmd.?, arg)) {
+                    command.subcmd = null;
+                }
+                if (command.param != null and std.mem.eql(u8, command.param.?, arg)) {
+                    command.param = null;
+                }
+            } else if (std.mem.eql(u8, arg, "--mirror")) {
+                show_mirrors = true;
+
+                // Clear this arg if it was set as subcmd or param
+                if (command.subcmd != null and std.mem.eql(u8, command.subcmd.?, arg)) {
+                    command.subcmd = null;
+                }
+                if (command.param != null and std.mem.eql(u8, command.param.?, arg)) {
+                    command.param = null;
+                }
+            } else if (std.mem.startsWith(u8, arg, "--mirror=")) {
+                const mirror_value = arg["--mirror=".len..];
+                const mirror_index = std.fmt.parseInt(usize, mirror_value, 10) catch |err| {
+                    std.log.err("Invalid mirror index: {s}", .{mirror_value});
+                    return err;
+                };
+                command.mirror = mirror_index;
+
+                // Clear this arg if it was set as subcmd or param
+                if (command.subcmd != null and std.mem.eql(u8, command.subcmd.?, arg)) {
+                    command.subcmd = null;
+                }
+                if (command.param != null and std.mem.eql(u8, command.param.?, arg)) {
+                    command.param = null;
                 }
             }
         }
 
-        command.system = has_system_flag;
+        // Set the preferred mirror if specified with a value
+        if (command.mirror) |mirror_index| {
+            if (mirror_index >= config.zig_mirrors.len) {
+                std.log.warn("Mirror index {d} out of range (0-{d}), using default sources", .{ mirror_index, config.zig_mirrors.len - 1 });
+            } else {
+                config.preferred_mirror = mirror_index;
+            }
+        }
     }
 
     // Dispatch based on command
     switch (command.cmd) {
-        .List => try handle_list(command.subcmd, command.param, command.system),
+        .List => try handle_list(command.subcmd, command.param, command.system, show_mirrors),
         .Install => try install_version(command.subcmd, command.param, root_node),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
@@ -127,6 +157,55 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         .Completions => try handle_completions(params),
         .Unknown => try handle_unknown(),
     }
+}
+
+fn handle_list(subcmd: ?[]const u8, param: ?[]const u8, system: bool, show_mirrors: bool) !void {
+    const allocator = util_data.get_allocator();
+    var color = try util_color.Color.RuntimeStyle.init(allocator);
+    defer color.deinit();
+
+    // If mirror flag is present without a value, list all mirrors
+    if (show_mirrors) {
+        try color.bold().cyan().print("Available mirrors:\n", .{});
+        try color.print("{s}", .{list_mirrors()});
+        return;
+    }
+
+    var is_zls = false;
+    var requested_param: []const u8 = "zig";
+    if (subcmd) |scmd| {
+        if (util_tool.eql_str(scmd, "zls")) {
+            is_zls = true;
+            requested_param = "zls";
+        } else if (!util_tool.eql_str(scmd, "zig")) {
+            try color.bold().red().printErr(
+                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
+                .{scmd},
+            );
+            return;
+        }
+    } else if (param) |p| {
+        // If param is "zig" or "zls" when no subcmd was given
+        if (util_tool.eql_str(p, "zls")) {
+            is_zls = true;
+            requested_param = "zls";
+        } else if (!util_tool.eql_str(p, "zig")) {
+            try color.bold().red().printErr(
+                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
+                .{p},
+            );
+            return;
+        }
+    }
+
+    // If system flag is set, list only local installed versions
+    if (system) {
+        try list_local_versions(is_zls, allocator, &color);
+        return;
+    }
+
+    // Default behavior: fetch and show remote available versions
+    try list_remote_versions(is_zls, allocator, &color);
 }
 
 /// handle alias, now only support zig
@@ -177,48 +256,6 @@ pub fn handle_alias(params: []const []const u8) !void {
 
     new_params[0] = current_path;
     return std.process.execv(allocator, new_params);
-}
-
-fn handle_list(subcmd: ?[]const u8, param: ?[]const u8, system: bool) !void {
-    const allocator = util_data.get_allocator();
-    var color = try util_color.Color.RuntimeStyle.init(allocator);
-    defer color.deinit();
-
-    var is_zls = false;
-    var requested_param: []const u8 = "zig";
-    if (subcmd) |scmd| {
-        if (util_tool.eql_str(scmd, "zls")) {
-            is_zls = true;
-            requested_param = "zls";
-        } else if (!util_tool.eql_str(scmd, "zig")) {
-            try color.bold().red().printErr(
-                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
-                .{scmd},
-            );
-            return;
-        }
-    } else if (param) |p| {
-        // If param is "zig" or "zls" when no subcmd was given
-        if (util_tool.eql_str(p, "zls")) {
-            is_zls = true;
-            requested_param = "zls";
-        } else if (!util_tool.eql_str(p, "zig")) {
-            try color.bold().red().printErr(
-                "Invalid parameter '{s}'. You can specify 'zig' or 'zls'.\n",
-                .{p},
-            );
-            return;
-        }
-    }
-
-    // If system flag is set, list only local installed versions
-    if (system) {
-        try list_local_versions(is_zls, allocator, &color);
-        return;
-    }
-
-    // Default behavior: fetch and show remote available versions
-    try list_remote_versions(is_zls, allocator, &color);
 }
 
 /// Lists locally installed versions of either Zig or ZLS.
@@ -520,9 +557,11 @@ fn display_help() !void {
         "\n    zvm ls                  List all available remote Zig versions.\n" ++
         "    zvm ls --system         List all locally installed Zig versions.\n" ++
         "    zvm ls zls --system     List all locally installed zls versions.\n" ++
-        "    zvm install 0.12.0      Install Zig and zls version 0.12.0.\n" ++
-        "    zvm use zig 0.12.0      Switch to using Zig version 0.12.0.\n" ++
-        "    zvm remove zig 0.12.0   Remove Zig version 0.12.0.\n" ++
+        "    zvm ls --mirror         List all available mirrors for downloading Zig.\n" ++
+        "    zvm install --mirror=0  Install Zig using the first mirror in the list.\n" ++
+        "    zvm install 0.14.0      Install Zig and zls version 0.14.0.\n" ++
+        "    zvm use zig 0.14.0      Switch to using Zig version 0.14.0.\n" ++
+        "    zvm remove zig 0.14.0   Remove Zig version 0.14.0.\n" ++
         "    zvm clean               Remove old download artifacts.\n\n" ++
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
@@ -546,6 +585,23 @@ fn handle_completions(params: []const []const u8) !void {
         std.debug.print("Unsupported shell: {s}\n", .{shell});
         std.debug.print("Usage: zvm completions [zsh|bash]\n", .{});
     }
+}
+
+fn list_mirrors() []const u8 {
+    comptime var color = util_color.Color.ComptimeStyle.init();
+    comptime var mirrors_text: []const u8 = "";
+
+    inline for (config.zig_mirrors, 0..) |mirror, i| {
+        const mirror_url = mirror[0];
+        const mirror_maintainer = mirror[1];
+
+        const index_line = std.fmt.comptimePrint("    {d}: {s}\n", .{ i, mirror_url });
+        const maintainer_line = std.fmt.comptimePrint("       Maintained by: {s}\n", .{mirror_maintainer});
+
+        mirrors_text = mirrors_text ++ color.fmt(index_line) ++ color.fmt(maintainer_line);
+    }
+
+    return mirrors_text;
 }
 
 fn handle_completions_zsh() !void {
