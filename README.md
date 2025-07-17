@@ -100,27 +100,28 @@ zvm <command> [arguments]
   ```
 
 - `zvm i` or `zvm install`  
-  Installs the specified version of Zig or zls.
+  Installs the specified version of Zig or zls. Zig is the default if no tool is specified.
   ```bash
-  zvm install <version>         # Installs Zig and zls for the specified version
+  zvm install <version>         # Installs Zig for the specified version (default)
+  zvm install <version> --debug # Installs with debug output
   zvm install --mirror=0        # Installs Zig with a specified mirror url
-  zvm install zig <version>     # Installs only Zig for the specified version
+  zvm install zig <version>     # Installs only Zig for the specified version (explicit)
   zvm install zls <version>     # Installs only zls for the specified version
   ```
 
 - `zvm use`  
-  Switches to using the specified installed version of Zig or zls.
+  Switches to using the specified installed version of Zig or zls. Zig is the default if no tool is specified.
   ```bash
-  zvm use <version>         # Use this version of Zig and zls if installed
-  zvm use zig <version>     # Use this version of Zig only
+  zvm use <version>         # Use this version of Zig (default)
+  zvm use zig <version>     # Use this version of Zig (explicit)
   zvm use zls <version>     # Use this version of zls only
   ```
 
 - `zvm remove`  
-  Removes the specified installed version of Zig or ZLS.
+  Removes the specified installed version of Zig or ZLS. Zig is the default if no tool is specified.
   ```bash
-  zvm remove <version>      # Removes this version of Zig and/or zls if installed
-  zvm remove zig <version>  # Removes only the specified Zig version
+  zvm remove <version>      # Removes this version of Zig (default)
+  zvm remove zig <version>  # Removes only the specified Zig version (explicit)
   zvm remove zls <version>  # Removes only the specified zls version
   ```
 - `zvm clean`
@@ -146,14 +147,20 @@ zvm ls zls --system
 # List of available Zig mirrors
 zvm ls --mirror
 
-# Install Zig version 0.12.0
-zvm install 0.12.0
+# Install Zig version 0.14.1 (zig is default)
+zvm install 0.14.1
 
-# Use Zig version 0.12.0
-zvm use zig 0.12.0
+# Install Zig version 0.14.1 with debug output
+zvm install 0.14.1 --debug
 
-# Remove Zig version 0.12.0
-zvm remove zig 0.12.0
+# Install zls version 0.14.0
+zvm install zls 0.14.0
+
+# Use Zig version 0.14.1 (zig is default)
+zvm use 0.14.1
+
+# Remove Zig version 0.14.1 (zig is default)
+zvm remove 0.14.1
 
 # Remove old download artifacts.
 zvm clean
@@ -162,7 +169,7 @@ zvm clean
 ### Compatibility Notes
 Zig is in active development and the APIs can change frequently, making it challenging to support every dev build. This project currently aims to be compatible with stable, non-development builds to provide a consistent experience for the users.
 
-***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.14.0***.
+***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.14.1***.
 
 ### Contributing
 Contributions, issues, and feature requests are welcome!

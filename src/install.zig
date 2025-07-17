@@ -13,17 +13,21 @@ const util_minisign = @import("util/minisign.zig");
 const Progress = std.Progress;
 
 /// try install specified version
-pub fn install(version: []const u8, is_zls: bool, root_node: Progress.Node) !void {
+pub fn install(version: []const u8, is_zls: bool, root_node: Progress.Node, debug: bool) !void {
     if (is_zls) {
-        try install_zls(version);
+        try install_zls(version, debug);
     } else {
-        try install_zig(version, root_node);
+        try install_zig(version, root_node, debug);
     }
 }
 
 /// Try to install the specified version of zig
-fn install_zig(version: []const u8, root_node: Progress.Node) !void {
+fn install_zig(version: []const u8, root_node: Progress.Node, debug: bool) !void {
     var allocator = util_data.get_allocator();
+
+    if (debug) {
+        std.debug.print("[DEBUG] Starting installation of Zig version: {s}\n", .{version});
+    }
 
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -33,12 +37,22 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     // Master version uses arch-os format (e.g., "x86_64-linux")
     // Stable versions use os-arch format (e.g., "linux-x86_64")
     const is_master = std.mem.eql(u8, version, "master");
+
+    if (debug) {
+        std.debug.print("[DEBUG] Is master version: {}\n", .{is_master});
+        std.debug.print("[DEBUG] OS: {s}, Arch: {s}\n", .{ @tagName(builtin.os.tag), @tagName(builtin.cpu.arch) });
+    }
+
     const platform_str = try util_arch.platform_str_runtime(.{
         .os = builtin.os.tag,
         .arch = builtin.cpu.arch,
-        .reverse = is_master,
+        .reverse = !is_master,
         .is_master = is_master,
     }, arena_allocator) orelse unreachable;
+
+    if (debug) {
+        std.debug.print("[DEBUG] Platform string: {s}\n", .{platform_str});
+    }
 
     var items_done: usize = 0;
 
@@ -53,10 +67,31 @@ fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     root_node.setCompletedItems(items_done);
 
     // Step 3: Get version data
+    if (debug) {
+        std.debug.print("[DEBUG] Fetching version data from: {s}\n", .{config.zig_url});
+    }
+
     const version_data: meta.Zig.VersionData = blk: {
         const res = try util_http.http_get(arena_allocator, config.zig_url);
+
+        if (debug) {
+            std.debug.print("[DEBUG] HTTP response received, parsing metadata...\n", .{});
+        }
+
         var zig_meta = try meta.Zig.init(res, arena_allocator);
         const tmp_val = try zig_meta.get_version_data(version, platform_str, arena_allocator);
+
+        if (debug) {
+            if (tmp_val) |vd| {
+                std.debug.print("[DEBUG] Version data found:\n", .{});
+                std.debug.print("[DEBUG]   Tarball: {s}\n", .{vd.tarball});
+                std.debug.print("[DEBUG]   Size: {d}\n", .{vd.size});
+                std.debug.print("[DEBUG]   Shasum: {s}\n", .{vd.shasum});
+            } else {
+                std.debug.print("[DEBUG] No version data found for version {s} on platform {s}\n", .{ version, platform_str });
+            }
+        }
+
         break :blk tmp_val orelse return error.UnsupportedVersion;
     };
     items_done += 1;
@@ -243,7 +278,13 @@ fn construct_mirror_uri(allocator: std.mem.Allocator, mirror_url: []const u8, fi
     // Extract version and platform from filename
     // Format is typically: zig-<os>-<arch>-<version>.<ext>
     const version_start = std.mem.lastIndexOfScalar(u8, file_name, '-') orelse return error.InvalidFileName;
-    const version = file_name[version_start + 1 .. std.mem.indexOf(u8, file_name, ".") orelse file_name.len];
+
+    // Find the file extension properly (either .tar.xz or .zip)
+    const tar_xz_index = std.mem.indexOf(u8, file_name, ".tar.xz");
+    const zip_index = std.mem.indexOf(u8, file_name, ".zip");
+    const ext_start = if (tar_xz_index) |idx| idx else if (zip_index) |idx| idx else file_name.len;
+
+    const version = file_name[version_start + 1 .. ext_start];
 
     const mirror_path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{
         mirror_url,
@@ -255,7 +296,10 @@ fn construct_mirror_uri(allocator: std.mem.Allocator, mirror_url: []const u8, fi
 }
 
 /// Try to install the specified version of zls
-fn install_zls(version: []const u8) !void {
+fn install_zls(version: []const u8, debug: bool) !void {
+    if (debug) {
+        std.debug.print("[DEBUG] Starting installation of ZLS version: {s}\n", .{version});
+    }
     const true_version = blk: {
         if (util_tool.eql_str("master", version)) {
             const zls_message = "Sorry, the 'install zls' feature is not supported at this time. Please compile zls locally.";
