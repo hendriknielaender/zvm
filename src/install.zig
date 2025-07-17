@@ -25,16 +25,20 @@ pub fn install(version: []const u8, is_zls: bool, root_node: Progress.Node) !voi
 fn install_zig(version: []const u8, root_node: Progress.Node) !void {
     var allocator = util_data.get_allocator();
 
-    const platform_str = try util_arch.platform_str(.{
-        .os = builtin.os.tag,
-        .arch = builtin.cpu.arch,
-        .reverse = true,
-    }) orelse unreachable;
-
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
     const arena_allocator = arena.allocator();
+
+    // Master version uses arch-os format (e.g., "x86_64-linux")
+    // Stable versions use os-arch format (e.g., "linux-x86_64")
+    const is_master = std.mem.eql(u8, version, "master");
+    const platform_str = try util_arch.platform_str_runtime(.{
+        .os = builtin.os.tag,
+        .arch = builtin.cpu.arch,
+        .reverse = is_master,
+        .is_master = is_master,
+    }, arena_allocator) orelse unreachable;
 
     var items_done: usize = 0;
 
