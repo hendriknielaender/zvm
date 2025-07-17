@@ -33,6 +33,7 @@ const CommandData = struct {
     param: ?[]const u8 = null,
     system: bool = false,
     mirror: ?usize = null,
+    debug: bool = false,
 };
 
 const CommandOption = struct {
@@ -97,7 +98,17 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
         // Check ALL command arguments for flags, regardless of position
         for (args) |arg| {
             // Check for specific flags
-            if (std.mem.eql(u8, arg, "--system")) {
+            if (std.mem.eql(u8, arg, "--debug")) {
+                command.debug = true;
+
+                // Clear this arg if it was set as subcmd or param
+                if (command.subcmd != null and std.mem.eql(u8, command.subcmd.?, arg)) {
+                    command.subcmd = null;
+                }
+                if (command.param != null and std.mem.eql(u8, command.param.?, arg)) {
+                    command.param = null;
+                }
+            } else if (std.mem.eql(u8, arg, "--system")) {
                 command.system = true;
 
                 // Clear this arg if it was set as subcmd or param
@@ -148,7 +159,7 @@ pub fn handle_command(params: []const []const u8, root_node: std.Progress.Node) 
     // Dispatch based on command
     switch (command.cmd) {
         .List => try handle_list(command.subcmd, command.param, command.system, show_mirrors),
-        .Install => try install_version(command.subcmd, command.param, root_node),
+        .Install => try install_version(command.subcmd, command.param, root_node, command.debug),
         .Use => try use_version(command.subcmd, command.param),
         .Remove => try remove_version(command.subcmd, command.param),
         .Clean => try clean_store(),
@@ -346,7 +357,7 @@ fn list_remote_versions(is_zls: bool, allocator: std.mem.Allocator, color: *util
     }
 }
 
-fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progress.Node) !void {
+fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progress.Node, debug: bool) !void {
     const allocator = util_data.get_allocator();
     var color = try util_color.Color.RuntimeStyle.init(allocator);
     defer color.deinit();
@@ -354,37 +365,35 @@ fn install_version(subcmd: ?[]const u8, param: ?[]const u8, root_node: std.Progr
     if (subcmd) |scmd| {
         if (util_tool.eql_str(scmd, "zig")) {
             if (param) |version| {
-                try install.install(version, false, root_node);
+                try install.install(version, false, root_node, debug);
             } else {
                 try color.bold().print("No version specified, installing latest Zig...\n", .{});
                 const latest_version = try get_latest_version(allocator, false);
                 defer allocator.free(latest_version);
-                try install.install(latest_version, false, root_node);
+                try install.install(latest_version, false, root_node, debug);
             }
         } else if (util_tool.eql_str(scmd, "zls")) {
             if (param) |version| {
-                try install.install(version, true, root_node);
+                try install.install(version, true, root_node, debug);
             } else {
                 try color.bold().print("No version specified, installing latest zls...\n", .{});
                 const latest_version = try get_latest_version(allocator, true);
                 defer allocator.free(latest_version);
-                try install.install(latest_version, true, root_node);
+                try install.install(latest_version, true, root_node, debug);
             }
         } else {
-            try color.bold().red().printErr(
-                "Unknown subcommand '{s}'. Use 'zvm install zig <version>' or 'zvm install zls <version>'.\n",
-                .{scmd},
-            );
+            // If not zig or zls, treat it as a zig version
+            try install.install(scmd, false, root_node, debug);
             return;
         }
     } else {
         if (param) |version| {
-            try install.install(version, false, root_node);
+            try install.install(version, false, root_node, debug);
         } else {
             try color.bold().print("No version specified, installing latest Zig...\n", .{});
             const latest_version = try get_latest_version(allocator, false);
             defer allocator.free(latest_version);
-            try install.install(latest_version, false, root_node);
+            try install.install(latest_version, false, root_node, debug);
         }
     }
 }
@@ -400,12 +409,8 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            var color = try util_color.Color.RuntimeStyle.init(allocator);
-            defer color.deinit();
-            try color.bold().red().printErr(
-                "Unknown subcommand '{s}'. Use 'use zig <version>' or 'use zls <version>'.\n",
-                .{scmd},
-            );
+            // If not zig or zls, treat it as a zig version
+            try alias.set_version(scmd, false);
             return;
         }
 
@@ -420,14 +425,11 @@ fn use_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         };
 
         try alias.set_version(version, is_zls);
-    } else if (param) |version| {
-        // set zig version
-        try alias.set_version(version, false);
     } else {
         var color = try util_color.Color.RuntimeStyle.init(allocator);
         defer color.deinit();
         try color.bold().red().printErr(
-            "Please specify a version to use: 'use zig/zls <version>' or 'use <version>'.\n",
+            "Please specify a version to use: 'use <version>' or 'use zig/zls <version>'.\n",
             .{},
         );
     }
@@ -444,12 +446,10 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         } else if (util_tool.eql_str(scmd, "zls")) {
             is_zls = true;
         } else {
-            var color = try util_color.Color.RuntimeStyle.init(allocator);
-            defer color.deinit();
-            try color.bold().red().printErr(
-                "Unknown subcommand '{s}'. Use 'remove zig <version>' or 'remove zls <version>'.\n",
-                .{scmd},
-            );
+            // If not zig or zls, treat it as a zig version
+            try remove.remove(scmd, false);
+            // also try remove zls version if it matches
+            try remove.remove(scmd, true);
             return;
         }
 
@@ -464,16 +464,11 @@ fn remove_version(subcmd: ?[]const u8, param: ?[]const u8) !void {
         };
 
         try remove.remove(version, is_zls);
-    } else if (param) |version| {
-        // remove zig version
-        try remove.remove(version, false);
-        // also try remove zls version if it matches
-        try remove.remove(version, true);
     } else {
         var color = try util_color.Color.RuntimeStyle.init(allocator);
         defer color.deinit();
         try color.bold().red().printErr(
-            "Please specify a version to remove: 'remove zig/zls <version>' or 'remove <version>'.\n",
+            "Please specify a version to remove: 'remove <version>' or 'remove zig/zls <version>'.\n",
             .{},
         );
     }
@@ -554,15 +549,18 @@ fn display_help() !void {
         "    -v, --version  Display the current version of zvm.\n" ++
         "    --help         Show this help message.\n\n" ++
         examples_title ++
-        "\n    zvm ls                  List all available remote Zig versions.\n" ++
-        "    zvm ls --system         List all locally installed Zig versions.\n" ++
-        "    zvm ls zls --system     List all locally installed zls versions.\n" ++
-        "    zvm ls --mirror         List all available mirrors for downloading Zig.\n" ++
-        "    zvm install --mirror=0  Install Zig using the first mirror in the list.\n" ++
-        "    zvm install 0.14.0      Install Zig and zls version 0.14.0.\n" ++
-        "    zvm use zig 0.14.0      Switch to using Zig version 0.14.0.\n" ++
-        "    zvm remove zig 0.14.0   Remove Zig version 0.14.0.\n" ++
-        "    zvm clean               Remove old download artifacts.\n\n" ++
+        "\n    zvm ls                    List all available remote Zig versions.\n" ++
+        "    zvm ls --system           List all locally installed Zig versions.\n" ++
+        "    zvm ls zls --system       List all locally installed zls versions.\n" ++
+        "    zvm ls --mirror           List all available mirrors for downloading Zig.\n" ++
+        "    zvm install --mirror=0    Install Zig using the first mirror in the list.\n" ++
+        "    zvm install 0.14.1        Install Zig version 0.14.1 (zig is default).\n" ++
+        "    zvm install 0.14.1 --debug Install with debug output.\n" ++
+        "    zvm install zls 0.14.0    Install zls version 0.14.0.\n" ++
+        "    zvm use 0.14.1            Switch to using Zig version 0.14.1.\n" ++
+        "    zvm use zig 0.14.1        Switch to using Zig version 0.14.1 (explicit).\n" ++
+        "    zvm remove 0.14.1         Remove Zig version 0.14.1.\n" ++
+        "    zvm clean                 Remove old download artifacts.\n\n" ++
         additional_info_title ++
         "\n    For additional information and contributions, please visit https://github.com/hendriknielaender/zvm\n\n";
 

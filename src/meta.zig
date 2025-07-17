@@ -57,10 +57,21 @@ pub const Zig = struct {
             const now_version = entry.value_ptr;
             var version_info = now_version.object.iterator();
 
-            // SAFETY: All fields will be populated before this value is read
-            var result: VersionData = undefined;
-            // for "version" field
+            // Initialize all fields to safe defaults
+            var result: VersionData = .{
+                .version = undefined,
+                .date = undefined,
+                .tarball = undefined,
+                .shasum = undefined,
+                .size = 0,
+            };
+
+            // Track which fields have been set
             var is_set_version = false;
+            var is_set_date = false;
+            var is_set_tarball = false;
+            var is_set_shasum = false;
+            var is_set_size = false;
 
             // traverse versions
             while (version_info.next()) |version_info_entry| {
@@ -79,6 +90,7 @@ pub const Zig = struct {
                         u8,
                         version_info_entry_val.string,
                     );
+                    is_set_date = true;
                 } else
                 // skip the useless entry
                 if (util_tool.eql_str(version_info_key, platform_str)) {
@@ -91,10 +103,12 @@ pub const Zig = struct {
                         // get tarball
                         if (util_tool.eql_str(platform_info_entry_key, "tarball")) {
                             result.tarball = try allocator.dupe(u8, playform_info_entry_val.string);
+                            is_set_tarball = true;
                         } else
                         // get shasum
                         if (util_tool.eql_str(platform_info_entry_key, "shasum")) {
                             result.shasum = playform_info_entry_val.string[0..64].*;
+                            is_set_shasum = true;
                         } else
                         // get size
                         if (util_tool.eql_str(platform_info_entry_key, "size")) {
@@ -104,6 +118,7 @@ pub const Zig = struct {
                                 10,
                             );
                             result.size = size;
+                            is_set_size = true;
                         }
                     }
                 }
@@ -111,6 +126,11 @@ pub const Zig = struct {
 
             if (!is_set_version)
                 result.version = try allocator.dupe(u8, version);
+
+            // Ensure all required fields are set before returning
+            if (!is_set_tarball or !is_set_shasum or !is_set_size or !is_set_date) {
+                return null;
+            }
 
             return result;
         }
