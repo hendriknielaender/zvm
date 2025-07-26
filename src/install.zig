@@ -128,13 +128,39 @@ fn install_zig(
 
     const is_master = std.mem.eql(u8, version, "master");
 
-    const platform_str = try get_platform_string(ctx, is_master, debug);
+    // Get platform string and store it in a persistent buffer
+    const platform_buffer = try ctx.acquire_path_buffer();
+    const platform_str = try get_platform_string_into_buffer(ctx, is_master, debug, platform_buffer);
 
     var items_done: u32 = 0;
 
-    const paths = try get_install_paths(ctx, version, &items_done, root_node);
+    // Get paths and store them locally to avoid lifetime issues
+    var version_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
 
-    if (util_tool.does_path_exist(paths.extract_path)) {
+    const version_path = blk: {
+        const version_path_buffer = try ctx.acquire_path_buffer();
+        defer version_path_buffer.reset();
+        const path = try util_data.get_zvm_zig_version(version_path_buffer);
+        @memcpy(version_path_storage[0..path.len], path);
+        break :blk version_path_storage[0..path.len];
+    };
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
+
+    const extract_path = blk: {
+        const extract_path_buffer = try ctx.acquire_path_buffer();
+        defer extract_path_buffer.reset();
+        var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
+        try fbs.writer().print("{s}/{s}", .{ version_path, version });
+        const path = try extract_path_buffer.set(fbs.getWritten());
+        @memcpy(extract_path_storage[0..path.len], path);
+        break :blk extract_path_storage[0..path.len];
+    };
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
+
+    if (util_tool.does_path_exist(extract_path)) {
         try alias.set_version(ctx, version, false);
         root_node.end();
         return;
@@ -149,27 +175,16 @@ fn install_zig(
 
     try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
-    try extract_and_install(ctx, paths.extract_path, tarball_file, &items_done, root_node);
+    try extract_and_install(ctx, extract_path, tarball_file, &items_done, root_node);
 
     try alias.set_version(ctx, version, false);
 
     root_node.end();
 }
 
-/// Installation paths structure
-const InstallPaths = struct {
-    version_path: []const u8,
-    extract_path: []const u8,
-    // Storage for paths to avoid buffer lifetime issues
-    version_path_storage: [limits.limits.path_length_maximum]u8 = undefined,
-    extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined,
-};
-
-fn get_platform_string(ctx: *context.CliContext, is_master: bool, debug: bool) ![]const u8 {
+fn get_platform_string_into_buffer(ctx: *context.CliContext, is_master: bool, debug: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
+    _ = ctx;
     if (debug) {}
-
-    const platform_buffer = try ctx.acquire_path_buffer();
-    defer platform_buffer.reset();
 
     const platform_str = try util_arch.platform_str_static(
         platform_buffer,
@@ -194,57 +209,6 @@ fn get_platform_string(ctx: *context.CliContext, is_master: bool, debug: bool) !
     if (debug) {}
 
     return platform_str;
-}
-
-fn get_install_paths(
-    ctx: *context.CliContext,
-    version: []const u8,
-    items_done: *u32,
-    root_node: Progress.Node,
-) !InstallPaths {
-    std.debug.assert(version.len > 0);
-    std.debug.assert(items_done.* >= 0);
-
-    var result = InstallPaths{
-        .version_path = undefined,
-        .extract_path = undefined,
-    };
-
-    {
-        const version_path_buffer = try ctx.acquire_path_buffer();
-        defer version_path_buffer.reset();
-
-        const version_path = try util_data.get_zvm_zig_version(version_path_buffer);
-        std.debug.assert(version_path.len > 0);
-        std.debug.assert(version_path.len <= limits.limits.path_length_maximum);
-
-        @memcpy(result.version_path_storage[0..version_path.len], version_path);
-        result.version_path = result.version_path_storage[0..version_path.len];
-    }
-
-    items_done.* += 1;
-    std.debug.assert(items_done.* > 0);
-    root_node.setCompletedItems(items_done.*);
-
-    {
-        const extract_path_buffer = try ctx.acquire_path_buffer();
-        defer extract_path_buffer.reset();
-
-        var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
-        try fbs.writer().print("{s}/{s}", .{ result.version_path, version });
-        const extract_path = try extract_path_buffer.set(fbs.getWritten());
-
-        std.debug.assert(extract_path.len > 0);
-        std.debug.assert(extract_path.len <= limits.limits.path_length_maximum);
-
-        @memcpy(result.extract_path_storage[0..extract_path.len], extract_path);
-        result.extract_path = result.extract_path_storage[0..extract_path.len];
-    }
-
-    items_done.* += 1;
-    root_node.setCompletedItems(items_done.*);
-
-    return result;
 }
 
 fn fetch_version_data(
@@ -272,9 +236,7 @@ fn fetch_version_data(
 
     const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_json_allocator());
 
-    if (debug) {
-        debug_print_version_data(tmp_val, version, platform_str);
-    }
+    if (debug) {}
 
     const version_data = tmp_val orelse {
         std.log.err("Unsupported version '{s}' for platform '{s}'. Check available versions with 'zvm list'", .{
@@ -292,13 +254,6 @@ fn fetch_version_data(
     root_node.setCompletedItems(items_done.*);
 
     return version_data;
-}
-
-/// Debug print version data
-fn debug_print_version_data(version_data: ?meta.Zig.VersionData, version: []const u8, platform_str: []const u8) void {
-    _ = version_data;
-    _ = version;
-    _ = platform_str;
 }
 
 fn download_and_verify_signature(
@@ -397,10 +352,7 @@ fn extract_and_install(
 
     const extract_node = root_node.start("extracting zig", 0);
 
-    std.log.info("Starting extraction to path: {s}", .{extract_path});
-
     if (util_tool.does_path_exist(extract_path)) {
-        std.log.info("Cleaning up existing directory: {s}", .{extract_path});
         try std.fs.deleteTreeAbsolute(extract_path);
     }
 
@@ -589,7 +541,13 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
 
     if (debug) {}
 
-    const platform_str = try get_zls_platform_string(ctx);
+    var platform_str_buffer: [100]u8 = undefined;
+    const platform_str_temp = try get_zls_platform_string(ctx);
+    if (platform_str_temp.len > platform_str_buffer.len) {
+        return error.PlatformStringTooLong;
+    }
+    @memcpy(platform_str_buffer[0..platform_str_temp.len], platform_str_temp);
+    const platform_str = platform_str_buffer[0..platform_str_temp.len];
 
     const paths = try get_zls_install_paths(ctx, version);
 
@@ -624,6 +582,8 @@ fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
 const ZlsPaths = struct {
     version_path: []const u8,
     extract_path: []const u8,
+    version_path_storage: [limits.limits.path_length_maximum]u8,
+    extract_path_storage: [limits.limits.path_length_maximum]u8,
 };
 
 fn get_zls_install_paths(ctx: *context.CliContext, version: []const u8) !ZlsPaths {
@@ -646,10 +606,30 @@ fn get_zls_install_paths(ctx: *context.CliContext, version: []const u8) !ZlsPath
     std.debug.assert(extract_path.len > 0);
     std.debug.assert(extract_path.len <= limits.limits.path_length_maximum);
 
-    return ZlsPaths{
-        .version_path = version_path,
-        .extract_path = extract_path,
+    var result = ZlsPaths{
+        // SAFETY: version_path is immediately set after struct creation
+        .version_path = undefined,
+        // SAFETY: extract_path is immediately set after struct creation
+        .extract_path = undefined,
+        // SAFETY: version_path_storage is immediately populated via memcpy
+        .version_path_storage = undefined,
+        // SAFETY: extract_path_storage is immediately populated via memcpy
+        .extract_path_storage = undefined,
     };
+
+    if (version_path.len > result.version_path_storage.len) {
+        return error.PathTooLong;
+    }
+    @memcpy(result.version_path_storage[0..version_path.len], version_path);
+    result.version_path = result.version_path_storage[0..version_path.len];
+
+    if (extract_path.len > result.extract_path_storage.len) {
+        return error.PathTooLong;
+    }
+    @memcpy(result.extract_path_storage[0..extract_path.len], extract_path);
+    result.extract_path = result.extract_path_storage[0..extract_path.len];
+
+    return result;
 }
 
 fn fetch_zls_version_data(

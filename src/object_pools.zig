@@ -3,7 +3,7 @@ const limits = @import("limits.zig");
 
 /// Pre-allocated path buffer with static storage.
 pub const PathBuffer = struct {
-    data: [limits.limits.path_length_maximum]u8 = undefined,
+    data: [limits.limits.path_length_maximum]u8,
     used: u32 = 0,
 
     pub fn reset(self: *PathBuffer) void {
@@ -51,9 +51,9 @@ pub const PathBuffer = struct {
 /// Response data and headers use pre-allocated memory.
 /// Certificate handling uses temporary allocation due to std library constraints.
 pub const HttpOperation = struct {
-    response_buffer: [limits.limits.http_response_size_maximum]u8 = undefined,
-    url_buffer: [limits.limits.url_length_maximum]u8 = undefined,
-    header_buffer: [limits.limits.http_header_size_maximum]u8 = undefined,
+    response_buffer: [limits.limits.http_response_size_maximum]u8,
+    url_buffer: [limits.limits.url_length_maximum]u8,
+    header_buffer: [limits.limits.http_header_size_maximum]u8,
 
     in_use: bool = false,
 
@@ -84,7 +84,7 @@ pub const HttpOperation = struct {
 
 /// Pre-allocated version entry with static name buffer.
 pub const VersionEntry = struct {
-    name_buffer: [limits.limits.version_string_length_maximum]u8 = undefined,
+    name_buffer: [limits.limits.version_string_length_maximum]u8,
     name_length: u8 = 0,
     metadata: VersionMetadata = .{},
     occupied: bool = false,
@@ -123,9 +123,9 @@ pub const VersionEntry = struct {
 
 /// Pre-allocated extract operation with static buffer.
 pub const ExtractOperation = struct {
-    buffer: [limits.limits.extract_buffer_size_maximum]u8 = undefined,
-    tmp_path_buffer: PathBuffer = .{},
-    out_path_buffer: PathBuffer = .{},
+    buffer: [limits.limits.extract_buffer_size_maximum]u8,
+    tmp_path_buffer: PathBuffer,
+    out_path_buffer: PathBuffer,
     in_use: bool = false,
 
     pub fn acquire(self: *ExtractOperation) !void {
@@ -147,9 +147,9 @@ pub const ExtractOperation = struct {
 
 /// Pre-allocated process buffer with static storage.
 pub const ProcessBuffer = struct {
-    output: [limits.limits.process_output_size_maximum]u8 = undefined,
-    arguments: [limits.limits.arguments_maximum][]const u8 = undefined,
-    arguments_storage: [limits.limits.arguments_storage_size_maximum]u8 = undefined,
+    output: [limits.limits.process_output_size_maximum]u8,
+    arguments: [limits.limits.arguments_maximum][]const u8,
+    arguments_storage: [limits.limits.arguments_storage_size_maximum]u8,
     arguments_count: u32 = 0,
 
     pub fn reset(self: *ProcessBuffer) void {
@@ -168,18 +168,33 @@ pub const ProcessBuffer = struct {
 /// All object pools for the application - completely static.
 pub const ObjectPools = struct {
     path_buffers: [limits.limits.path_buffers_maximum]PathBuffer =
-        [_]PathBuffer{.{}} ** limits.limits.path_buffers_maximum,
+        [_]PathBuffer{.{ .data = undefined, .used = 0 }} ** limits.limits.path_buffers_maximum,
 
     http_operations: [limits.limits.http_operations_maximum]HttpOperation =
-        [_]HttpOperation{.{}} ** limits.limits.http_operations_maximum,
+        [_]HttpOperation{.{
+            .response_buffer = undefined,
+            .url_buffer = undefined,
+            .header_buffer = undefined,
+            .in_use = false,
+        }} ** limits.limits.http_operations_maximum,
 
     version_entries: [limits.limits.versions_maximum]VersionEntry =
-        [_]VersionEntry{.{}} ** limits.limits.versions_maximum,
+        [_]VersionEntry{.{ .name_buffer = undefined, .name_length = 0, .metadata = .{}, .occupied = false }} ** limits.limits.versions_maximum,
 
     extract_operations: [limits.limits.extract_operations_maximum]ExtractOperation =
-        [_]ExtractOperation{.{}} ** limits.limits.extract_operations_maximum,
+        [_]ExtractOperation{.{
+            .buffer = undefined,
+            .tmp_path_buffer = .{ .data = undefined, .used = 0 },
+            .out_path_buffer = .{ .data = undefined, .used = 0 },
+            .in_use = false,
+        }} ** limits.limits.extract_operations_maximum,
 
-    process_buffer: ProcessBuffer = .{},
+    process_buffer: ProcessBuffer = .{
+        .output = undefined,
+        .arguments = undefined,
+        .arguments_storage = undefined,
+        .arguments_count = 0,
+    },
 
     json_parse_buffer: [limits.limits.json_parse_size_maximum]u8 = undefined,
 
@@ -314,6 +329,7 @@ pub const ObjectPools = struct {
 
     /// Get current pool usage statistics
     pub fn get_stats(self: *const ObjectPools) PoolStats {
+        // SAFETY: All fields are immediately initialized before return
         var stats: PoolStats = undefined;
 
         // Count path buffers

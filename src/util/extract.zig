@@ -3,7 +3,6 @@ const std = @import("std");
 const data = @import("data.zig");
 const tool = @import("tool.zig");
 const object_pools = @import("../object_pools.zig");
-const limits = @import("../limits.zig");
 
 const xz = std.compress.xz;
 const tar = std.tar;
@@ -101,7 +100,7 @@ fn extract_zip_dir_static(
     const out_path = try out_path_buffer.set(realpath_result);
 
     // Use temporary buffers for copying directories.
-    var source_buffer: object_pools.PathBuffer = .{};
-    var dest_buffer: object_pools.PathBuffer = .{};
+    var source_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    var dest_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
     try tool.copy_dir_static(tmp_path, out_path, &source_buffer, &dest_buffer);
 }

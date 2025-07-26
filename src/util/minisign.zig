@@ -4,7 +4,6 @@ const crypto = std.crypto;
 const fs = std.fs;
 const mem = std.mem;
 const context = @import("../context.zig");
-const object_pools = @import("../object_pools.zig");
 const limits = @import("../limits.zig");
 
 const Ed25519 = crypto.sign.Ed25519;
@@ -34,7 +33,7 @@ pub const Signature = struct {
     trusted_comment: []const u8,
     global_signature: [64]u8,
     // Storage for trusted comment in static allocation.
-    trusted_comment_buffer: [limits.limits.trusted_comment_length_maximum]u8 = undefined,
+    trusted_comment_buffer: [limits.limits.trusted_comment_length_maximum]u8 = [_]u8{0} ** limits.limits.trusted_comment_length_maximum,
     trusted_comment_len: usize = 0,
 
     pub fn deinit(self: *Signature, allocator: std.mem.Allocator) void {
@@ -55,6 +54,7 @@ pub const Signature = struct {
     pub fn decode(allocator: std.mem.Allocator, lines: []const u8) !Signature {
         var tokenizer = mem.tokenizeScalar(u8, lines, '\n');
 
+        // SAFETY: line is immediately assigned in the loop before use
         var line: []const u8 = undefined;
         while (true) {
             line = tokenizer.next() orelse {
@@ -107,6 +107,7 @@ pub const Signature = struct {
             .signature_algorithm = sig_bin[0..2].*,
             .key_id = sig_bin[2..10].*,
             .signature = sig_bin[10..74].*,
+            // SAFETY: trusted_comment will be set immediately after struct creation
             .trusted_comment = undefined,
             .global_signature = global_sig_bin,
         };
@@ -213,9 +214,7 @@ pub const Verifier = struct {
 
         const global_data = try self.build_global_signature_data_static(global_data_buffer);
 
-        Ed25519.Signature.fromBytes(self.signature.global_signature).verify(global_data, public_key) catch |err| {
-            return err;
-        };
+        try Ed25519.Signature.fromBytes(self.signature.global_signature).verify(global_data, public_key);
     }
 
     fn build_global_signature_data_static(self: *Verifier, buffer: []u8) ![]const u8 {

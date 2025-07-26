@@ -93,6 +93,7 @@ pub const StaticMemory = struct {
         var result = StaticMemory{
             .buffer = backing_buffer,
             .fba = std.heap.FixedBufferAllocator.init(backing_buffer),
+            // SAFETY: static_allocator is immediately initialized after struct creation
             .static_allocator = undefined,
         };
 

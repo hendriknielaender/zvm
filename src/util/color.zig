@@ -72,11 +72,11 @@ pub const Color = struct {
         /// Maximum length for style escape sequences.
         const style_buffer_size = 256;
 
-        open_buffer: [style_buffer_size]u8 = undefined,
+        open_buffer: [style_buffer_size]u8 = [_]u8{0} ** style_buffer_size,
         open_len: u32 = 0,
-        close_buffer: [style_buffer_size]u8 = undefined,
+        close_buffer: [style_buffer_size]u8 = [_]u8{0} ** style_buffer_size,
         close_len: u32 = 0,
-        format_buffer: [limits.limits.format_buffer_size_maximum]u8 = undefined,
+        format_buffer: [limits.limits.format_buffer_size_maximum]u8 = [_]u8{0} ** limits.limits.format_buffer_size_maximum,
 
         /// Initializes a new RuntimeStyle instance.
         pub fn init() RuntimeStyle {

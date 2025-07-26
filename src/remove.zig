@@ -5,7 +5,6 @@ const config = @import("config.zig");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
 const context = @import("context.zig");
-const object_pools = @import("object_pools.zig");
 const limits = @import("limits.zig");
 
 /// Try remove specified version.

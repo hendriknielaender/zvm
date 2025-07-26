@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const cli = @import("cli.zig");
 const context = @import("context.zig");
 const limits = @import("limits.zig");
@@ -22,16 +21,17 @@ const http_client = @import("http_client.zig");
 var global_static_buffer: [static_memory.StaticMemory.calculate_memory_size()]u8 = undefined;
 
 /// Global context storage.
+// SAFETY: global_context is initialized in main() before any usage
 var global_context: context.CliContext = undefined;
 
 /// Alias handling buffers - allocated on stack to ensure thread safety
 /// Each invocation gets its own buffers, avoiding any race conditions.
 const AliasBuffers = struct {
-    home: [limits.limits.home_dir_length_maximum]u8 = undefined,
-    zvm_home: [limits.limits.home_dir_length_maximum]u8 = undefined,
-    tool_path: [limits.limits.path_length_maximum]u8 = undefined,
-    exec_arguments_ptrs: [limits.limits.arguments_maximum + 1]?[*:0]const u8 = undefined,
-    exec_arguments_storage: [limits.limits.arguments_storage_size_maximum]u8 = undefined,
+    home: [limits.limits.home_dir_length_maximum]u8,
+    zvm_home: [limits.limits.home_dir_length_maximum]u8,
+    tool_path: [limits.limits.path_length_maximum]u8,
+    exec_arguments_ptrs: [limits.limits.arguments_maximum + 1]?[*:0]const u8,
+    exec_arguments_storage: [limits.limits.arguments_storage_size_maximum]u8,
     exec_arguments_count: u32 = 0,
 };
 
@@ -129,7 +129,15 @@ fn handle_alias(program_name: []const u8, remaining_arguments: [][]const u8) !vo
     std.debug.assert(util_tool.eql_str(program_name, "zig") or util_tool.eql_str(program_name, "zls"));
 
     // Use local alias buffers to avoid any potential thread safety issues
-    var alias_buffers: AliasBuffers = undefined;
+    // SAFETY: alias_buffers fields are populated before use by get_home_path and subsequent functions
+    var alias_buffers: AliasBuffers = .{
+        .home = undefined,
+        .zvm_home = undefined,
+        .tool_path = undefined,
+        .exec_arguments_ptrs = undefined,
+        .exec_arguments_storage = undefined,
+        .exec_arguments_count = 0,
+    };
 
     // Get home directory path
     const home_slice = try get_home_path(&alias_buffers);
