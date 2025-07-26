@@ -2,14 +2,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-// SAFETY: Initialized in the program entry point before any use
-pub var allocator: std.mem.Allocator = undefined;
-// SAFETY: Set during initialization before any code accesses it
-pub var home_dir: []const u8 = undefined;
-
-// SAFETY: Initialized during program startup before progress reporting begins
-pub var progress_root: std.Progress.Node = undefined;
-
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
 

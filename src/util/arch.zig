@@ -1,5 +1,7 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
+const object_pools = @import("../object_pools.zig");
+const context = @import("../context.zig");
 
 pub const DetectParams = struct {
     os: std.Target.Os.Tag,
@@ -33,7 +35,7 @@ fn archToStringMaster(arch: std.Target.Cpu.Arch) ?[]const u8 {
     return switch (arch) {
         .x86_64 => "x86_64",
         .aarch64 => "aarch64",
-        .arm => "arm",  // Master uses "arm" instead of "armv7a"
+        .arm => "arm", // Master uses "arm" instead of "armv7a"
         .riscv64 => "riscv64",
         .powerpc64le => "powerpc64le",
         .powerpc => "powerpc",
@@ -49,15 +51,18 @@ fn archToStringMaster(arch: std.Target.Cpu.Arch) ?[]const u8 {
 ///
 /// for performance, we treat this function as comptime-func when possible
 pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
-    const os_str = (comptime osToString(params.os)) orelse
-        return error.UnsupportedSystem;
+    const os_str = (comptime osToString(params.os)) orelse {
+        @compileError("Unsupported operating system: " ++ @tagName(params.os) ++ ". Supported: windows, linux, macos");
+    };
 
     const arch_str = if (params.is_master)
-        (comptime archToStringMaster(params.arch)) orelse
-            return error.UnsupportedSystem
+        (comptime archToStringMaster(params.arch)) orelse {
+            @compileError("Unsupported architecture for master builds: " ++ @tagName(params.arch) ++ ". Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc");
+        }
     else
-        (comptime archToString(params.arch)) orelse
-            return error.UnsupportedSystem;
+        (comptime archToString(params.arch)) orelse {
+            @compileError("Unsupported architecture: " ++ @tagName(params.arch) ++ ". Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc");
+        };
 
     if (params.reverse)
         return arch_str ++ "-" ++ os_str;
@@ -65,23 +70,47 @@ pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
     return os_str ++ "-" ++ arch_str;
 }
 
-/// Runtime version of platform_str for when parameters are not known at compile time
-pub fn platform_str_runtime(params: DetectParams, allocator: std.mem.Allocator) !?[]const u8 {
-    const os_str = osToString(params.os) orelse
+/// Runtime version of platform_str using static allocation.
+pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParams) !?[]const u8 {
+    const os_str = osToString(params.os) orelse {
+        std.log.err("Unsupported operating system: {s}. Supported: windows, linux, macos", .{@tagName(params.os)});
         return error.UnsupportedSystem;
+    };
 
     const arch_str = if (params.is_master)
-        archToStringMaster(params.arch) orelse
-            return error.UnsupportedSystem
-    else
-        archToString(params.arch) orelse
+        archToStringMaster(params.arch) orelse {
+            std.log.err("Unsupported architecture for master builds: {s}. Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
             return error.UnsupportedSystem;
+        }
+    else
+        archToString(params.arch) orelse {
+            std.log.err("Unsupported architecture: {s}. Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
+            return error.UnsupportedSystem;
+        };
 
+    var fbs = std.io.fixedBufferStream(buffer.slice());
     if (params.reverse) {
-        return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch_str, os_str });
+        try fbs.writer().print("{s}-{s}", .{ arch_str, os_str });
+    } else {
+        try fbs.writer().print("{s}-{s}", .{ os_str, arch_str });
     }
 
-    return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ os_str, arch_str });
+    return try buffer.set(fbs.getWritten());
+}
+
+/// Platform string for ZLS using static allocation.
+pub fn platform_str_for_zls(ctx: *context.CliContext) !?[]const u8 {
+    var buffer = try ctx.acquire_path_buffer();
+    defer buffer.reset();
+
+    const params = DetectParams{
+        .os = @import("builtin").os.tag,
+        .arch = @import("builtin").cpu.arch,
+        .reverse = false,
+        .is_master = false,
+    };
+
+    return try platform_str_static(buffer, params);
 }
 
 test "detect() Test" {
