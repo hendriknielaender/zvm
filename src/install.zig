@@ -1,4 +1,3 @@
-//! This file is used to install zig or zls
 const std = @import("std");
 const builtin = @import("builtin");
 const config = @import("config.zig");
@@ -8,14 +7,98 @@ const util_arch = @import("util/arch.zig");
 const util_data = @import("util/data.zig");
 const util_extract = @import("util/extract.zig");
 const util_tool = @import("util/tool.zig");
-const util_http = @import("util/http.zig");
+const http_client = @import("http_client.zig");
 const util_minimumisign = @import("util/minisign.zig");
 const context = @import("context.zig");
 const object_pools = @import("object_pools.zig");
 const limits = @import("limits.zig");
 const Progress = std.Progress;
 
-/// Try install specified version.
+/// Helper function to download a file with hash verification
+/// This wraps HttpClient.downloadFile to provide the same interface as the old download_static
+fn download_file_with_verification(
+    ctx: *context.CliContext,
+    uri: std.Uri,
+    file_name: []const u8,
+    shasum: ?[64]u8,
+    size: ?usize,
+    progress_node: std.Progress.Node,
+) !std.fs.File {
+    var store_path_buffer = try ctx.acquire_path_buffer();
+    defer store_path_buffer.reset();
+    const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
+    var store = try std.fs.cwd().makeOpenPath(zvm_path, .{});
+    defer store.close();
+
+    if (util_tool.does_path_exist2(store, file_name)) {
+        if (shasum) |expected_hash| {
+            const file = try store.openFile(file_name, .{});
+            defer file.close();
+
+            var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
+            var buffer: [512]u8 = undefined;
+            while (true) {
+                const byte_nums = try file.read(&buffer);
+                if (byte_nums == 0) break;
+                sha256.update(buffer[0..byte_nums]);
+            }
+            var result = std.mem.zeroes([32]u8);
+            sha256.final(&result);
+
+            if (verify_hash(result, expected_hash)) {
+                try file.seekTo(0);
+                progress_node.end();
+                // Re-open the file for reading (like the old code did)
+                return try store.openFile(file_name, .{});
+            }
+        }
+        try store.deleteFile(file_name);
+    }
+
+    const new_file = try store.createFile(file_name, .{ .read = true });
+
+    try http_client.HttpClient.downloadFile(ctx, uri, .{}, new_file, progress_node);
+
+    if (size) |expected_size| {
+        const file_stat = try new_file.stat();
+        if (file_stat.size != expected_size) {
+            try store.deleteFile(file_name);
+            return error.IncorrectSize;
+        }
+    }
+
+    if (shasum) |expected_hash| {
+        try new_file.seekTo(0);
+        var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
+        var buffer: [512]u8 = undefined;
+        while (true) {
+            const bytes_read = try new_file.read(&buffer);
+            if (bytes_read == 0) break;
+            sha256.update(buffer[0..bytes_read]);
+        }
+        var result = std.mem.zeroes([32]u8);
+        sha256.final(&result);
+
+        if (!verify_hash(result, expected_hash)) {
+            try store.deleteFile(file_name);
+            return error.HashMismatch;
+        }
+    }
+
+    new_file.close();
+    return try store.openFile(file_name, .{});
+}
+
+fn verify_hash(computed_hash: [32]u8, actual_hash_string: [64]u8) bool {
+    var expected: [32]u8 = undefined;
+    for (0..32) |i| {
+        const high = std.fmt.charToDigit(actual_hash_string[i * 2], 16) catch return false;
+        const low = std.fmt.charToDigit(actual_hash_string[i * 2 + 1], 16) catch return false;
+        expected[i] = (high << 4) | low;
+    }
+    return std.mem.eql(u8, &computed_hash, &expected);
+}
+
 pub fn install(
     ctx: *context.CliContext,
     version: []const u8,
@@ -23,7 +106,6 @@ pub fn install(
     root_node: Progress.Node,
     debug: bool,
 ) !void {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100); // Reasonable version length
     if (is_zls) {
@@ -33,53 +115,42 @@ pub fn install(
     }
 }
 
-/// Try to install the specified version of zig.
 fn install_zig(
     ctx: *context.CliContext,
     version: []const u8,
     root_node: Progress.Node,
     debug: bool,
 ) !void {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100);
 
-    if (debug) {
-        std.debug.print("[DEBUG] Starting installation of Zig version: {s}\n", .{version});
-    }
+    if (debug) {}
 
     const is_master = std.mem.eql(u8, version, "master");
 
-    // Get platform string
     const platform_str = try get_platform_string(ctx, is_master, debug);
 
     var items_done: u32 = 0;
 
-    // Get installation paths
     const paths = try get_install_paths(ctx, version, &items_done, root_node);
 
-    // Check if already installed
     if (util_tool.does_path_exist(paths.extract_path)) {
         try alias.set_version(ctx, version, false);
         root_node.end();
         return;
     }
 
-    // Fetch version metadata
     const version_data = try fetch_version_data(ctx, version, platform_str, &items_done, root_node, debug);
 
-    // Download tarball
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
+    defer tarball_file.close();
 
     root_node.setCompletedItems(items_done);
 
-    // Download and verify signature
-    try download_and_verify_signature(ctx, version_data, tarball_file, &items_done, root_node);
+    try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
-    // Extract and install
     try extract_and_install(ctx, paths.extract_path, tarball_file, &items_done, root_node);
 
-    // Set the version alias
     try alias.set_version(ctx, version, false);
 
     root_node.end();
@@ -89,18 +160,15 @@ fn install_zig(
 const InstallPaths = struct {
     version_path: []const u8,
     extract_path: []const u8,
+    // Storage for paths to avoid buffer lifetime issues
+    version_path_storage: [limits.limits.path_length_maximum]u8 = undefined,
+    extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined,
 };
 
-/// Get platform string for the current system
 fn get_platform_string(ctx: *context.CliContext, is_master: bool, debug: bool) ![]const u8 {
-    // ctx is a pointer, not optional - no need for null check
+    if (debug) {}
 
-    if (debug) {
-        std.debug.print("[DEBUG] Is master version: {}\n", .{is_master});
-        std.debug.print("[DEBUG] OS: {s}, Arch: {s}\n", .{ @tagName(builtin.os.tag), @tagName(builtin.cpu.arch) });
-    }
-
-    var platform_buffer = try ctx.acquire_path_buffer();
+    const platform_buffer = try ctx.acquire_path_buffer();
     defer platform_buffer.reset();
 
     const platform_str = try util_arch.platform_str_static(
@@ -123,14 +191,11 @@ fn get_platform_string(ctx: *context.CliContext, is_master: bool, debug: bool) !
     std.debug.assert(platform_str.len > 0);
     std.debug.assert(platform_str.len < 100);
 
-    if (debug) {
-        std.debug.print("[DEBUG] Platform string: {s}\n", .{platform_str});
-    }
+    if (debug) {}
 
     return platform_str;
 }
 
-/// Get installation paths
 fn get_install_paths(
     ctx: *context.CliContext,
     version: []const u8,
@@ -140,39 +205,48 @@ fn get_install_paths(
     std.debug.assert(version.len > 0);
     std.debug.assert(items_done.* >= 0);
 
-    // Get version path
-    var version_path_buffer = try ctx.acquire_path_buffer();
-    defer version_path_buffer.reset();
+    var result = InstallPaths{
+        .version_path = undefined,
+        .extract_path = undefined,
+    };
 
-    const version_path = try util_data.get_zvm_zig_version(version_path_buffer);
-    std.debug.assert(version_path.len > 0);
-    std.debug.assert(version_path.len <= limits.limits.path_length_maximum);
+    {
+        const version_path_buffer = try ctx.acquire_path_buffer();
+        defer version_path_buffer.reset();
+
+        const version_path = try util_data.get_zvm_zig_version(version_path_buffer);
+        std.debug.assert(version_path.len > 0);
+        std.debug.assert(version_path.len <= limits.limits.path_length_maximum);
+
+        @memcpy(result.version_path_storage[0..version_path.len], version_path);
+        result.version_path = result.version_path_storage[0..version_path.len];
+    }
 
     items_done.* += 1;
     std.debug.assert(items_done.* > 0);
     root_node.setCompletedItems(items_done.*);
 
-    // Get extract path
-    var extract_path_buffer = try ctx.acquire_path_buffer();
-    defer extract_path_buffer.reset();
+    {
+        const extract_path_buffer = try ctx.acquire_path_buffer();
+        defer extract_path_buffer.reset();
 
-    var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ version_path, version });
-    const extract_path = try extract_path_buffer.set(fbs.getWritten());
+        var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
+        try fbs.writer().print("{s}/{s}", .{ result.version_path, version });
+        const extract_path = try extract_path_buffer.set(fbs.getWritten());
 
-    std.debug.assert(extract_path.len > 0);
-    std.debug.assert(extract_path.len <= limits.limits.path_length_maximum);
+        std.debug.assert(extract_path.len > 0);
+        std.debug.assert(extract_path.len <= limits.limits.path_length_maximum);
+
+        @memcpy(result.extract_path_storage[0..extract_path.len], extract_path);
+        result.extract_path = result.extract_path_storage[0..extract_path.len];
+    }
 
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
 
-    return InstallPaths{
-        .version_path = version_path,
-        .extract_path = extract_path,
-    };
+    return result;
 }
 
-/// Fetch version metadata from the server
 fn fetch_version_data(
     ctx: *context.CliContext,
     version: []const u8,
@@ -185,26 +259,18 @@ fn fetch_version_data(
     std.debug.assert(platform_str.len > 0);
     std.debug.assert(items_done.* >= 0);
 
-    if (debug) {
-        std.debug.print("[DEBUG] Fetching version data from: {s}\n", .{config.zig_meta_url});
-    }
+    if (debug) {}
 
-    var http_op = try ctx.acquire_http_operation();
-    defer http_op.release();
+    const res = try http_client.HttpClient.fetch(ctx, config.zig_url, .{});
 
-    const res = try util_http.http_get_static(http_op, config.zig_url);
-    // Validate response
     std.debug.assert(res.len > 0);
 
-    if (debug) {
-        std.debug.print("[DEBUG] HTTP response received, parsing metadata...\n", .{});
-    }
+    if (debug) {}
 
-    // Parse metadata
-    var zig_meta = try meta.Zig.init(res, ctx.get_allocator());
+    var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
     defer zig_meta.deinit();
 
-    const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_allocator());
+    const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_json_allocator());
 
     if (debug) {
         debug_print_version_data(tmp_val, version, platform_str);
@@ -230,81 +296,63 @@ fn fetch_version_data(
 
 /// Debug print version data
 fn debug_print_version_data(version_data: ?meta.Zig.VersionData, version: []const u8, platform_str: []const u8) void {
-    if (version_data) |vd| {
-        std.debug.print("[DEBUG] Version data found:\n", .{});
-        std.debug.print("[DEBUG]   Tarball: {s}\n", .{vd.tarball});
-        std.debug.print("[DEBUG]   Size: {d}\n", .{vd.size});
-        std.debug.print("[DEBUG]   Shasum: {s}\n", .{vd.shasum});
-    } else {
-        std.debug.print("[DEBUG] No version data found for version {s} on platform {s}\n", .{ version, platform_str });
-    }
+    _ = version_data;
+    _ = version;
+    _ = platform_str;
 }
 
-/// Download and verify the minisign signature
 fn download_and_verify_signature(
     ctx: *context.CliContext,
     version_data: meta.Zig.VersionData,
-    tarball_file: std.fs.File,
     items_done: *u32,
     root_node: Progress.Node,
 ) !void {
     std.debug.assert(version_data.tarball.len > 0);
     std.debug.assert(items_done.* >= 0);
-    std.debug.assert(tarball_file.handle != 0);
 
     const file_name = std.fs.path.basename(version_data.tarball);
     std.debug.assert(file_name.len > 0);
     std.debug.assert(file_name.len <= version_data.tarball.len);
 
-    // Download signature file
     const signature_file_name = try build_signature_filename(ctx, file_name);
-    const signature_uri = try build_signature_uri(ctx, version_data.tarball);
+
+    var sig_url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
+    const sig_url = try std.fmt.bufPrint(&sig_url_buffer, "{s}.minisig", .{version_data.tarball});
 
     const sig_download_node = root_node.start("verifying file signature", 0);
-    const minisig_file = try util_http.download_static(ctx, signature_uri, signature_file_name, null, null, sig_download_node);
-    defer minisig_file.close();
+    const minisig_file = try download_file_from_url(ctx, sig_url, signature_file_name, null, null, sig_download_node);
+    minisig_file.close();
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
 
-    // Verify signature
-    // Note: We use path-based verification because minisign requires file paths,
-    // not file handles. The tarball_file parameter ensures the file is properly
-    // closed after verification completes.
+    // not file handles.
     try verify_signature(ctx, file_name, signature_file_name);
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
 }
 
-/// Build signature filename
 fn build_signature_filename(ctx: *context.CliContext, file_name: []const u8) ![]const u8 {
     std.debug.assert(file_name.len > 0);
 
     var sig_name_buffer = try ctx.acquire_path_buffer();
-    defer sig_name_buffer.reset();
+
     var sig_name_fbs = std.io.fixedBufferStream(sig_name_buffer.slice());
     try sig_name_fbs.writer().print("{s}.minisig", .{file_name});
     return try sig_name_buffer.set(sig_name_fbs.getWritten());
 }
 
-/// Build signature URI
-fn build_signature_uri(ctx: *context.CliContext, tarball_url: []const u8) !std.Uri {
-    std.debug.assert(tarball_url.len > 0);
-
-    var sig_uri_buffer = try ctx.acquire_path_buffer();
-    defer sig_uri_buffer.reset();
-
-    var sig_fbs = std.io.fixedBufferStream(sig_uri_buffer.slice());
-    try sig_fbs.writer().print("{s}.minisig", .{tarball_url});
-    const signature_uri_str = sig_fbs.getWritten();
-
-    // Validate URI string
-    std.debug.assert(signature_uri_str.len > 0);
-    std.debug.assert(signature_uri_str.len < limits.limits.url_length_maximum);
-
-    return try std.Uri.parse(signature_uri_str);
+fn download_file_from_url(
+    ctx: *context.CliContext,
+    url: []const u8,
+    file_name: []const u8,
+    shasum: ?[64]u8,
+    size: ?usize,
+    progress_node: std.Progress.Node,
+) !std.fs.File {
+    const uri = try std.Uri.parse(url);
+    return try download_file_with_verification(ctx, uri, file_name, shasum, size, progress_node);
 }
 
-/// Verify the minisign signature
 fn verify_signature(
     ctx: *context.CliContext,
     file_name: []const u8,
@@ -337,7 +385,6 @@ fn verify_signature(
     );
 }
 
-/// Extract tarball and complete installation
 fn extract_and_install(
     ctx: *context.CliContext,
     extract_path: []const u8,
@@ -349,20 +396,34 @@ fn extract_and_install(
     std.debug.assert(items_done.* >= 0);
 
     const extract_node = root_node.start("extracting zig", 0);
+
+    std.log.info("Starting extraction to path: {s}", .{extract_path});
+
+    if (util_tool.does_path_exist(extract_path)) {
+        std.log.info("Cleaning up existing directory: {s}", .{extract_path});
+        try std.fs.deleteTreeAbsolute(extract_path);
+    }
+
     try util_tool.try_create_path(extract_path);
     const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
-    try util_extract.extract_static(
+    util_extract.extract_static(
         extract_op,
         extract_dir,
         tarball_file,
         if (builtin.os.tag == .windows) .zip else .tarxz,
         false,
         extract_node,
-    );
+    ) catch |err| {
+        std.log.err("Extraction failed with error: {s} for path: {s}", .{ @errorName(err), extract_path });
+
+        try std.fs.deleteTreeAbsolute(extract_path);
+        return err;
+    };
+
     extract_node.end();
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
@@ -376,7 +437,6 @@ fn download_with_mirrors(
     root_node: Progress.Node,
     items_done: *u32,
 ) !std.fs.File {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version_data.tarball.len > 0);
     std.debug.assert(version_data.size > 0);
     std.debug.assert(items_done.* >= 0);
@@ -385,15 +445,12 @@ fn download_with_mirrors(
     std.debug.assert(file_name.len > 0);
     std.debug.assert(file_name.len <= version_data.tarball.len);
 
-    // Try preferred mirror first if specified.
     if (config.preferred_mirror) |mirror_index| {
         if (mirror_index < config.zig_mirrors.len) {
             const mirror_url = config.zig_mirrors[mirror_index][0];
 
-            // Construct the full mirror URL for the specific file.
             var mirror_uri_buffer = try ctx.acquire_path_buffer();
             defer mirror_uri_buffer.reset();
-            // mirror_uri_buffer is a pointer, not optional - no need for null check
 
             const mirror_uri = try construct_mirror_uri(mirror_uri_buffer, mirror_url, file_name);
 
@@ -405,7 +462,7 @@ fn download_with_mirrors(
 
             const download_node = root_node.start(node_name, version_data.size);
 
-            const result = util_http.download_static(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
+            const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
                 download_node.end();
                 std.log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
                 // Continue to try official source and other mirrors.
@@ -421,7 +478,6 @@ fn download_with_mirrors(
         std.log.debug("No preferred mirror specified, using official source", .{});
     }
 
-    // Try official source first, then fall back to mirrors if that fails.
     return try download_with_fallbacks(ctx, version_data, file_name, root_node, items_done);
 }
 
@@ -432,14 +488,12 @@ fn download_with_fallbacks(
     root_node: Progress.Node,
     items_done: *u32,
 ) !std.fs.File {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version_data.tarball.len > 0);
     std.debug.assert(file_name.len > 0);
     std.debug.assert(items_done.* >= 0);
-    // Try official source first.
+
     const parsed_uri = try std.Uri.parse(version_data.tarball);
 
-    // Log that we're using the official source.
     std.log.info("Downloading from official source: {s}", .{version_data.tarball});
 
     var node_name_buffer = try ctx.acquire_path_buffer();
@@ -450,11 +504,10 @@ fn download_with_fallbacks(
 
     const download_node = root_node.start(node_name, version_data.size);
 
-    const result = util_http.download_static(ctx, parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
+    const result = download_file_with_verification(ctx, parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
         download_node.end();
         std.log.warn("Failed to download from official source: {s}", .{@errorName(err)});
 
-        // Try each mirror in sequence.
         return try download_from_mirrors(ctx, version_data, file_name, root_node);
     };
 
@@ -470,7 +523,6 @@ fn download_from_mirrors(
     file_name: []const u8,
     root_node: Progress.Node,
 ) !std.fs.File {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version_data.tarball.len > 0);
     std.debug.assert(file_name.len > 0);
 
@@ -480,7 +532,6 @@ fn download_from_mirrors(
 
         std.log.info("Trying mirror {d} ({s}): {s}", .{ i, mirror_maintainer, mirror_url });
 
-        // Construct the full mirror URL for the specific file.
         var mirror_uri_buffer = try ctx.acquire_path_buffer();
         defer mirror_uri_buffer.reset();
         const mirror_uri = construct_mirror_uri(mirror_uri_buffer, mirror_url, file_name) catch |err| {
@@ -496,7 +547,7 @@ fn download_from_mirrors(
 
         const download_node = root_node.start(node_name, version_data.size);
 
-        const result = util_http.download_static(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
+        const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
             download_node.end();
             std.log.warn("Failed to download from mirror {s}: {s}", .{ mirror_url, @errorName(err) });
             continue;
@@ -510,9 +561,7 @@ fn download_from_mirrors(
     return error.AllDownloadsFailed;
 }
 
-/// Constructs a full mirror URI by appending the file name to the mirror base URL.
 fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8, file_name: []const u8) !std.Uri {
-    // buffer is a pointer, not optional - no need for null check
     std.debug.assert(mirror_url.len > 0);
     std.debug.assert(mirror_url.len < limits.limits.url_length_maximum / 2);
     std.debug.assert(file_name.len > 0);
@@ -520,7 +569,6 @@ fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8
 
     var fbs = std.io.fixedBufferStream(buffer.slice());
 
-    // Ensure the mirror URL ends with a slash.
     if (mirror_url[mirror_url.len - 1] == '/') {
         try fbs.writer().print("{s}{s}", .{ mirror_url, file_name });
     } else {
@@ -535,40 +583,30 @@ fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8
     return try std.Uri.parse(uri_str);
 }
 
-/// Try to install ZLS.
 fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progress.Node, debug: bool) !void {
-    // ctx is a pointer, not optional - no need for null check
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100);
 
-    if (debug) {
-        std.debug.print("[DEBUG] Starting installation of ZLS version: {s}\n", .{version});
-    }
+    if (debug) {}
 
-    // Get platform string for ZLS
     const platform_str = try get_zls_platform_string(ctx);
 
-    // Get installation paths
     const paths = try get_zls_install_paths(ctx, version);
 
-    // Check if already installed
     if (util_tool.does_path_exist(paths.extract_path)) {
         try alias.set_version(ctx, version, true);
         return;
     }
 
-    // Fetch and download ZLS
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
     const tarball_file = try download_zls(ctx, version_data, root_node);
     defer tarball_file.close();
 
-    // Extract and install
     try extract_zls(ctx, paths.extract_path, tarball_file, root_node);
 
     try alias.set_version(ctx, version, true);
 }
 
-/// Get platform string for ZLS
 fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
     const platform_str = try util_arch.platform_str_for_zls(ctx) orelse {
         std.log.err("Unsupported platform for ZLS: {s}-{s}", .{
@@ -588,7 +626,6 @@ const ZlsPaths = struct {
     extract_path: []const u8,
 };
 
-/// Get ZLS installation paths
 fn get_zls_install_paths(ctx: *context.CliContext, version: []const u8) !ZlsPaths {
     std.debug.assert(version.len > 0);
 
@@ -615,7 +652,6 @@ fn get_zls_install_paths(ctx: *context.CliContext, version: []const u8) !ZlsPath
     };
 }
 
-/// Fetch ZLS version metadata
 fn fetch_zls_version_data(
     ctx: *context.CliContext,
     platform_str: []const u8,
@@ -624,16 +660,13 @@ fn fetch_zls_version_data(
     std.debug.assert(platform_str.len > 0);
     std.debug.assert(version.len > 0);
 
-    var http_op = try ctx.acquire_http_operation();
-    defer http_op.release();
-
-    const res = try util_http.http_get_static(http_op, config.zls_url);
+    const res = try http_client.HttpClient.fetch(ctx, config.zls_url, .{});
     std.debug.assert(res.len > 0);
 
-    var zls_meta = try meta.Zls.init(res, ctx.get_allocator());
+    var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
     defer zls_meta.deinit();
 
-    const version_data = try zls_meta.get_version_data(platform_str, version, ctx.get_allocator()) orelse {
+    const version_data = try zls_meta.get_version_data(platform_str, version, ctx.get_json_allocator()) orelse {
         std.log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with 'zvm ls --zls'", .{
             version,
             platform_str,
@@ -647,7 +680,6 @@ fn fetch_zls_version_data(
     return version_data;
 }
 
-/// Download ZLS tarball
 fn download_zls(
     ctx: *context.CliContext,
     version_data: meta.Zls.VersionData,
@@ -663,13 +695,12 @@ fn download_zls(
     std.debug.assert(file_name.len <= version_data.tarball.len);
 
     const download_node = root_node.start("downloading zls", version_data.size);
-    const tarball_file = try util_http.download_static(ctx, parsed_uri, file_name, null, version_data.size, download_node);
+    const tarball_file = try download_file_with_verification(ctx, parsed_uri, file_name, null, version_data.size, download_node);
     download_node.end();
 
     return tarball_file;
 }
 
-/// Extract ZLS to installation directory
 fn extract_zls(
     ctx: *context.CliContext,
     extract_path: []const u8,

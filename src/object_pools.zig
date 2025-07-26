@@ -19,13 +19,13 @@ pub const PathBuffer = struct {
             });
             return error.PathTooLong;
         }
-        
+
         // Check if path is already in our buffer (avoid aliasing)
         const path_start = @intFromPtr(path.ptr);
         const path_end = path_start + path.len;
         const buffer_start = @intFromPtr(&self.data[0]);
         const buffer_end = buffer_start + self.data.len;
-        
+
         if (path_start >= buffer_start and path_end <= buffer_end) {
             // Path is already in our buffer, just update the used length
             self.used = @intCast(path.len);
@@ -34,7 +34,7 @@ pub const PathBuffer = struct {
             @memcpy(self.data[0..path.len], path);
             self.used = @intCast(path.len);
         }
-        
+
         return self.data[0..self.used];
     }
 
@@ -54,7 +54,7 @@ pub const HttpOperation = struct {
     response_buffer: [limits.limits.http_response_size_maximum]u8 = undefined,
     url_buffer: [limits.limits.url_length_maximum]u8 = undefined,
     header_buffer: [limits.limits.http_header_size_maximum]u8 = undefined,
-    
+
     in_use: bool = false,
 
     pub fn acquire(self: *HttpOperation) !void {
@@ -76,7 +76,7 @@ pub const HttpOperation = struct {
     pub fn url_slice(self: *HttpOperation) []u8 {
         return self.url_buffer[0..];
     }
-    
+
     pub fn header_slice(self: *HttpOperation) []u8 {
         return self.header_buffer[0..];
     }
@@ -260,25 +260,25 @@ pub const ObjectPools = struct {
         }
         self.process_buffer.reset();
     }
-    
+
     /// Pool usage statistics for debugging and monitoring
     pub const PoolStats = struct {
         path_buffers: ResourceStats,
         http_operations: ResourceStats,
         version_entries: ResourceStats,
         extract_operations: ResourceStats,
-        
+
         pub const ResourceStats = struct {
             total: u32,
             in_use: u32,
             available: u32,
-            
+
             pub fn usage_percent(self: ResourceStats) f32 {
                 if (self.total == 0) return 0.0;
                 return @as(f32, @floatFromInt(self.in_use)) / @as(f32, @floatFromInt(self.total)) * 100.0;
             }
         };
-        
+
         pub fn format(
             self: PoolStats,
             comptime fmt: []const u8,
@@ -287,10 +287,10 @@ pub const ObjectPools = struct {
         ) !void {
             _ = fmt;
             _ = options;
-            
+
             try writer.print("Pool Usage Statistics:\n", .{});
-            try writer.print("  Path Buffers:    {d}/{d} ({d:.1}%)\n", .{ 
-                self.path_buffers.in_use, 
+            try writer.print("  Path Buffers:    {d}/{d} ({d:.1}%)\n", .{
+                self.path_buffers.in_use,
                 self.path_buffers.total,
                 self.path_buffers.usage_percent(),
             });
@@ -311,11 +311,11 @@ pub const ObjectPools = struct {
             });
         }
     };
-    
+
     /// Get current pool usage statistics
     pub fn get_stats(self: *const ObjectPools) PoolStats {
         var stats: PoolStats = undefined;
-        
+
         // Count path buffers
         var path_buffer_count: u32 = 0;
         for (self.path_buffers) |pb| {
@@ -326,7 +326,7 @@ pub const ObjectPools = struct {
             .in_use = path_buffer_count,
             .available = limits.limits.path_buffers_maximum - path_buffer_count,
         };
-        
+
         // Count HTTP operations
         var http_count: u32 = 0;
         for (self.http_operations) |ho| {
@@ -337,7 +337,7 @@ pub const ObjectPools = struct {
             .in_use = http_count,
             .available = limits.limits.http_operations_maximum - http_count,
         };
-        
+
         // Count version entries
         var version_count: u32 = 0;
         for (self.version_entries) |ve| {
@@ -348,7 +348,7 @@ pub const ObjectPools = struct {
             .in_use = version_count,
             .available = limits.limits.versions_maximum - version_count,
         };
-        
+
         // Count extract operations
         var extract_count: u32 = 0;
         for (self.extract_operations) |eo| {
@@ -359,7 +359,7 @@ pub const ObjectPools = struct {
             .in_use = extract_count,
             .available = limits.limits.extract_operations_maximum - extract_count,
         };
-        
+
         return stats;
     }
 };

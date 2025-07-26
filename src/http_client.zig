@@ -3,7 +3,7 @@ const context = @import("context.zig");
 const limits = @import("limits.zig");
 
 /// HTTP client that uses pre-allocated operations from the pool.
-/// 
+///
 /// Following the static allocation principle, we pre-allocate buffers for:
 /// - Response data
 /// - URLs and headers
@@ -21,7 +21,7 @@ const limits = @import("limits.zig");
 /// - Pre-allocating the response buffers to avoid allocation for actual data
 /// - Limiting concurrent HTTP operations to bound total memory usage
 ///
-/// This is a pragmatic compromise: we accept some runtime allocation for 
+/// This is a pragmatic compromise: we accept some runtime allocation for
 /// certificate handling (which happens once per connection) while maintaining
 /// static allocation for the actual data transfer.
 pub const HttpClient = struct {
@@ -41,7 +41,7 @@ pub const HttpClient = struct {
         // the certificate subsystem to work correctly.
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
-        
+
         var client = std.http.Client{ .allocator = arena.allocator() };
         defer client.deinit();
 
@@ -93,7 +93,7 @@ pub const HttpClient = struct {
         // Same as fetch() - we need a proper allocator for certificate handling
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
-        
+
         var client = std.http.Client{ .allocator = arena.allocator() };
         defer client.deinit();
 

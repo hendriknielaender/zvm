@@ -19,6 +19,10 @@ pub const CliContext = struct {
     /// Static memory system for any remaining allocations.
     static_mem: static_memory.StaticMemory,
 
+    /// JSON parsing allocator - separate from static allocator to allow JSON parsing
+    /// even after static allocator is locked.
+    json_fba: std.heap.FixedBufferAllocator = undefined,
+
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
 
@@ -68,6 +72,10 @@ pub const CliContext = struct {
 
         // Initialize object pools (no allocation needed)
         context_storage.pools = object_pools.ObjectPools.init();
+
+        // Initialize JSON allocator with the pre-allocated JSON buffer
+        const json_buffer = context_storage.pools.get_json_buffer();
+        context_storage.json_fba = std.heap.FixedBufferAllocator.init(json_buffer);
     }
 
     /// Copy command line arguments into pre-allocated buffer
@@ -220,6 +228,13 @@ pub const CliContext = struct {
         return buffer;
     }
 
+    /// Get a JSON allocator that uses the pre-allocated JSON buffer.
+    /// This allocator is separate from the static allocator to allow JSON parsing
+    /// to work correctly even after the static allocator is locked.
+    pub fn get_json_allocator(self: *CliContext) std.mem.Allocator {
+        return self.json_fba.allocator();
+    }
+
     /// Get the process buffer.
     pub fn get_process_buffer(self: *CliContext) *object_pools.ProcessBuffer {
         return self.pools.get_process_buffer();
@@ -240,17 +255,17 @@ pub const CliContext = struct {
         std.debug.assert(usage.available == usage.total - usage.used);
         return usage;
     }
-    
+
     /// Get pool usage statistics.
     pub fn get_pool_stats(self: *const CliContext) object_pools.ObjectPools.PoolStats {
         return self.pools.get_stats();
     }
-    
+
     /// Print debug information about resource usage.
     pub fn print_debug_info(self: *const CliContext) !void {
         const mem_usage = self.get_memory_usage();
         const pool_stats = self.get_pool_stats();
-        
+
         const stderr = std.io.getStdErr().writer();
         try stderr.print("\n=== ZVM Resource Usage ===\n", .{});
         try stderr.print("{}\n", .{mem_usage});

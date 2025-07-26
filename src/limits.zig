@@ -15,23 +15,23 @@ pub const limits = struct {
 
     /// Maximum size of a single HTTP response.
     pub const http_response_size_maximum: u32 = 512 * 1024; // 512KB - enough for releases JSON.
-    
+
     /// Maximum size for HTTP client internal buffers (headers, TLS, etc).
     pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
-    
+
     /// Maximum number of HTTP headers.
     pub const http_headers_maximum: u32 = 64;
-    
+
     /// Maximum size of a single HTTP header.
     pub const http_header_size_maximum: u32 = 4096;
-    
+
     /// Maximum number of certificates in the system bundle.
     /// macOS has ~170 certificates, we allocate for 256 to be safe.
     pub const certificates_maximum: u32 = 256;
-    
+
     /// Maximum size of a single certificate (most are 1-2KB).
     pub const certificate_size_maximum: u32 = 4096;
-    
+
     /// Maximum size for certificate bundle operations.
     /// This covers parsing the keychain and temporary buffers.
     pub const certificate_bundle_buffer_maximum: u32 = 512 * 1024;

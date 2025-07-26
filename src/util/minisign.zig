@@ -35,11 +35,15 @@ pub const Signature = struct {
     global_signature: [64]u8,
     // Storage for trusted comment in static allocation.
     trusted_comment_buffer: [limits.limits.trusted_comment_length_maximum]u8 = undefined,
+    trusted_comment_len: usize = 0,
 
     pub fn deinit(self: *Signature, allocator: std.mem.Allocator) void {
         _ = self;
         _ = allocator;
-        // No-op in static allocation.
+    }
+
+    pub fn fix_trusted_comment_slice(self: *Signature) void {
+        self.trusted_comment = self.trusted_comment_buffer[0..self.trusted_comment_len];
     }
 
     pub fn get_algorithm(self: Signature) !Algorithm {
@@ -51,8 +55,6 @@ pub const Signature = struct {
     pub fn decode(allocator: std.mem.Allocator, lines: []const u8) !Signature {
         var tokenizer = mem.tokenizeScalar(u8, lines, '\n');
 
-        // Skip untrusted comment lines
-        // SAFETY: Assigned in the loop before being used
         var line: []const u8 = undefined;
         while (true) {
             line = tokenizer.next() orelse {
@@ -65,16 +67,13 @@ pub const Signature = struct {
             if (!mem.startsWith(u8, trimmed_line, "untrusted comment:")) {
                 break;
             }
-            // Optionally, store or process the untrusted comment if needed
         }
 
-        // Now 'line' should be the Base64 encoded signature
         const sig_line_trimmed = mem.trim(u8, line, " \t\r\n");
 
         var sig_bin: [74]u8 = undefined;
         try base64.standard.Decoder.decode(&sig_bin, sig_line_trimmed);
 
-        // Decode trusted comment
         const comment_line = tokenizer.next() orelse {
             const err_msg = "Expected trusted comment line but none found.\n";
             try std.io.getStdErr().writer().print(err_msg, .{});
@@ -89,13 +88,11 @@ pub const Signature = struct {
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
-        // For static allocation, store in buffer.
         _ = allocator;
         if (trusted_comment_slice.len > limits.limits.trusted_comment_length_maximum) {
             return error.TrustedCommentTooLong;
         }
 
-        // Decode global signature
         const global_sig_line = tokenizer.next() orelse {
             const err_msg = "Expected global signature line but none found.\n";
             try std.io.getStdErr().writer().print(err_msg, .{});
@@ -114,15 +111,15 @@ pub const Signature = struct {
             .global_signature = global_sig_bin,
         };
 
-        // Copy trusted comment to buffer.
         @memcpy(sig.trusted_comment_buffer[0..trusted_comment_slice.len], trusted_comment_slice);
-        sig.trusted_comment = sig.trusted_comment_buffer[0..trusted_comment_slice.len];
+        sig.trusted_comment_len = trusted_comment_slice.len;
+        sig.trusted_comment = sig.trusted_comment_buffer[0..sig.trusted_comment_len];
 
         return sig;
     }
 
     pub fn from_file_static(buffer: []u8, path: []const u8) !Signature {
-        const file = try fs.cwd().openFile(path, .{ .mode = .read_only });
+        const file = try fs.openFileAbsolute(path, .{ .mode = .read_only });
         defer file.close();
 
         const bytes_read = try file.read(buffer);
@@ -175,13 +172,13 @@ pub const PublicKey = struct {
 // Verifier Structure
 pub const Verifier = struct {
     public_key: PublicKey,
-    signature: Signature,
+    signature: *const Signature,
     hasher: union(Algorithm) {
         Prehash: Blake2b512,
         Legacy: Ed25519.Verifier,
     },
 
-    pub fn init(public_key: PublicKey, signature: Signature) !Verifier {
+    pub fn init(public_key: PublicKey, signature: *const Signature) !Verifier {
         const algorithm = try signature.get_algorithm();
         const ed25519_pk = try Ed25519.PublicKey.fromBytes(public_key.key);
         return Verifier{
@@ -214,9 +211,11 @@ pub const Verifier = struct {
             },
         }
 
-        // Verify Global Signature
         const global_data = try self.build_global_signature_data_static(global_data_buffer);
-        try Ed25519.Signature.fromBytes(self.signature.global_signature).verify(global_data, public_key);
+
+        Ed25519.Signature.fromBytes(self.signature.global_signature).verify(global_data, public_key) catch |err| {
+            return err;
+        };
     }
 
     fn build_global_signature_data_static(self: *Verifier, buffer: []u8) ![]const u8 {
@@ -243,24 +242,21 @@ pub fn verify_static(
     file_path: []const u8,
 ) !void {
     _ = ctx;
-    // Get signature buffer from context.
+
     var sig_buffer: [4096]u8 = undefined;
 
-    // Load Signature
     var signature = try Signature.from_file_static(&sig_buffer, signature_path);
     defer signature.deinit(std.heap.page_allocator);
 
-    // Load Public Key from String
+    signature.fix_trusted_comment_slice();
+
     const public_key = try PublicKey.decode(public_key_str);
 
-    // Initialize Verifier
-    var verifier = try Verifier.init(public_key, signature);
+    var verifier = try Verifier.init(public_key, &signature);
 
-    // Open File to Verify
-    const file = try fs.cwd().openFile(file_path, .{ .mode = .read_only });
+    const file = try fs.openFileAbsolute(file_path, .{ .mode = .read_only });
     defer file.close();
 
-    // Read and Update Verifier with File Data
     var buffer: [4096]u8 = undefined;
     while (true) {
         const bytes_read = try file.read(&buffer);
@@ -268,7 +264,6 @@ pub fn verify_static(
         verifier.update(buffer[0..bytes_read]);
     }
 
-    // Finalize Verification
     var global_data_buffer: [1024]u8 = undefined;
     try verifier.finalize_static(&global_data_buffer);
 }

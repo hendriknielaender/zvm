@@ -108,7 +108,6 @@ pub fn main() !void {
 
     std.debug.assert(context_instance == &global_context);
 
-
     // Initialize progress reporting for long operations.
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
@@ -117,7 +116,7 @@ pub fn main() !void {
 
     // Execute the command.
     try execute_command(context_instance, command, root_node);
-    
+
     // If ZVM_DEBUG environment variable is set, print resource usage
     if (std.posix.getenv("ZVM_DEBUG")) |_| {
         try context_instance.print_debug_info();
@@ -148,10 +147,10 @@ fn handle_alias(program_name: []const u8, remaining_arguments: [][]const u8) !vo
     // This uses null-terminated strings directly, no allocation needed
     const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
     const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
-    
+
     // This function never returns on success
     const result = std.posix.execveZ(argv[0].?, argv, envp);
-    
+
     // If we get here, exec failed
     std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
     return result;
@@ -361,7 +360,7 @@ fn print_version() !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
     std.debug.assert(std.io.getStdOut().handle != 0);
-    
+
     // Print the logo
     try stdout.print("{s}\n", .{util_data.zvm_logo});
     try stdout.print("zvm {s}\n", .{options.version});
@@ -370,14 +369,14 @@ fn print_version() !void {
 fn list_installed_versions(ctx: *context.CliContext) !void {
     // Initialize color
     var color = util_color.Color.RuntimeStyle.init();
-    
+
     // Get path buffer for zig versions directory
     var zig_versions_buffer = try ctx.acquire_path_buffer();
     defer zig_versions_buffer.reset();
-    
+
     // Get the zig versions directory path
     const zig_versions_path = try util_data.get_zvm_zig_version(zig_versions_buffer);
-    
+
     // Open the zig versions directory
     var zig_dir = std.fs.openDirAbsolute(zig_versions_path, .{ .iterate = true }) catch |err| {
         switch (err) {
@@ -389,24 +388,24 @@ fn list_installed_versions(ctx: *context.CliContext) !void {
         }
     };
     defer zig_dir.close();
-    
+
     var found_any = false;
     var iterator = zig_dir.iterate();
-    
+
     // Print header
     try color.bold().white().print("Installed Zig versions:\n", .{});
-    
+
     // List all directories
     while (try iterator.next()) |entry| {
         if (entry.kind != .directory) continue;
-        
+
         // Skip hidden directories
         if (entry.name[0] == '.') continue;
-        
+
         found_any = true;
         try color.green().print("  {s}\n", .{entry.name});
     }
-    
+
     if (!found_any) {
         try color.bold().red().print("No Zig versions installed.\n", .{});
     }
@@ -415,16 +414,12 @@ fn list_installed_versions(ctx: *context.CliContext) !void {
 fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
     // Initialize color
     var color = util_color.Color.RuntimeStyle.init();
-    
+
     // Fetch metadata
     const meta_url = if (is_zls) config.zls_url else config.zig_url;
-    
-    const res = try http_client.HttpClient.fetch(
-        ctx,
-        meta_url,
-        .{}
-    );
-    
+
+    const res = try http_client.HttpClient.fetch(ctx, meta_url, .{});
+
     // Get version entries from pool
     var version_entries_ptrs: [limits.limits.versions_maximum]*object_pools.VersionEntry = undefined;
     for (&version_entries_ptrs) |*entry| {
@@ -435,32 +430,31 @@ fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
             entry.reset();
         }
     }
-    
+
     // Create a slice of the actual structs for get_version_list
     var version_entries: [limits.limits.versions_maximum]object_pools.VersionEntry = undefined;
     for (version_entries_ptrs, 0..) |ptr, i| {
-        version_entries[i] = ptr.*; 
+        version_entries[i] = ptr.*;
     }
-    
+
     // Parse metadata and get version list
     const versions = if (is_zls) blk: {
-        var zls_meta = try meta.Zls.init(res, ctx.get_allocator());
+        var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
         defer zls_meta.deinit();
         break :blk try zls_meta.get_version_list(&version_entries);
     } else blk: {
-        var zig_meta = try meta.Zig.init(res, ctx.get_allocator());
+        var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
         defer zig_meta.deinit();
         break :blk try zig_meta.get_version_list(&version_entries);
     };
-    
-    
+
     // Print header
     if (is_zls) {
         try color.bold().white().print("Available ZLS versions:\n", .{});
     } else {
         try color.bold().white().print("Available Zig versions:\n", .{});
     }
-    
+
     // Print versions
     for (versions) |version| {
         try color.green().print("  {s}\n", .{version});
@@ -471,25 +465,25 @@ fn show_current_version(ctx: *context.CliContext) !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
     std.debug.assert(std.io.getStdOut().handle != 0);
-    
+
     // Get path buffers from pool
     var zig_version_buffer = try ctx.acquire_path_buffer();
     defer zig_version_buffer.reset();
-    
+
     var zls_version_buffer = try ctx.acquire_path_buffer();
     defer zls_version_buffer.reset();
-    
+
     // Get version file paths
     const zig_version_path = try util_data.get_zvm_zig_version(zig_version_buffer);
     const zls_version_path = try util_data.get_zvm_zls_version(zls_version_buffer);
-    
+
     // Read versions using static buffers
     var zig_entry = try ctx.acquire_version_entry();
     defer zig_entry.reset();
-    
+
     var zls_entry = try ctx.acquire_version_entry();
     defer zls_entry.reset();
-    
+
     // Read Zig version
     const zig_file = std.fs.openFileAbsolute(zig_version_path, .{}) catch |err| switch (err) {
         error.FileNotFound => null,
@@ -501,7 +495,7 @@ fn show_current_version(ctx: *context.CliContext) !void {
         zig_entry.name_length = @intCast(bytes_read);
         break :blk zig_entry.get_name();
     } else null;
-    
+
     // Read ZLS version
     const zls_file = std.fs.openFileAbsolute(zls_version_path, .{}) catch |err| switch (err) {
         error.FileNotFound => null,
@@ -513,7 +507,7 @@ fn show_current_version(ctx: *context.CliContext) !void {
         zls_entry.name_length = @intCast(bytes_read);
         break :blk zls_entry.get_name();
     } else null;
-    
+
     // Print current versions
     if (zig_version) |v| {
         const trimmed = std.mem.trim(u8, v, " \t\n\r");
@@ -521,7 +515,7 @@ fn show_current_version(ctx: *context.CliContext) !void {
     } else {
         try stdout.print("Zig version: not set\n", .{});
     }
-    
+
     if (zls_version) |v| {
         const trimmed = std.mem.trim(u8, v, " \t\n\r");
         try stdout.print("ZLS version: {s}\n", .{trimmed});
@@ -534,16 +528,16 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
     std.debug.assert(std.io.getStdOut().handle != 0);
-    
+
     // Get path buffer from pool
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
-    
+
     // Get ZVM bin path
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
     try fbs.writer().print("{s}/.zm/bin", .{ctx.get_home_dir()});
     const zvm_bin_path = try path_buffer.set(fbs.getWritten());
-    
+
     // Determine shell type
     const shell_type = if (shell) |s| s else blk: {
         if (std.posix.getenv("SHELL")) |shell_path| {
@@ -552,7 +546,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
         }
         break :blk "bash"; // Default to bash
     };
-    
+
     // Print environment setup based on shell
     if (std.mem.indexOf(u8, shell_type, "fish") != null) {
         // Fish shell
@@ -571,7 +565,8 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
         try stdout.print("# Add this to your shell configuration:\n", .{});
         try stdout.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
     } else if (std.mem.indexOf(u8, shell_type, "powershell") != null or
-               std.mem.indexOf(u8, shell_type, "pwsh") != null) {
+        std.mem.indexOf(u8, shell_type, "pwsh") != null)
+    {
         // PowerShell
         try stdout.print("# Add this to your PowerShell profile:\n", .{});
         try stdout.print("$env:Path = \"{s};$env:Path\"\n", .{zvm_bin_path});
@@ -589,14 +584,14 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
 fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
     // Initialize color
     var color = util_color.Color.RuntimeStyle.init();
-    
+
     // Get path buffer from pool
     var store_buffer = try ctx.acquire_path_buffer();
     defer store_buffer.reset();
-    
+
     // Path to the store directory
     const store_path = try util_data.get_zvm_store(store_buffer);
-    
+
     const fs = std.fs.cwd();
     var store_dir = fs.openDir(store_path, .{ .iterate = true }) catch |err| {
         switch (err) {
@@ -608,15 +603,15 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
         }
     };
     defer store_dir.close();
-    
+
     var iterator = store_dir.iterate();
     var files_removed: usize = 0;
     var bytes_freed: u64 = 0;
-    
+
     while (try iterator.next()) |entry| {
         // Skip directories (which are installed versions)
         if (entry.kind == .directory) continue;
-        
+
         // Only clean files (download artifacts)
         if (entry.kind == .file) {
             // Get file size before deletion
@@ -624,15 +619,15 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
             const file_info = try file.stat();
             const file_size = file_info.size;
             file.close();
-            
+
             // Delete the file
             try store_dir.deleteFile(entry.name);
-            
+
             files_removed += 1;
             bytes_freed += file_size;
         }
     }
-    
+
     if (files_removed > 0) {
         const mb_freed = @as(f64, @floatFromInt(bytes_freed)) / (1024.0 * 1024.0);
         try color.bold().green().print(
@@ -642,26 +637,26 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
     } else {
         try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
     }
-    
+
     // If all flag is set, also remove unused versions
     if (all) {
         // Get current versions
         var current_zig_buffer = try ctx.acquire_path_buffer();
         defer current_zig_buffer.reset();
-        
+
         var current_zls_buffer = try ctx.acquire_path_buffer();
         defer current_zls_buffer.reset();
-        
+
         const current_zig_path = try util_data.get_zvm_zig_version(current_zig_buffer);
         const current_zls_path = try util_data.get_zvm_zls_version(current_zls_buffer);
-        
+
         // Read current versions using static buffers
         var zig_version_entry = try ctx.acquire_version_entry();
         defer zig_version_entry.reset();
-        
+
         var zls_version_entry = try ctx.acquire_version_entry();
         defer zls_version_entry.reset();
-        
+
         const zig_file = std.fs.openFileAbsolute(current_zig_path, .{}) catch |err| switch (err) {
             error.FileNotFound => null,
             else => return err,
@@ -672,7 +667,7 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
             zig_version_entry.name_length = @intCast(bytes_read);
             break :blk zig_version_entry.get_name();
         } else null;
-        
+
         const zls_file = std.fs.openFileAbsolute(current_zls_path, .{}) catch |err| switch (err) {
             error.FileNotFound => null,
             else => return err,
@@ -683,35 +678,35 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
             zls_version_entry.name_length = @intCast(bytes_read);
             break :blk zls_version_entry.get_name();
         } else null;
-        
+
         const trimmed_zig_current = if (current_zig_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
         const trimmed_zls_current = if (current_zls_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
-        
+
         // Reset iterator to go through directories
         iterator = store_dir.iterate();
         var versions_removed: usize = 0;
-        
+
         try color.bold().yellow().print("\nCleaning unused versions...\n", .{});
-        
+
         while (try iterator.next()) |entry| {
             if (entry.kind != .directory) continue;
-            
+
             // Skip current versions
             const is_current_zig = if (trimmed_zig_current) |czv| std.mem.eql(u8, entry.name, czv) else false;
             const is_current_zls = if (trimmed_zls_current) |czv| std.mem.eql(u8, entry.name, czv) else false;
-            
+
             if (is_current_zig or is_current_zls) {
                 const marker = if (is_current_zig and is_current_zls) "zig,zls" else if (is_current_zig) "zig" else "zls";
                 try color.cyan().print("  Keeping {s} (current {s})\n", .{ entry.name, marker });
                 continue;
             }
-            
+
             // Remove the version directory
             try color.red().print("  Removing {s}\n", .{entry.name});
             try store_dir.deleteTree(entry.name);
             versions_removed += 1;
         }
-        
+
         if (versions_removed > 0) {
             try color.bold().green().print("\nRemoved {d} unused version(s).\n", .{versions_removed});
         } else {
@@ -722,7 +717,7 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
 
 fn print_completions(ctx: *context.CliContext, shell: cli.Shell) !void {
     _ = ctx; // Not needed for completions
-    
+
     switch (shell) {
         .zsh => try print_zsh_completions(),
         .bash => try print_bash_completions(),

@@ -76,7 +76,7 @@ pub fn get_current_version(
     var base_path_copy: [limits.limits.path_length_maximum]u8 = undefined;
     const base_path_len = base_path.len;
     @memcpy(base_path_copy[0..base_path_len], base_path);
-    
+
     // Build full path.
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
     try fbs.writer().print("{s}/{s}", .{ base_path_copy[0..base_path_len], exe_name });

@@ -1,5 +1,6 @@
 const std = @import("std");
 const config = @import("limits.zig");
+const StaticAllocator = @import("static_allocator.zig");
 
 /// All memory is allocated upfront, no dynamic allocation after initialization.
 pub const StaticMemory = struct {
@@ -9,6 +10,9 @@ pub const StaticMemory = struct {
 
     /// Fixed buffer allocator that manages our static buffer.
     fba: std.heap.FixedBufferAllocator,
+
+    /// Static allocator wrapper that can be locked after initialization.
+    static_allocator: StaticAllocator,
 
     /// Calculate the total memory needed based on our static limits.
     pub fn calculate_memory_size() usize {
@@ -23,11 +27,9 @@ pub const StaticMemory = struct {
         total += path_buffers_size;
 
         // HTTP operations.
-        const http_size = config.limits.http_operations_maximum * (
-            config.limits.http_response_size_maximum + 
-            config.limits.url_length_maximum + 
-            config.limits.http_header_size_maximum
-        );
+        const http_size = config.limits.http_operations_maximum * (config.limits.http_response_size_maximum +
+            config.limits.url_length_maximum +
+            config.limits.http_header_size_maximum);
         std.debug.assert(http_size > 0);
         total += http_size;
 
@@ -88,10 +90,14 @@ pub const StaticMemory = struct {
         std.debug.assert(backing_buffer.len == calculate_memory_size());
         std.debug.assert(@intFromPtr(backing_buffer.ptr) % 8 == 0); // 8-byte aligned
 
-        const result = StaticMemory{
+        var result = StaticMemory{
             .buffer = backing_buffer,
             .fba = std.heap.FixedBufferAllocator.init(backing_buffer),
+            .static_allocator = undefined,
         };
+
+        // Initialize the static allocator with the FBA
+        result.static_allocator = StaticAllocator.init(result.fba.allocator());
 
         std.debug.assert(result.buffer.len == backing_buffer.len);
 
@@ -99,10 +105,23 @@ pub const StaticMemory = struct {
     }
 
     /// Get the allocator interface.
+    /// Returns the static allocator which enforces allocation phases.
     pub fn allocator(self: *StaticMemory) std.mem.Allocator {
         std.debug.assert(self.buffer.len > 0);
 
-        return self.fba.allocator();
+        return self.static_allocator.allocator();
+    }
+
+    /// Transition to static mode - no more allocations allowed.
+    /// Call this after all initialization is complete.
+    pub fn lock(self: *StaticMemory) void {
+        self.static_allocator.transition_from_init_to_static();
+    }
+
+    /// Transition to deinit mode - only free operations allowed.
+    /// Call this before shutdown.
+    pub fn unlock_for_deinit(self: *StaticMemory) void {
+        self.static_allocator.transition_from_static_to_deinit();
     }
 
     /// Reset all allocations (useful for tests).
