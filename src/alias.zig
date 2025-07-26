@@ -6,27 +6,32 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
+const context = @import("context.zig");
+const object_pools = @import("object_pools.zig");
 
 /// Try to set the Zig version.
 /// This will use a symlink on Unix-like systems.
 /// For Windows, this will copy the directory.
-pub fn set_version(version: []const u8, is_zls: bool) !void {
-    var arena = std.heap.ArenaAllocator.init(util_data.get_allocator());
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
+pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) !void {
+    // Create current directory path.
+    var current_dir_buffer = try ctx.acquire_path_buffer();
+    defer current_dir_buffer.reset();
+    const current_dir = try util_data.get_zvm_path_segment(current_dir_buffer, "current");
+    try util_tool.try_create_path(current_dir);
 
-    try util_tool.try_create_path(try util_data.get_zvm_path_segment(arena_allocator, "current"));
+    // Get version path.
+    var base_path_buffer = try ctx.acquire_path_buffer();
+    defer base_path_buffer.reset();
+    const base_path = if (is_zls)
+        try util_data.get_zvm_zls_version(base_path_buffer)
+    else
+        try util_data.get_zvm_zig_version(base_path_buffer);
 
-    const version_path = try std.fs.path.join(
-        arena_allocator,
-        &.{
-            if (is_zls)
-                try util_data.get_zvm_zls_version(arena_allocator)
-            else
-                try util_data.get_zvm_zig_version(arena_allocator),
-            version,
-        },
-    );
+    var version_path_buffer = try ctx.acquire_path_buffer();
+    defer version_path_buffer.reset();
+    var fbs = std.io.fixedBufferStream(version_path_buffer.slice());
+    try fbs.writer().print("{s}/{s}", .{ base_path, version });
+    const version_path = try version_path_buffer.set(fbs.getWritten());
 
     std.fs.accessAbsolute(version_path, .{}) catch |err| {
         if (err != error.FileNotFound)
@@ -37,16 +42,20 @@ pub fn set_version(version: []const u8, is_zls: bool) !void {
         std.process.exit(1);
     };
 
+    // Get symlink path.
+    var symlink_path_buffer = try ctx.acquire_path_buffer();
+    defer symlink_path_buffer.reset();
     const symlink_path = if (is_zls)
-        try util_data.get_zvm_current_zls(arena_allocator)
+        try util_data.get_zvm_current_zls(symlink_path_buffer)
     else
-        try util_data.get_zvm_current_zig(arena_allocator);
+        try util_data.get_zvm_current_zig(symlink_path_buffer);
 
     try update_current(version_path, symlink_path);
+
     if (is_zls) {
-        try verify_zls_version(version);
+        try verify_zls_version(ctx, version);
     } else {
-        try verify_zig_version(version);
+        try verify_zig_version(ctx, version);
     }
 }
 
@@ -56,23 +65,31 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
 
     if (builtin.os.tag == .windows) {
         if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
-        try util_tool.copy_dir(zig_path, symlink_path);
+        // For Windows, use temporary buffers for copying directories.
+        var source_buffer: object_pools.PathBuffer = .{};
+        var dest_buffer: object_pools.PathBuffer = .{};
+        try util_tool.copy_dir_static(zig_path, symlink_path, &source_buffer, &dest_buffer);
         return;
     }
 
-    // Remove existing symlink if it exists
+    // Remove existing symlink if it exists.
     if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
 
-    // Create symlink to the version directory
+    // Create symlink to the version directory.
     try std.posix.symlink(zig_path, symlink_path);
 }
 
-/// Verify the current Zig version
-fn verify_zig_version(expected_version: []const u8) !void {
-    const allocator = util_data.get_allocator();
+/// Verify the current Zig version.
+fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !void {
+    var path_buffer = try ctx.acquire_path_buffer();
+    defer path_buffer.reset();
+    var output_buffer: [256]u8 = undefined;
 
-    const actual_version = try util_data.get_current_version(allocator, false);
-    defer allocator.free(actual_version);
+    const actual_version = try util_data.get_current_version(
+        path_buffer,
+        &output_buffer,
+        false,
+    );
 
     var stdout = std.io.getStdOut().writer();
 
@@ -86,12 +103,17 @@ fn verify_zig_version(expected_version: []const u8) !void {
     }
 }
 
-/// Verify the current zls version
-fn verify_zls_version(expected_version: []const u8) !void {
-    const allocator = util_data.get_allocator();
+/// Verify the current zls version.
+fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !void {
+    var path_buffer = try ctx.acquire_path_buffer();
+    defer path_buffer.reset();
+    var output_buffer: [256]u8 = undefined;
 
-    const actual_version = try util_data.get_current_version(allocator, true);
-    defer allocator.free(actual_version);
+    const actual_version = try util_data.get_current_version(
+        path_buffer,
+        &output_buffer,
+        true,
+    );
 
     var stdout = std.io.getStdOut().writer();
 

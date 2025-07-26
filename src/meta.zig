@@ -5,6 +5,8 @@
 const std = @import("std");
 const config = @import("config.zig");
 const util_tool = @import("util/tool.zig");
+const object_pools = @import("object_pools.zig");
+const limits = @import("limits.zig");
 
 const json = std.json;
 const Allocator = std.mem.Allocator;
@@ -58,6 +60,7 @@ pub const Zig = struct {
             var version_info = now_version.object.iterator();
 
             // Initialize all fields to safe defaults
+            // SAFETY: All undefined fields are either set below or the function returns null if they're not set
             var result: VersionData = .{
                 .version = undefined,
                 .date = undefined,
@@ -128,7 +131,16 @@ pub const Zig = struct {
                 result.version = try allocator.dupe(u8, version);
 
             // Ensure all required fields are set before returning
-            if (!is_set_tarball or !is_set_shasum or !is_set_size or !is_set_date) {
+            if (!is_set_tarball) {
+                return null;
+            }
+            if (!is_set_shasum) {
+                return null;
+            }
+            if (!is_set_size) {
+                return null;
+            }
+            if (!is_set_date) {
                 return null;
             }
 
@@ -137,22 +149,30 @@ pub const Zig = struct {
         return null;
     }
 
-    /// return the version list
-    pub fn get_version_list(self: *Zig, allocator: Allocator) ![][]const u8 {
+    /// Return the version list without allocation.
+    /// Caller provides a version entries array to fill.
+    pub fn get_version_list(
+        self: *Zig,
+        version_entries: []object_pools.VersionEntry,
+    ) ![][]const u8 {
         const root = self.data.value;
-
-        var list = std.ArrayList([]const u8).init(allocator);
+        var version_list: [limits.limits.versions_maximum][]const u8 = undefined;
+        var version_count: usize = 0;
         var iterate = root.object.iterator();
 
         while (iterate.next()) |entry| {
+            if (version_count >= version_entries.len) break;
+
             const key_ptr = entry.key_ptr;
             const key = key_ptr.*;
 
-            const key_copy = try allocator.dupe(u8, key);
-            try list.append(key_copy);
+            // Store version name in the provided entry.
+            try version_entries[version_count].set_name(key);
+            version_list[version_count] = version_entries[version_count].get_name();
+            version_count += 1;
         }
 
-        return try list.toOwnedSlice();
+        return version_list[0..version_count];
     }
 };
 
@@ -225,18 +245,26 @@ pub const Zls = struct {
         return null;
     }
 
-    /// return the version list
-    pub fn get_version_list(self: *Zls, allocator: Allocator) ![][]const u8 {
-        var list = std.ArrayList([]const u8).init(allocator);
+    /// Return the version list without allocation.
+    /// Caller provides a version entries array to fill.
+    pub fn get_version_list(
+        self: *Zls,
+        version_entries: []object_pools.VersionEntry,
+    ) ![][]const u8 {
+        var version_list: [limits.limits.versions_maximum][]const u8 = undefined;
+        var version_count: usize = 0;
 
         for (self.data.value.array.items) |item| {
+            if (version_count >= version_entries.len) break;
+
             const tag = item.object.get("tag_name") orelse continue;
 
-            const key_copy = try allocator.dupe(u8, tag.string);
-            try list.append(key_copy);
+            // Store version name in the provided entry.
+            try version_entries[version_count].set_name(tag.string);
+            version_list[version_count] = version_entries[version_count].get_name();
+            version_count += 1;
         }
 
-        const slice = try list.toOwnedSlice();
-        return slice;
+        return version_list[0..version_count];
     }
 };
