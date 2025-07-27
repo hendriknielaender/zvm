@@ -1,13 +1,5 @@
 const std = @import("std");
-const data = @import("data.zig");
-
-/// Free str array
-pub fn free_str_array(str_arr: []const []const u8, allocator: std.mem.Allocator) void {
-    for (str_arr) |str|
-        allocator.free(str);
-
-    allocator.free(str_arr);
-}
+const object_pools = @import("../object_pools.zig");
 
 /// eql str
 pub fn eql_str(str1: []const u8, str2: []const u8) bool {
@@ -36,9 +28,14 @@ pub fn does_path_exist2(dir: std.fs.Dir, path: []const u8) bool {
     return true;
 }
 
-/// Nested copy dir
+/// Nested copy dir using static allocation.
 /// only copy dir and file, no including link
-pub fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
+pub fn copy_dir_static(
+    source_dir: []const u8,
+    dest_dir: []const u8,
+    source_path_buffer: *object_pools.PathBuffer,
+    dest_path_buffer: *object_pools.PathBuffer,
+) !void {
     var source = try std.fs.openDirAbsolute(source_dir, .{ .iterate = true });
     defer source.close();
 
@@ -51,18 +48,23 @@ pub fn copy_dir(source_dir: []const u8, dest_dir: []const u8) !void {
     defer dest.close();
 
     var iterate = source.iterate();
-    const allocator = data.get_allocator();
     while (try iterate.next()) |entry| {
         const entry_name = entry.name;
 
-        const source_sub_path = try std.fs.path.join(allocator, &.{ source_dir, entry_name });
-        defer allocator.free(source_sub_path);
+        // Build source sub path.
+        source_path_buffer.reset();
+        var fbs_src = std.io.fixedBufferStream(source_path_buffer.slice());
+        try fbs_src.writer().print("{s}/{s}", .{ source_dir, entry_name });
+        const source_sub_path = try source_path_buffer.set(fbs_src.getWritten());
 
-        const dest_sub_path = try std.fs.path.join(allocator, &.{ dest_dir, entry_name });
-        defer allocator.free(dest_sub_path);
+        // Build dest sub path.
+        dest_path_buffer.reset();
+        var fbs_dest = std.io.fixedBufferStream(dest_path_buffer.slice());
+        try fbs_dest.writer().print("{s}/{s}", .{ dest_dir, entry_name });
+        const dest_sub_path = try dest_path_buffer.set(fbs_dest.getWritten());
 
         switch (entry.kind) {
-            .directory => try copy_dir(source_sub_path, dest_sub_path),
+            .directory => try copy_dir_static(source_sub_path, dest_sub_path, source_path_buffer, dest_path_buffer),
             .file => try std.fs.copyFileAbsolute(source_sub_path, dest_sub_path, .{}),
             else => {},
         }

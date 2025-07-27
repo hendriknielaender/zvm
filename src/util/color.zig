@@ -1,5 +1,6 @@
 // color.zig
 const std = @import("std");
+const limits = @import("../limits.zig");
 
 pub const Color = struct {
     /// Compile-Time Style Struct
@@ -8,20 +9,20 @@ pub const Color = struct {
         close: []const u8 = "",
         preset: bool = false,
 
-        pub inline fn fmt(self: *ComptimeStyle, comptime text: []const u8) []const u8 {
+        pub inline fn format(self: *ComptimeStyle, comptime text: []const u8) []const u8 {
             defer self.removeAll();
             return self.open ++ text ++ self.close;
         }
 
         pub inline fn print(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
-            const formatted_text = self.fmt(text);
+            const formatted_text = self.format(text);
             try std.io.getStdOut().writer().print("{s}", .{formatted_text});
         }
 
         pub inline fn printErr(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
-            const formatted_text = self.fmt(text);
+            const formatted_text = self.format(text);
             try std.io.getStdErr().writer().print("{s}", .{formatted_text});
         }
 
@@ -64,69 +65,96 @@ pub const Color = struct {
         }
     };
 
-    /// Runtime Style Struct
+    /// Runtime Style Struct - Now using static allocation!
     pub const RuntimeStyle = struct {
-        open: std.ArrayList(u8),
-        close: std.ArrayList(u8),
-        allocator: std.mem.Allocator,
+        /// Maximum style codes that can be applied.
+        const max_style_codes = 16;
+        /// Maximum length for style escape sequences.
+        const style_buffer_size = 256;
+
+        open_buffer: [style_buffer_size]u8 = [_]u8{0} ** style_buffer_size,
+        open_len: u32 = 0,
+        close_buffer: [style_buffer_size]u8 = [_]u8{0} ** style_buffer_size,
+        close_len: u32 = 0,
+        format_buffer: [limits.limits.format_buffer_size_maximum]u8 = [_]u8{0} ** limits.limits.format_buffer_size_maximum,
 
         /// Initializes a new RuntimeStyle instance.
-        pub fn init(allocator: std.mem.Allocator) !RuntimeStyle {
-            return RuntimeStyle{
-                .open = std.ArrayList(u8).init(allocator),
-                .close = std.ArrayList(u8).init(allocator),
-                .allocator = allocator,
-            };
-        }
-
-        pub fn deinit(self: *RuntimeStyle) void {
-            self.open.deinit();
-            self.close.deinit();
+        pub fn init() RuntimeStyle {
+            return RuntimeStyle{};
         }
 
         /// Adds a style code to the Style instance.
         pub fn addStyle(self: *RuntimeStyle, style_code: []const u8) *RuntimeStyle {
-            // Ignore allocation errors for simplicity
-            self.open.appendSlice(style_code) catch |err| {
-                std.log.warn("Failed to append style code: {}", .{err});
-            };
-            // For correct closure, we need to append the corresponding reset code
-            self.close.appendSlice("\x1b[0m") catch |err| {
-                std.log.warn("Failed to append reset code: {}", .{err});
-            };
+            // Check if style code fits in open buffer
+            const new_open_len = self.open_len + style_code.len;
+            if (new_open_len > self.open_buffer.len) {
+                // Style code doesn't fit, skip adding it
+                return self;
+            }
+
+            // Add to open buffer
+            @memcpy(self.open_buffer[self.open_len..new_open_len], style_code);
+            self.open_len = @intCast(new_open_len);
+
+            // Check if reset code fits in close buffer
+            const reset_code = "\x1b[0m";
+            const new_close_len = self.close_len + reset_code.len;
+            if (new_close_len > self.close_buffer.len) {
+                // Reset code doesn't fit, skip adding it
+                return self;
+            }
+
+            // Add reset code to close buffer
+            @memcpy(self.close_buffer[self.close_len..new_close_len], reset_code);
+            self.close_len = @intCast(new_close_len);
+
             return self;
         }
 
         fn removeAll(self: *RuntimeStyle) void {
-            self.open.clearAndFree();
-            self.close.clearAndFree();
+            self.open_len = 0;
+            self.close_len = 0;
         }
 
         /// Returns the formatted text with styles applied.
-        pub fn fmt(self: *RuntimeStyle, comptime format: []const u8, args: anytype) ![]u8 {
+        pub fn format(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) ![]u8 {
             defer self.removeAll();
 
-            const formatted = try std.fmt.allocPrint(self.allocator, format, args);
+            // Use a temporary buffer for initial formatting to avoid aliasing
+            var temp_buffer: [1024]u8 = undefined;
+            const formatted = try std.fmt.bufPrint(&temp_buffer, format_string, args);
 
-            defer self.allocator.free(formatted);
-            return std.mem.concat(self.allocator, u8, &.{ self.open.items, formatted, self.close.items });
+            // Calculate total size needed.
+            const total_len = self.open_len + formatted.len + self.close_len;
+            if (total_len > self.format_buffer.len) return error.BufferTooSmall;
+
+            // Build the final string in format_buffer.
+            var result_len: usize = 0;
+
+            // Copy open codes.
+            @memcpy(self.format_buffer[0..self.open_len], self.open_buffer[0..self.open_len]);
+            result_len += self.open_len;
+
+            // Copy formatted text.
+            @memcpy(self.format_buffer[result_len .. result_len + formatted.len], formatted);
+            result_len += formatted.len;
+
+            // Copy close codes.
+            @memcpy(self.format_buffer[result_len .. result_len + self.close_len], self.close_buffer[0..self.close_len]);
+            result_len += self.close_len;
+
+            return self.format_buffer[0..result_len];
         }
 
         /// Prints the formatted text to stdout.
-        pub fn print(self: *RuntimeStyle, comptime format: []const u8, args: anytype) !void {
-            defer self.removeAll();
-
-            const formatted_text = try self.fmt(format, args);
-            defer self.allocator.free(formatted_text);
+        pub fn print(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
+            const formatted_text = try self.format(format_string, args);
             try std.io.getStdOut().writer().print("{s}", .{formatted_text});
         }
 
         /// Prints the formatted text to stderr.
-        pub fn printErr(self: *RuntimeStyle, comptime format: []const u8, args: anytype) !void {
-            defer self.removeAll();
-
-            const formatted_text = try self.fmt(format, args);
-            defer self.allocator.free(formatted_text);
+        pub fn printErr(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
+            const formatted_text = try self.format(format_string, args);
             try std.io.getStdErr().writer().print("{s}", .{formatted_text});
         }
 
@@ -151,15 +179,12 @@ pub const Color = struct {
             return self.addStyle("\x1b[36m");
         }
 
-        /// Creates a preset RuntimeStyle.
-        pub fn createPreset(self: *RuntimeStyle) !RuntimeStyle {
-            defer self.removeAll();
+        pub fn yellow(self: *RuntimeStyle) *RuntimeStyle {
+            return self.addStyle("\x1b[33m");
+        }
 
-            return RuntimeStyle{
-                .open = try self.open.clone(self.allocator.*),
-                .close = try self.close.clone(self.allocator.*),
-                .allocator = self.allocator,
-            };
+        pub fn white(self: *RuntimeStyle) *RuntimeStyle {
+            return self.addStyle("\x1b[37m");
         }
     };
 };

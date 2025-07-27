@@ -33,6 +33,8 @@ test "verify_hash basic test" {
     var sample_hash_hex: [64]u8 = undefined;
     _ = std.fmt.bufPrint(&sample_hash_hex, "{}", .{std.fmt.fmtSliceHexLower(sample_hash[0..])}) catch unreachable;
 
-    try std.testing.expect(verify_hash(sample_hash, &sample_hash_hex));
-    try std.testing.expect(!verify_hash(sample_hash, "incorrect_hash"));
+    try std.testing.expect(verify_hash(sample_hash, sample_hash_hex));
+
+    const incorrect_hash: [64]u8 = [_]u8{'i'} ** 64;
+    try std.testing.expect(!verify_hash(sample_hash, incorrect_hash));
 }
