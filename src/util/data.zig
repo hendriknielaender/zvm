@@ -15,17 +15,40 @@ pub const zvm_logo =
 /// Initialize the data.
 pub fn data_init(tmp_allocator: std.mem.Allocator) !void {
     config.allocator = tmp_allocator;
-    config.home_dir = if (builtin.os.tag == .windows)
-        try std.process.getEnvVarOwned(config.allocator, "USERPROFILE")
-    else
-        std.posix.getenv("HOME") orelse ".";
+
+    // Try ZVM_HOME
+    if (std.process.getEnvVarOwned(config.allocator, config.zvm_home) catch null) |zvm_home| {
+        config.home_dir = zvm_home;
+        config.zm_dir = "zm";
+        return;
+    }
+
+    // Try XDG_DATA_HOME
+    if (std.process.getEnvVarOwned(config.allocator, "XDG_DATA_HOME") catch null) |xdg_data_home| {
+        config.home_dir = xdg_data_home;
+        config.zm_dir = "zm";
+        return;
+    }
+
+    // Fallback to $HOME or %USERPROFILE%
+    if (builtin.os.tag == .windows) {
+        config.home_dir = try std.process.getEnvVarOwned(config.allocator, "USERPROFILE");
+        config.zm_dir = ".zm";
+    } else {
+        config.home_dir = std.posix.getenv("HOME") orelse ".";
+        config.zm_dir = ".zm";
+    }
 }
+
 
 /// Deinitialize the data.
 pub fn data_deinit() void {
-    if (builtin.os.tag == .windows)
+    if (config.home_dir.len > 0) {
         config.allocator.free(config.home_dir);
+        config.allocator.free(config.zm_dir);
+    }
 }
+
 
 /// Get home directory.
 pub fn get_home() []const u8 {
@@ -39,7 +62,7 @@ pub fn get_allocator() std.mem.Allocator {
 
 /// Get zvm path segment
 pub fn get_zvm_path_segment(allocator: std.mem.Allocator, segment: []const u8) ![]u8 {
-    return try std.fs.path.join(allocator, &[_][]const u8{ get_home(), ".zm", segment });
+    return try std.fs.path.join(allocator, &.{ get_home(), config.zm_dir, segment });
 }
 
 pub fn get_zvm_current_zig(allocator: std.mem.Allocator) ![]u8 {

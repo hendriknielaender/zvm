@@ -6,6 +6,10 @@ const builtin = @import("builtin");
 pub var allocator: std.mem.Allocator = undefined;
 // SAFETY: Set during initialization before any code accesses it
 pub var home_dir: []const u8 = undefined;
+pub var zm_dir: []const u8 = undefined;
+
+pub const zvm_home: []const u8 = "ZVM_HOME";
+pub const xdg_data_home: []const u8 = "XDG_DATA_HOME";
 
 // SAFETY: Initialized during program startup before progress reporting begins
 pub var progress_root: std.Progress.Node = undefined;
