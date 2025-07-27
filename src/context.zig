@@ -13,6 +13,9 @@ pub const CliContext = struct {
     home_dir_buffer: [limits.limits.home_dir_length_maximum]u8 = [_]u8{0} ** limits.limits.home_dir_length_maximum,
     home_dir_length: u32 = 0,
 
+    /// zvm directory hidden state
+    zvm_hidden: bool = true,
+
     /// Command line arguments (references into process_buffer).
     arguments_count: u32 = 0,
 
@@ -116,29 +119,46 @@ pub const CliContext = struct {
 
     /// Initialize home directory
     fn init_home_directory(context_storage: *CliContext) !void {
+
         // Get home directory
-        const home = if (builtin.os.tag == .windows)
-            std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./"
-        else
-            std.posix.getenv("HOME") orelse "./";
+        const home: struct { dir: []const u8, zvm_hidden: bool } =
+            // Try ZVM_HOME
+            if (std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "ZVM_HOME") catch null) |zvm_home|
+                .{ .dir = zvm_home, .zvm_hidden = false }
+
+            // Try XDG_DATA_HOME
+            else if (std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "XDG_DATA_HOME") catch null) |xdg_data_home|
+                .{ .dir = xdg_data_home, .zvm_hidden = false }
+
+            else blk: {
+                // Try XDG_DATA_HOME %USERPROFILE%
+                if (builtin.os.tag == .windows) {
+                    if( std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch null) |user_profile|
+                        break :blk .{ .dir = user_profile, .zvm_hidden = false };
+                }
+
+                // Fallback to $HOME
+                break :blk .{ .dir = std.posix.getenv("HOME") orelse "./", .zvm_hidden = true };
+        };
 
         // Validate home directory
-        std.debug.assert(home.len > 0);
-        std.debug.assert(home.len <= limits.limits.home_dir_length_maximum);
+        std.debug.assert(home.dir.len > 0);
+        std.debug.assert(home.dir.len <= limits.limits.home_dir_length_maximum);
 
         // Copy home directory into our buffer
-        if (home.len > context_storage.home_dir_buffer.len) {
+        if (home.dir.len > context_storage.home_dir_buffer.len) {
             std.log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-                home.len,
+                home.dir.len,
                 context_storage.home_dir_buffer.len,
-                home,
+                home.dir,
             });
             return error.HomeDirectoryTooLong;
         }
-        @memcpy(context_storage.home_dir_buffer[0..home.len], home);
-        context_storage.home_dir_length = @intCast(home.len);
+        @memcpy(context_storage.home_dir_buffer[0..home.dir.len], home.dir);
+        context_storage.zvm_hidden = home.zvm_hidden;
+        context_storage.home_dir_length = @intCast(home.dir.len);
 
-        std.debug.assert(context_storage.home_dir_length == home.len);
+        std.debug.assert(context_storage.home_dir_length == home.dir.len);
         std.debug.assert(context_storage.home_dir_length <= context_storage.home_dir_buffer.len);
     }
 
@@ -153,14 +173,19 @@ pub const CliContext = struct {
     }
 
     /// Get home directory.
-    pub fn get_home_dir(self: *const CliContext) []const u8 {
+    pub fn get_home(self: *const CliContext) struct {
+        dir: []const u8,
+        zvm_hidden: bool,
+    } {
         std.debug.assert(self.home_dir_length > 0);
         std.debug.assert(self.home_dir_length <= self.home_dir_buffer.len);
 
-        const result = self.home_dir_buffer[0..self.home_dir_length];
+        std.debug.assert(self.home_dir_buffer[0..self.home_dir_length].len == self.home_dir_length);
 
-        std.debug.assert(result.len == self.home_dir_length);
-        return result;
+        return .{
+            .dir = self.home_dir_buffer[0..self.home_dir_length],
+            .zvm_hidden = self.zvm_hidden,
+        };
     }
 
     /// Get command line arguments.
@@ -174,7 +199,7 @@ pub const CliContext = struct {
         const result = process_buffer.arguments[0..self.arguments_count];
 
         std.debug.assert(result.len == self.arguments_count);
-        return result;
+
     }
 
     /// Get a path buffer from the pool.
@@ -208,10 +233,10 @@ pub const CliContext = struct {
         // buffer is a pointer, not optional - no need for null check
 
         var fixed_buffer_stream = std.io.fixedBufferStream(buffer.slice());
-        const home_dir = self.get_home_dir();
-        std.debug.assert(home_dir.len > 0);
+        const home = self.get_home();
+        std.debug.assert(home.dir.len > 0);
 
-        try fixed_buffer_stream.writer().print("{s}/.zm/{s}", .{ home_dir, segment });
+        try fixed_buffer_stream.writer().print("{s}/{s}zm/{s}", .{ home.dir, if(home.zvm_hidden) "." else "", segment });
         const result = try buffer.set(fixed_buffer_stream.getWritten());
 
         std.debug.assert(result.len > 0);
