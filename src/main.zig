@@ -543,7 +543,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
 
     // Get ZVM bin path
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
-    try fbs.writer().print("{s}/.zm/bin", .{ctx.get_home_dir()});
+    try fbs.writer().print("{s}/.zm/bin", .{ctx.get_home().dir});
     const zvm_bin_path = try path_buffer.set(fbs.getWritten());
 
     // Determine shell type

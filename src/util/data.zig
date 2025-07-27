@@ -18,7 +18,7 @@ pub const zvm_logo =
 pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/{s}", .{ ctx.get_home_dir(), segment });
+    try fbs.writer().print("{s}/.zm/{s}", .{ ctx.get_home().dir, segment });
     return try buffer.set(fbs.getWritten());
 }
 
@@ -26,7 +26,7 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/current/zig", .{ctx.get_home_dir()});
+    try fbs.writer().print("{s}/.zm/current/zig", .{ctx.get_home().dir});
     return try buffer.set(fbs.getWritten());
 }
 
@@ -34,7 +34,7 @@ pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/current/zls", .{ctx.get_home_dir()});
+    try fbs.writer().print("{s}/.zm/current/zls", .{ctx.get_home().dir});
     return try buffer.set(fbs.getWritten());
 }
 
@@ -47,7 +47,7 @@ pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/version/zig", .{ctx.get_home_dir()});
+    try fbs.writer().print("{s}/.zm/version/zig", .{ctx.get_home().dir});
     return try buffer.set(fbs.getWritten());
 }
 
@@ -55,7 +55,7 @@ pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/version/zls", .{ctx.get_home_dir()});
+    try fbs.writer().print("{s}/.zm/version/zls", .{ctx.get_home().dir});
     return try buffer.set(fbs.getWritten());
 }
 
