@@ -117,10 +117,17 @@ pub const CliContext = struct {
     /// Initialize home directory
     fn init_home_directory(context_storage: *CliContext) !void {
         // Get home directory
-        const home = if (builtin.os.tag == .windows)
-            std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./"
-        else
-            std.posix.getenv("HOME") orelse "./";
+        const home = blk: {
+            if (builtin.os.tag == .windows) {
+                // On Windows, we need to use the allocator since we're converting from UTF-16
+                break :blk std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./";
+            } else {
+                // On POSIX, use getenv which doesn't allocate, then copy to our buffer
+                const home_env = std.posix.getenv("HOME") orelse "./";
+                const allocated = context_storage.static_mem.allocator().dupe(u8, home_env) catch "./";
+                break :blk allocated;
+            }
+        };
 
         // Validate home directory
         std.debug.assert(home.len > 0);
