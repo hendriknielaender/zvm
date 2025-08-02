@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const cli = @import("cli.zig");
 const context = @import("context.zig");
 const limits = @import("limits.zig");
@@ -118,7 +119,16 @@ pub fn main() !void {
     try execute_command(context_instance, command, root_node);
 
     // If ZVM_DEBUG environment variable is set, print resource usage
-    if (std.posix.getenv("ZVM_DEBUG")) |_| {
+    const has_debug = if (builtin.os.tag == .windows) blk: {
+        var temp_buffer: [16]u16 = undefined;
+        const zvm_debug_w = std.unicode.utf8ToUtf16LeStringLiteral("ZVM_DEBUG");
+        const len = std.os.windows.kernel32.GetEnvironmentVariableW(zvm_debug_w, &temp_buffer, temp_buffer.len);
+        break :blk len > 0;
+    } else blk: {
+        break :blk std.posix.getenv("ZVM_DEBUG") != null;
+    };
+
+    if (has_debug) {
         try context_instance.print_debug_info();
     }
 }
@@ -151,43 +161,90 @@ fn handle_alias(program_name: []const u8, remaining_arguments: [][]const u8) !vo
     // Build execution arguments
     try build_exec_arguments(&alias_buffers, tool_path, remaining_arguments);
 
-    // Use the allocation-free execve from std.posix
-    // This uses null-terminated strings directly, no allocation needed
-    const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
-    const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
+    // Platform-specific execution
+    if (builtin.os.tag == .windows) {
+        // On Windows, we need to spawn a new process
+        // Convert the null-terminated array to a slice
+        var argv_list: [limits.limits.arguments_maximum][]const u8 = undefined;
+        var i: usize = 0;
+        while (alias_buffers.exec_arguments_ptrs[i]) |arg| : (i += 1) {
+            argv_list[i] = std.mem.sliceTo(arg, 0);
+        }
+        const argv_slice = argv_list[0..i];
 
-    // This function never returns on success
-    const result = std.posix.execveZ(argv[0].?, argv, envp);
+        var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
+        process.spawn() catch |err| {
+            std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+            return err;
+        };
+        const term = try process.wait();
+        std.process.exit(term.Exited);
+    } else {
+        // Use the allocation-free execve from std.posix
+        // This uses null-terminated strings directly, no allocation needed
+        const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
+        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
 
-    // If we get here, exec failed
-    std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
-    return result;
+        // This function never returns on success
+        const result = std.posix.execveZ(argv[0].?, argv, envp);
+
+        // If we get here, exec failed
+        std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
+        return result;
+    }
 }
 
 /// Get the HOME environment variable and copy it to the static buffer
 fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse {
-        std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
-        return error.HomeNotFound;
-    };
-    // Validate home path
-    std.debug.assert(home.len > 0);
-    if (home.len > alias_buffers.home.len) {
-        std.log.err("Home path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-            home.len,
-            alias_buffers.home.len,
-            home,
-        });
-        return error.HomePathTooLong;
+    if (builtin.os.tag == .windows) {
+        // On Windows, we need to handle UTF-16 to UTF-8 conversion
+        // Use a temporary buffer for the conversion
+        var temp_buffer: [limits.limits.home_dir_length_maximum * 2]u16 = undefined;
+        const userprofile_w = std.unicode.utf8ToUtf16LeStringLiteral("USERPROFILE");
+
+        const len = std.os.windows.kernel32.GetEnvironmentVariableW(userprofile_w, &temp_buffer, temp_buffer.len);
+        if (len == 0) {
+            std.log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
+            return error.HomeNotFound;
+        }
+
+        // Convert UTF-16 to UTF-8 directly into our buffer
+        const utf16_slice = temp_buffer[0..len];
+        // Try to convert directly to see how many bytes we need
+        const utf8_len = std.unicode.utf16LeToUtf8(alias_buffers.home[0..], utf16_slice) catch |err| {
+            if (err == error.BufferTooSmall) {
+                std.log.err("Home path too long for buffer", .{});
+                return error.HomePathTooLong;
+            }
+            return error.InvalidUtf8;
+        };
+        return alias_buffers.home[0..utf8_len];
+    } else {
+        // On POSIX, getenv returns a pointer without allocation
+        const home = std.posix.getenv("HOME") orelse {
+            std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
+            return error.HomeNotFound;
+        };
+
+        // Validate home path
+        std.debug.assert(home.len > 0);
+        if (home.len > alias_buffers.home.len) {
+            std.log.err("Home path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
+                home.len,
+                alias_buffers.home.len,
+                home,
+            });
+            return error.HomePathTooLong;
+        }
+
+        @memcpy(alias_buffers.home[0..home.len], home);
+        const home_slice = alias_buffers.home[0..home.len];
+
+        std.debug.assert(home_slice.len == home.len);
+        std.debug.assert(std.mem.eql(u8, home_slice, home));
+
+        return home_slice;
     }
-
-    @memcpy(alias_buffers.home[0..home.len], home);
-    const home_slice = alias_buffers.home[0..home.len];
-
-    std.debug.assert(home_slice.len == home.len);
-    std.debug.assert(std.mem.eql(u8, home_slice, home));
-
-    return home_slice;
 }
 
 /// Get the ZVM_HOME path, either from environment or default
@@ -195,22 +252,47 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
     std.debug.assert(home_slice.len > 0);
     std.debug.assert(home_slice.len <= alias_buffers.home.len);
 
-    if (std.posix.getenv("ZVM_HOME")) |zh| {
-        if (zh.len > alias_buffers.zvm_home.len) {
-            std.log.err("ZVM_HOME path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-                zh.len,
-                alias_buffers.zvm_home.len,
-                zh,
-            });
-            return error.ZvmHomePathTooLong;
+    if (builtin.os.tag == .windows) {
+        // On Windows, check for ZVM_HOME environment variable
+        var temp_buffer: [limits.limits.home_dir_length_maximum * 2]u16 = undefined;
+        const zvm_home_w = std.unicode.utf8ToUtf16LeStringLiteral("ZVM_HOME");
+
+        const len = std.os.windows.kernel32.GetEnvironmentVariableW(zvm_home_w, &temp_buffer, temp_buffer.len);
+        if (len > 0 and len < temp_buffer.len) {
+            // Convert UTF-16 to UTF-8
+            const utf16_slice = temp_buffer[0..len];
+            const utf8_len = std.unicode.utf16LeToUtf8(alias_buffers.zvm_home[0..], utf16_slice) catch {
+                // If conversion fails, use default
+                var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+                try fixed_buffer_stream.writer().print("{s}\\.zm", .{home_slice});
+                return fixed_buffer_stream.getWritten();
+            };
+            return alias_buffers.zvm_home[0..utf8_len];
         }
-        @memcpy(alias_buffers.zvm_home[0..zh.len], zh);
-        return alias_buffers.zvm_home[0..zh.len];
-    } else {
-        // Build default path: $HOME/.zm
+
+        // No ZVM_HOME or too long, use default
         var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
-        try fixed_buffer_stream.writer().print("{s}/.zm", .{home_slice});
+        try fixed_buffer_stream.writer().print("{s}\\.zm", .{home_slice});
         return fixed_buffer_stream.getWritten();
+    } else {
+        // On POSIX, use getenv without allocation
+        if (std.posix.getenv("ZVM_HOME")) |zh| {
+            if (zh.len > alias_buffers.zvm_home.len) {
+                std.log.err("ZVM_HOME path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
+                    zh.len,
+                    alias_buffers.zvm_home.len,
+                    zh,
+                });
+                return error.ZvmHomePathTooLong;
+            }
+            @memcpy(alias_buffers.zvm_home[0..zh.len], zh);
+            return alias_buffers.zvm_home[0..zh.len];
+        } else {
+            // Build default path: $HOME/.zm
+            var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            try fixed_buffer_stream.writer().print("{s}/.zm", .{home_slice});
+            return fixed_buffer_stream.getWritten();
+        }
     }
 }
 
@@ -337,7 +419,6 @@ fn execute_command(
 fn print_help() !void {
     const stdout = std.io.getStdOut().writer();
     // No input parameters to validate, but ensure stdout is valid
-    std.debug.assert(std.io.getStdOut().handle != 0);
     try stdout.print(
         \\ZVM - Zig Version Manager
         \\
@@ -367,7 +448,6 @@ fn print_help() !void {
 fn print_version() !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
-    std.debug.assert(std.io.getStdOut().handle != 0);
 
     // Print the logo
     try stdout.print("{s}\n", .{util_data.zvm_logo});
@@ -472,7 +552,6 @@ fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
 fn show_current_version(ctx: *context.CliContext) !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
-    std.debug.assert(std.io.getStdOut().handle != 0);
 
     // Get path buffers from pool
     var zig_version_buffer = try ctx.acquire_path_buffer();
@@ -535,7 +614,6 @@ fn show_current_version(ctx: *context.CliContext) !void {
 fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     const stdout = std.io.getStdOut().writer();
     // Ensure stdout is valid
-    std.debug.assert(std.io.getStdOut().handle != 0);
 
     // Get path buffer from pool
     var path_buffer = try ctx.acquire_path_buffer();
@@ -548,11 +626,36 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
 
     // Determine shell type
     const shell_type = if (shell) |s| s else blk: {
-        if (std.posix.getenv("SHELL")) |shell_path| {
-            const shell_name = std.fs.path.basename(shell_path);
-            break :blk shell_name;
+        if (builtin.os.tag == .windows) {
+            // On Windows, check COMSPEC
+            var temp_buffer: [512]u16 = undefined;
+            const comspec_w = std.unicode.utf8ToUtf16LeStringLiteral("COMSPEC");
+
+            const len = std.os.windows.kernel32.GetEnvironmentVariableW(comspec_w, &temp_buffer, temp_buffer.len);
+            if (len > 0 and len < temp_buffer.len) {
+                // Convert UTF-16 to UTF-8 into path buffer
+                const utf16_slice = temp_buffer[0..len];
+                var utf8_buffer: [512]u8 = undefined;
+                const utf8_len = std.unicode.utf16LeToUtf8(utf8_buffer[0..], utf16_slice) catch {
+                    break :blk "cmd"; // Default for Windows
+                };
+                const shell_path = utf8_buffer[0..utf8_len];
+                const shell_name = std.fs.path.basename(shell_path);
+                if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
+                    break :blk "powershell";
+                } else if (std.mem.indexOf(u8, shell_name, "cmd") != null) {
+                    break :blk "cmd";
+                }
+            }
+            break :blk "cmd"; // Default for Windows
+        } else {
+            // On POSIX, check SHELL
+            if (std.posix.getenv("SHELL")) |shell_path| {
+                const shell_name = std.fs.path.basename(shell_path);
+                break :blk shell_name;
+            }
+            break :blk "bash"; // Default for POSIX
         }
-        break :blk "bash"; // Default to bash
     };
 
     // Print environment setup based on shell

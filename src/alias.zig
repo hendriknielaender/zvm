@@ -66,8 +66,8 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     if (builtin.os.tag == .windows) {
         if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
         // For Windows, use temporary buffers for copying directories.
-        var source_buffer: object_pools.PathBuffer = .{};
-        var dest_buffer: object_pools.PathBuffer = .{};
+        var source_buffer: object_pools.PathBuffer = .{ .data = undefined };
+        var dest_buffer: object_pools.PathBuffer = .{ .data = undefined };
         try util_tool.copy_dir_static(zig_path, symlink_path, &source_buffer, &dest_buffer);
         return;
     }
