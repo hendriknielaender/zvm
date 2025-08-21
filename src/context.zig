@@ -218,7 +218,14 @@ pub const CliContext = struct {
         const home_dir = self.get_home_dir();
         std.debug.assert(home_dir.len > 0);
 
-        try fixed_buffer_stream.writer().print("{s}/.zm/{s}", .{ home_dir, segment });
+        // Follow XDG Base Directory specification
+        if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+            try fixed_buffer_stream.writer().print("{s}/.zm/{s}", .{ xdg_data, segment });
+        } else {
+            // Use XDG default: $HOME/.local/share/.zm
+            try fixed_buffer_stream.writer().print("{s}/.local/share/.zm/{s}", .{ home_dir, segment });
+        }
+
         const result = try buffer.set(fixed_buffer_stream.getWritten());
 
         std.debug.assert(result.len > 0);

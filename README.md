@@ -14,6 +14,7 @@ zvm is a command-line tool that allows you to easily install, manage, and switch
 - Switch between installed Zig or zls versions.
 - Remove installed Zig or zls versions.
 - Display the current zvm version and helpful usage information.
+- XDG Base Directory Specification support on Linux/macOS.
 
 
 ## Install
@@ -25,11 +26,15 @@ brew tap hendriknielaender/zvm
 brew install zvm
 ```
 
-Now add this line to your `~/.bashrc`, `~/.profile`, or `~/.zshrc` file.
+Run `zvm env` to get the exact PATH configuration for your system:
 
 ```bash
-export PATH="$HOME/.zm/current/zig:$PATH"
+$ zvm env
+# Add this to your ~/.bashrc, ~/.profile, or ~/.zshrc:
+export PATH="/home/user/.local/share/zvm/bin:$PATH"
 ```
+
+**⚠️ BREAKING CHANGE (zvm 0.14.0)**: zvm now follows the XDG Base Directory Specification on Linux/macOS. Legacy `~/.zm` installations must be migrated manually.
 
 ### Windows
 
