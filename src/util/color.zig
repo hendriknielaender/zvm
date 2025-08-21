@@ -2,6 +2,9 @@
 const std = @import("std");
 const limits = @import("../limits.zig");
 
+// Cleaner access to I/O buffer size
+const io_buffer_size = limits.limits.io_buffer_size_maximum;
+
 pub const Color = struct {
     /// Compile-Time Style Struct
     pub const ComptimeStyle = struct {
@@ -17,13 +20,21 @@ pub const Color = struct {
         pub inline fn print(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
             const formatted_text = self.format(text);
-            try std.io.getStdOut().writer().print("{s}", .{formatted_text});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+            const stdout = &stdout_writer.interface;
+            try stdout.print("{s}", .{formatted_text});
+            try stdout.flush();
         }
 
         pub inline fn printErr(self: *ComptimeStyle, comptime text: []const u8) !void {
             defer self.removeAll();
             const formatted_text = self.format(text);
-            try std.io.getStdErr().writer().print("{s}", .{formatted_text});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print("{s}", .{formatted_text});
+            try stderr.flush();
         }
 
         pub inline fn add(self: *ComptimeStyle, comptime style_code: []const u8) *ComptimeStyle {
@@ -121,7 +132,7 @@ pub const Color = struct {
             defer self.removeAll();
 
             // Use a temporary buffer for initial formatting to avoid aliasing
-            var temp_buffer: [1024]u8 = undefined;
+            var temp_buffer: [limits.limits.format_buffer_size_maximum]u8 = undefined;
             const formatted = try std.fmt.bufPrint(&temp_buffer, format_string, args);
 
             // Calculate total size needed.
@@ -149,13 +160,21 @@ pub const Color = struct {
         /// Prints the formatted text to stdout.
         pub fn print(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
             const formatted_text = try self.format(format_string, args);
-            try std.io.getStdOut().writer().print("{s}", .{formatted_text});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+            const stdout = &stdout_writer.interface;
+            try stdout.print("{s}", .{formatted_text});
+            try stdout.flush();
         }
 
         /// Prints the formatted text to stderr.
         pub fn printErr(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
             const formatted_text = try self.format(format_string, args);
-            try std.io.getStdErr().writer().print("{s}", .{formatted_text});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print("{s}", .{formatted_text});
+            try stderr.flush();
         }
 
         // Style methods

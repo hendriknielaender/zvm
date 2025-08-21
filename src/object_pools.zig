@@ -242,6 +242,7 @@ pub const ObjectPools = struct {
     pub fn acquire_version_entry(self: *ObjectPools) !*VersionEntry {
         for (&self.version_entries) |*ve| {
             if (!ve.occupied) {
+                ve.occupied = true; // Mark as occupied when acquired
                 return ve;
             }
         }

@@ -52,7 +52,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
         defer version_buffer.reset();
         // version_buffer is a pointer, not optional - no need for null check
 
-        var output_buffer: [256]u8 = undefined;
+        var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
         // Validate buffer size
         std.debug.assert(output_buffer.len >= 256);
         std.debug.assert(output_buffer.len >= limits.limits.version_string_length_maximum);
