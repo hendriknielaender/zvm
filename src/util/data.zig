@@ -2,7 +2,7 @@ const std = @import("std");
 const config = @import("../config.zig");
 const context = @import("../context.zig");
 const object_pools = @import("../object_pools.zig");
-const limits = @import("../limits.zig");
+const limits = @import("../limits.zig").limits;
 
 pub const zvm_logo =
     \\⠀⢸⣾⣷⣿⣾⣷⣿⣾⡷⠃⠀⠀⠀⠀⠀⣴⡷⠞⠀⠀⠀⠀⠀⣼⣾⡂
@@ -73,7 +73,7 @@ pub fn get_current_version(
         try get_zvm_current_zig(path_buffer);
 
     // Need to copy base_path to avoid aliasing when we build the full path
-    var base_path_copy: [limits.limits.path_length_maximum]u8 = undefined;
+    var base_path_copy: [limits.path_length_maximum]u8 = undefined;
     const base_path_len = base_path.len;
     @memcpy(base_path_copy[0..base_path_len], base_path);
 
@@ -93,8 +93,20 @@ pub fn get_current_version(
     try child_process.spawn();
 
     if (child_process.stdout) |stdout| {
-        const result = try stdout.reader().readUntilDelimiterOrEof(output_buffer, '\n') orelse return error.EmptyVersion;
-        return result;
+        var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
+        var file_reader = stdout.reader(&reader_buffer);
+
+        // takeDelimiterExclusive returns the line directly or an error
+        const result = file_reader.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return error.EmptyVersion,
+            error.StreamTooLong => return error.BufferTooSmall,
+            error.ReadFailed => return error.FailedToReadVersion,
+            else => return err,
+        };
+
+        if (result.len > output_buffer.len) return error.BufferTooSmall;
+        @memcpy(output_buffer[0..result.len], result);
+        return output_buffer[0..result.len];
     }
 
     return error.FailedToReadVersion;

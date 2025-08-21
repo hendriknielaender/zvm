@@ -151,12 +151,12 @@ pub const Zig = struct {
 
     /// Return the version list without allocation.
     /// Caller provides a version entries array to fill.
+    /// Returns the number of versions found.
     pub fn get_version_list(
         self: *Zig,
-        version_entries: []object_pools.VersionEntry,
-    ) ![][]const u8 {
+        version_entries: []*object_pools.VersionEntry,
+    ) !usize {
         const root = self.data.value;
-        var version_list: [limits.limits.versions_maximum][]const u8 = undefined;
         var version_count: usize = 0;
         var iterate = root.object.iterator();
 
@@ -168,11 +168,10 @@ pub const Zig = struct {
 
             // Store version name in the provided entry.
             try version_entries[version_count].set_name(key);
-            version_list[version_count] = version_entries[version_count].get_name();
             version_count += 1;
         }
 
-        return version_list[0..version_count];
+        return version_count;
     }
 };
 
@@ -247,11 +246,11 @@ pub const Zls = struct {
 
     /// Return the version list without allocation.
     /// Caller provides a version entries array to fill.
+    /// Returns the number of versions found.
     pub fn get_version_list(
         self: *Zls,
-        version_entries: []object_pools.VersionEntry,
-    ) ![][]const u8 {
-        var version_list: [limits.limits.versions_maximum][]const u8 = undefined;
+        version_entries: []*object_pools.VersionEntry,
+    ) !usize {
         var version_count: usize = 0;
 
         for (self.data.value.array.items) |item| {
@@ -261,10 +260,9 @@ pub const Zls = struct {
 
             // Store version name in the provided entry.
             try version_entries[version_count].set_name(tag.string);
-            version_list[version_count] = version_entries[version_count].get_name();
             version_count += 1;
         }
 
-        return version_list[0..version_count];
+        return version_count;
     }
 };

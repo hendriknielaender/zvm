@@ -18,6 +18,9 @@ const config = @import("config.zig");
 const util_color = @import("util/color.zig");
 const http_client = @import("http_client.zig");
 
+// Cleaner access to limits
+const io_buffer_size = limits.limits.io_buffer_size_maximum;
+
 /// Global static memory buffer.
 var global_static_buffer: [static_memory.StaticMemory.calculate_memory_size()]u8 = undefined;
 
@@ -417,7 +420,9 @@ fn execute_command(
 }
 
 fn print_help() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const stdout = &stdout_writer.interface;
     // No input parameters to validate, but ensure stdout is valid
     try stdout.print(
         \\ZVM - Zig Version Manager
@@ -443,15 +448,19 @@ fn print_help() !void {
         \\  --shell <shell>      For env command, specify shell type
         \\
     , .{});
+    try stdout.flush();
 }
 
 fn print_version() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const stdout = &stdout_writer.interface;
     // Ensure stdout is valid
 
     // Print the logo
     try stdout.print("{s}\n", .{util_data.zvm_logo});
     try stdout.print("zvm {s}\n", .{options.version});
+    try stdout.flush();
 }
 
 fn list_installed_versions(ctx: *context.CliContext) !void {
@@ -508,32 +517,30 @@ fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
 
     const res = try http_client.HttpClient.fetch(ctx, meta_url, .{});
 
-    // Get version entries from pool
-    var version_entries_ptrs: [limits.limits.versions_maximum]*object_pools.VersionEntry = undefined;
-    for (&version_entries_ptrs) |*entry| {
-        entry.* = try ctx.acquire_version_entry();
+    // Get version entries from pool - acquire a reasonable number
+    var version_entries_storage: [limits.limits.versions_maximum]*object_pools.VersionEntry = undefined;
+    const max_entries = 100; // Most users don't need to see hundreds of versions
+    var entries_count: usize = 0;
+
+    while (entries_count < max_entries) : (entries_count += 1) {
+        version_entries_storage[entries_count] = try ctx.acquire_version_entry();
     }
+
     defer {
-        for (version_entries_ptrs) |entry| {
+        for (version_entries_storage[0..entries_count]) |entry| {
             entry.reset();
         }
     }
 
-    // Create a slice of the actual structs for get_version_list
-    var version_entries: [limits.limits.versions_maximum]object_pools.VersionEntry = undefined;
-    for (version_entries_ptrs, 0..) |ptr, i| {
-        version_entries[i] = ptr.*;
-    }
-
     // Parse metadata and get version list
-    const versions = if (is_zls) blk: {
+    const version_count = if (is_zls) blk: {
         var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
         defer zls_meta.deinit();
-        break :blk try zls_meta.get_version_list(&version_entries);
+        break :blk try zls_meta.get_version_list(version_entries_storage[0..entries_count]);
     } else blk: {
         var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
         defer zig_meta.deinit();
-        break :blk try zig_meta.get_version_list(&version_entries);
+        break :blk try zig_meta.get_version_list(version_entries_storage[0..entries_count]);
     };
 
     // Print header
@@ -544,13 +551,16 @@ fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
     }
 
     // Print versions
-    for (versions) |version| {
+    for (version_entries_storage[0..version_count]) |entry| {
+        const version = entry.get_name();
         try color.green().print("  {s}\n", .{version});
     }
 }
 
 fn show_current_version(ctx: *context.CliContext) !void {
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const stdout = &stdout_writer.interface;
     // Ensure stdout is valid
 
     // Get path buffers from pool
@@ -609,10 +619,13 @@ fn show_current_version(ctx: *context.CliContext) !void {
     } else {
         try stdout.print("ZLS version: not set\n", .{});
     }
+    try stdout.flush();
 }
 
 fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
-    const stdout = std.io.getStdOut().writer();
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const stdout = &stdout_writer.interface;
     // Ensure stdout is valid
 
     // Get path buffer from pool
@@ -635,7 +648,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
             if (len > 0 and len < temp_buffer.len) {
                 // Convert UTF-16 to UTF-8 into path buffer
                 const utf16_slice = temp_buffer[0..len];
-                var utf8_buffer: [512]u8 = undefined;
+                var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
                 const utf8_len = std.unicode.utf16LeToUtf8(utf8_buffer[0..], utf16_slice) catch {
                     break :blk "cmd"; // Default for Windows
                 };
@@ -690,6 +703,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
         try stdout.print("# Add this to your shell configuration:\n", .{});
         try stdout.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
     }
+    try stdout.flush();
 }
 
 fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
@@ -844,6 +858,10 @@ fn print_completions(ctx: *context.CliContext, shell: cli.Shell) !void {
 }
 
 fn print_zsh_completions() !void {
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const out = &stdout_writer.interface;
+
     const zsh_script =
         \\#compdef zvm
         \\
@@ -899,11 +917,15 @@ fn print_zsh_completions() !void {
         \\esac
     ;
 
-    const out = std.io.getStdOut().writer();
     try out.print("{s}\n", .{zsh_script});
+    try out.flush();
 }
 
 fn print_bash_completions() !void {
+    var buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
+    const out = &stdout_writer.interface;
+
     const bash_script =
         \\#!/usr/bin/env bash
         \\# zvm Bash completion
@@ -948,8 +970,8 @@ fn print_bash_completions() !void {
         \\complete -F _zvm_completions zvm
     ;
 
-    const out = std.io.getStdOut().writer();
     try out.print("{s}\n", .{bash_script});
+    try out.flush();
 }
 
 comptime {

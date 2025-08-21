@@ -6,6 +6,9 @@ const mem = std.mem;
 const context = @import("../context.zig");
 const limits = @import("../limits.zig");
 
+// Cleaner access to I/O buffer size
+const io_buffer_size = limits.limits.io_buffer_size_maximum;
+
 const Ed25519 = crypto.sign.Ed25519;
 const Blake2b512 = crypto.hash.blake2.Blake2b512;
 
@@ -59,7 +62,11 @@ pub const Signature = struct {
         while (true) {
             line = tokenizer.next() orelse {
                 const err_msg = "No more lines to read. Invalid encoding.\n";
-                try std.io.getStdErr().writer().print(err_msg, .{});
+                var buffer: [io_buffer_size]u8 = undefined;
+                var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+                const stderr = &stderr_writer.interface;
+                try stderr.print(err_msg, .{});
+                try stderr.flush();
                 return Error.invalid_encoding;
             };
             const trimmed_line = mem.trim(u8, line, " \t\r\n");
@@ -76,7 +83,11 @@ pub const Signature = struct {
 
         const comment_line = tokenizer.next() orelse {
             const err_msg = "Expected trusted comment line but none found.\n";
-            try std.io.getStdErr().writer().print(err_msg, .{});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print(err_msg, .{});
+            try stderr.flush();
             return Error.invalid_encoding;
         };
         const comment_line_trimmed = mem.trim(u8, comment_line, " \t\r\n");
@@ -84,7 +95,11 @@ pub const Signature = struct {
         const trusted_comment_prefix = "trusted comment: ";
         if (!mem.startsWith(u8, comment_line_trimmed, trusted_comment_prefix)) {
             const err_msg = "Trusted comment line does not start with the expected prefix.\n";
-            try std.io.getStdErr().writer().print(err_msg, .{});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print(err_msg, .{});
+            try stderr.flush();
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
@@ -95,7 +110,11 @@ pub const Signature = struct {
 
         const global_sig_line = tokenizer.next() orelse {
             const err_msg = "Expected global signature line but none found.\n";
-            try std.io.getStdErr().writer().print(err_msg, .{});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print(err_msg, .{});
+            try stderr.flush();
             return Error.invalid_encoding;
         };
         const global_sig_line_trimmed = mem.trim(u8, global_sig_line, " \t\r\n");
@@ -144,7 +163,11 @@ pub const PublicKey = struct {
 
         if (trimmed_str.len != 56) { // Base64 for 42-byte key
             const err_msg = "Error: Public key string length is {d}, expected 56.\n";
-            try std.io.getStdErr().writer().print(err_msg, .{trimmed_str.len});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print(err_msg, .{trimmed_str.len});
+            try stderr.flush();
             return Error.public_key_format_error;
         }
 
@@ -155,7 +178,11 @@ pub const PublicKey = struct {
 
         if (bin[0] != 0x45 or (bin[1] != 0x64 and bin[1] != 0x44)) {
             const err_msg = "Unsupported signature algorithm: {any}\n";
-            try std.io.getStdErr().writer().print(err_msg, .{signature_algorithm});
+            var buffer: [io_buffer_size]u8 = undefined;
+            var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+            const stderr = &stderr_writer.interface;
+            try stderr.print(err_msg, .{signature_algorithm});
+            try stderr.flush();
             return Error.unsupported_algorithm;
         }
 
@@ -242,7 +269,7 @@ pub fn verify_static(
 ) !void {
     _ = ctx;
 
-    var sig_buffer: [4096]u8 = undefined;
+    var sig_buffer: [limits.limits.signature_buffer_size]u8 = undefined;
 
     var signature = try Signature.from_file_static(&sig_buffer, signature_path);
     defer signature.deinit(std.heap.page_allocator);
@@ -256,13 +283,13 @@ pub fn verify_static(
     const file = try fs.openFileAbsolute(file_path, .{ .mode = .read_only });
     defer file.close();
 
-    var buffer: [4096]u8 = undefined;
+    var buffer: [limits.limits.signature_buffer_size]u8 = undefined;
     while (true) {
         const bytes_read = try file.read(&buffer);
         if (bytes_read == 0) break;
         verifier.update(buffer[0..bytes_read]);
     }
 
-    var global_data_buffer: [1024]u8 = undefined;
+    var global_data_buffer: [limits.limits.text_buffer_size]u8 = undefined;
     try verifier.finalize_static(&global_data_buffer);
 }

@@ -36,7 +36,7 @@ fn download_file_with_verification(
             defer file.close();
 
             var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
-            var buffer: [512]u8 = undefined;
+            var buffer: [limits.limits.temp_buffer_size]u8 = undefined;
             while (true) {
                 const byte_nums = try file.read(&buffer);
                 if (byte_nums == 0) break;
@@ -549,9 +549,16 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     @memcpy(platform_str_buffer[0..platform_str_temp.len], platform_str_temp);
     const platform_str = platform_str_buffer[0..platform_str_temp.len];
 
-    const paths = try get_zls_install_paths(ctx, version);
+    // Get version path directly
+    var version_path_buffer = try ctx.acquire_path_buffer();
+    defer version_path_buffer.reset();
+    const version_path = try util_data.get_zvm_zls_version(version_path_buffer);
 
-    if (util_tool.does_path_exist(paths.extract_path)) {
+    // Format extract path directly
+    var extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const extract_path = try std.fmt.bufPrint(&extract_path_storage, "{s}/{s}", .{ version_path, version });
+
+    if (util_tool.does_path_exist(extract_path)) {
         try alias.set_version(ctx, version, true);
         return;
     }
@@ -560,7 +567,7 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     const tarball_file = try download_zls(ctx, version_data, root_node);
     defer tarball_file.close();
 
-    try extract_zls(ctx, paths.extract_path, tarball_file, root_node);
+    try extract_zls(ctx, extract_path, tarball_file, root_node);
 
     try alias.set_version(ctx, version, true);
 }
@@ -578,60 +585,6 @@ fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
     return platform_str;
 }
 
-/// ZLS installation paths structure
-const ZlsPaths = struct {
-    version_path: []const u8,
-    extract_path: []const u8,
-    version_path_storage: [limits.limits.path_length_maximum]u8,
-    extract_path_storage: [limits.limits.path_length_maximum]u8,
-};
-
-fn get_zls_install_paths(ctx: *context.CliContext, version: []const u8) !ZlsPaths {
-    std.debug.assert(version.len > 0);
-
-    var version_path_buffer = try ctx.acquire_path_buffer();
-    defer version_path_buffer.reset();
-
-    const version_path = try util_data.get_zvm_zls_version(version_path_buffer);
-    std.debug.assert(version_path.len > 0);
-    std.debug.assert(version_path.len <= limits.limits.path_length_maximum);
-
-    var extract_path_buffer = try ctx.acquire_path_buffer();
-    defer extract_path_buffer.reset();
-
-    var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ version_path, version });
-    const extract_path = try extract_path_buffer.set(fbs.getWritten());
-
-    std.debug.assert(extract_path.len > 0);
-    std.debug.assert(extract_path.len <= limits.limits.path_length_maximum);
-
-    var result = ZlsPaths{
-        // SAFETY: version_path is immediately set after struct creation
-        .version_path = undefined,
-        // SAFETY: extract_path is immediately set after struct creation
-        .extract_path = undefined,
-        // SAFETY: version_path_storage is immediately populated via memcpy
-        .version_path_storage = undefined,
-        // SAFETY: extract_path_storage is immediately populated via memcpy
-        .extract_path_storage = undefined,
-    };
-
-    if (version_path.len > result.version_path_storage.len) {
-        return error.PathTooLong;
-    }
-    @memcpy(result.version_path_storage[0..version_path.len], version_path);
-    result.version_path = result.version_path_storage[0..version_path.len];
-
-    if (extract_path.len > result.extract_path_storage.len) {
-        return error.PathTooLong;
-    }
-    @memcpy(result.extract_path_storage[0..extract_path.len], extract_path);
-    result.extract_path = result.extract_path_storage[0..extract_path.len];
-
-    return result;
-}
-
 fn fetch_zls_version_data(
     ctx: *context.CliContext,
     platform_str: []const u8,
@@ -646,7 +599,7 @@ fn fetch_zls_version_data(
     var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
     defer zls_meta.deinit();
 
-    const version_data = try zls_meta.get_version_data(platform_str, version, ctx.get_json_allocator()) orelse {
+    const version_data = try zls_meta.get_version_data(version, platform_str, ctx.get_json_allocator()) orelse {
         std.log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with 'zvm ls --zls'", .{
             version,
             platform_str,
@@ -695,11 +648,12 @@ fn extract_zls(
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
+    // ZLS uses .tar.xz format for non-Windows platforms
     try util_extract.extract_static(
         extract_op,
         extract_dir,
         tarball_file,
-        if (builtin.os.tag == .windows) .zip else .tarGz,
+        if (builtin.os.tag == .windows) .zip else .tarxz,
         true,
         root_node,
     );

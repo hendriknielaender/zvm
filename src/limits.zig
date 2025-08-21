@@ -14,7 +14,7 @@ pub const limits = struct {
     pub const http_operations_maximum: u32 = 2; // ZVM rarely needs concurrent downloads.
 
     /// Maximum size of a single HTTP response.
-    pub const http_response_size_maximum: u32 = 512 * 1024; // 512KB - enough for releases JSON.
+    pub const http_response_size_maximum: u32 = 1024 * 1024; // 1MB - matches JSON parse size
 
     /// Maximum size for HTTP client internal buffers (headers, TLS, etc).
     pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
@@ -46,7 +46,8 @@ pub const limits = struct {
     pub const path_buffers_maximum: u32 = 8; // For concurrent path operations.
 
     /// Maximum size of JSON to parse.
-    pub const json_parse_size_maximum: u32 = 512 * 1024; // 512KB - matches HTTP response.
+    /// GitHub API responses for releases can be 150KB+ when decompressed
+    pub const json_parse_size_maximum: u32 = 1024 * 1024; // 1MB - enough for GitHub API responses
 
     /// Maximum number of extract operations.
     pub const extract_operations_maximum: u32 = 8;
@@ -86,6 +87,30 @@ pub const limits = struct {
 
     /// Maximum size for JSON responses.
     pub const json_response_size_maximum: u32 = 512 * 1024;
+
+    /// Maximum size for stdout/stderr I/O buffers.
+    pub const io_buffer_size_maximum: u32 = 4096;
+
+    /// Transfer buffer size for HTTP operations (chunked encoding, etc.)
+    pub const http_transfer_buffer_size: u32 = 64;
+
+    /// Write buffer size for file operations
+    pub const file_write_buffer_size: u32 = 8192;
+
+    /// Read buffer size for general file operations
+    pub const file_read_buffer_size: u32 = 8192;
+
+    /// Small buffer size for temporary operations
+    pub const temp_buffer_size: u32 = 512;
+
+    /// Medium buffer size for text processing
+    pub const text_buffer_size: u32 = 1024;
+
+    /// Redirect buffer size for HTTP redirects
+    pub const http_redirect_buffer_size: u32 = 2048;
+
+    /// Signature buffer size for minisign operations
+    pub const signature_buffer_size: u32 = 4096;
 };
 
 comptime {

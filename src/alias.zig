@@ -8,6 +8,10 @@ const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
 const context = @import("context.zig");
 const object_pools = @import("object_pools.zig");
+const limits = @import("limits.zig");
+
+// Cleaner access to I/O buffer size
+const io_buffer_size = limits.limits.io_buffer_size_maximum;
 
 /// Try to set the Zig version.
 /// This will use a symlink on Unix-like systems.
@@ -38,7 +42,11 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
             return err;
 
         const err_msg = "{s} version {s} is not installed. Please install it before proceeding.\n";
-        try std.io.getStdErr().writer().print(err_msg, .{ if (is_zls) "zls" else "Zig", version });
+        var buffer: [io_buffer_size]u8 = undefined;
+        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+        const stderr = &stderr_writer.interface;
+        try stderr.print(err_msg, .{ if (is_zls) "zls" else "Zig", version });
+        try stderr.flush();
         std.process.exit(1);
     };
 
@@ -83,7 +91,7 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
 fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !void {
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
-    var output_buffer: [256]u8 = undefined;
+    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
         path_buffer,
@@ -91,15 +99,23 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
         false,
     );
 
-    var stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     if (std.mem.eql(u8, expected_version, "master")) {
         try stdout.print("Now using Zig version {s}\n", .{actual_version});
+        try stdout.flush();
     } else if (!std.mem.eql(u8, expected_version, actual_version)) {
         const err_msg = "Expected Zig version {s}, but currently using {s}. Please check.\n";
-        try std.io.getStdErr().writer().print(err_msg, .{ expected_version, actual_version });
+        var stderr_buffer: [io_buffer_size]u8 = undefined;
+        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &stderr_buffer);
+        const stderr = &stderr_writer.interface;
+        try stderr.print(err_msg, .{ expected_version, actual_version });
+        try stderr.flush();
     } else {
         try stdout.print("Now using Zig version {s}\n", .{expected_version});
+        try stdout.flush();
     }
 }
 
@@ -107,7 +123,7 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
 fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !void {
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
-    var output_buffer: [256]u8 = undefined;
+    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
         path_buffer,
@@ -115,12 +131,19 @@ fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !v
         true,
     );
 
-    var stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [io_buffer_size]u8 = undefined;
+    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     if (!std.mem.eql(u8, expected_version, actual_version)) {
         const err_msg = "Expected zls version {s}, but currently using {s}. Please check.\n";
-        try std.io.getStdErr().writer().print(err_msg, .{ expected_version, actual_version });
+        var stderr_buffer: [io_buffer_size]u8 = undefined;
+        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &stderr_buffer);
+        const stderr = &stderr_writer.interface;
+        try stderr.print(err_msg, .{ expected_version, actual_version });
+        try stderr.flush();
     } else {
         try stdout.print("Now using zls version {s}\n", .{expected_version});
+        try stdout.flush();
     }
 }

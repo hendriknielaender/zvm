@@ -106,7 +106,7 @@ pub fn platform_str_for_zls(ctx: *context.CliContext) !?[]const u8 {
     const params = DetectParams{
         .os = @import("builtin").os.tag,
         .arch = @import("builtin").cpu.arch,
-        .reverse = false,
+        .reverse = true, // ZLS uses arch-os format
         .is_master = false,
     };
 

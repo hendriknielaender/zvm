@@ -273,11 +273,14 @@ pub const CliContext = struct {
         const mem_usage = self.get_memory_usage();
         const pool_stats = self.get_pool_stats();
 
-        const stderr = std.io.getStdErr().writer();
+        var buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+        const stderr = &stderr_writer.interface;
         try stderr.print("\n=== ZVM Resource Usage ===\n", .{});
-        try stderr.print("{}\n", .{mem_usage});
-        try stderr.print("{}\n", .{pool_stats});
+        try stderr.print("{any}\n", .{mem_usage});
+        try stderr.print("{any}\n", .{pool_stats});
         try stderr.print("========================\n\n", .{});
+        try stderr.flush();
     }
 
     /// Reset all pools (useful for tests).

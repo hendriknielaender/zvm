@@ -3,9 +3,9 @@ const builtin = @import("builtin");
 
 const Build = std.Build;
 
-const min_zig_string = "0.14.1";
-const semver = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
-const semver_string = "0.12.0";
+const min_zig_string = "0.15.1";
+const semver = std.SemanticVersion{ .major = 0, .minor = 13, .patch = 0 };
+const semver_string = "0.13.0";
 
 // comptime detect the zig version
 comptime {
@@ -31,9 +31,11 @@ pub fn build(b: *Build) void {
 
     const exe = b.addExecutable(.{
         .name = "zvm",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
         .version = semver,
     });
 
@@ -73,10 +75,12 @@ pub fn build(b: *Build) void {
         const t = resolved_target.result;
         const rel_exe = b.addExecutable(.{
             .name = "zvm",
-            .root_source_file = b.path("src/main.zig"),
-            .target = resolved_target,
-            .optimize = .ReleaseFast,
-            .strip = true,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/main.zig"),
+                .target = resolved_target,
+                .optimize = .ReleaseFast,
+                .strip = true,
+            }),
         });
 
         const rel_exe_options_module = options.createModule();
@@ -94,9 +98,11 @@ pub fn build(b: *Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
