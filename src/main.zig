@@ -39,6 +39,38 @@ const AliasBuffers = struct {
     exec_arguments_count: u32 = 0,
 };
 
+/// Helper to check if environment variable exists on Windows (Zig 0.15.1 compatible)
+fn hasWindowsEnvVar(var_name: []const u8) bool {
+    if (builtin.os.tag != .windows) return false;
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const result = std.process.getEnvVarOwned(arena.allocator(), var_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return false,
+        else => return false, // Assume not found on any error
+    };
+
+    return result.len > 0;
+}
+
+/// Helper to get environment variable on Windows (Zig 0.15.1 compatible)
+fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+    if (builtin.os.tag != .windows) return null;
+
+    const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound => return null,
+        else => return err,
+    };
+
+    if (result.len >= buffer.len) {
+        return error.BufferTooSmall;
+    }
+
+    @memcpy(buffer[0..result.len], result);
+    return buffer[0..result.len];
+}
+
 pub fn main() !void {
     // Collect command line arguments into a fixed buffer.
     var arguments_buffer: [limits.limits.arguments_maximum][]const u8 = undefined;
@@ -123,10 +155,7 @@ pub fn main() !void {
 
     // If ZVM_DEBUG environment variable is set, print resource usage
     const has_debug = if (builtin.os.tag == .windows) blk: {
-        var temp_buffer: [16]u16 = undefined;
-        const zvm_debug_w = std.unicode.utf8ToUtf16LeStringLiteral("ZVM_DEBUG");
-        const len = std.os.windows.kernel32.GetEnvironmentVariableW(zvm_debug_w, &temp_buffer, temp_buffer.len);
-        break :blk len > 0;
+        break :blk hasWindowsEnvVar("ZVM_DEBUG");
     } else blk: {
         break :blk std.posix.getenv("ZVM_DEBUG") != null;
     };
@@ -200,53 +229,45 @@ fn handle_alias(program_name: []const u8, remaining_arguments: [][]const u8) !vo
 /// Get the HOME environment variable and copy it to the static buffer
 fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
     if (builtin.os.tag == .windows) {
-        // On Windows, we need to handle UTF-16 to UTF-8 conversion
-        // Use a temporary buffer for the conversion
-        var temp_buffer: [limits.limits.home_dir_length_maximum * 2]u16 = undefined;
-        const userprofile_w = std.unicode.utf8ToUtf16LeStringLiteral("USERPROFILE");
+        // On Windows, use std.process.getEnvVarOwned for proper environment variable access
+        // This handles UTF-16/UTF-8 conversion internally
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
 
-        const len = std.os.windows.kernel32.GetEnvironmentVariableW(userprofile_w, &temp_buffer, temp_buffer.len);
-        if (len == 0) {
-            std.log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
-            return error.HomeNotFound;
+        const home = std.process.getEnvVarOwned(arena.allocator(), "USERPROFILE") catch |err| {
+            switch (err) {
+                error.EnvironmentVariableNotFound => {
+                    std.log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
+                    return error.HomeNotFound;
+                },
+                else => {
+                    std.log.err("Error reading USERPROFILE: {}", .{err});
+                    return error.HomeNotFound;
+                },
+            }
+        };
+
+        if (home.len >= alias_buffers.home.len) {
+            std.log.err("Home path too long for buffer", .{});
+            return error.HomePathTooLong;
         }
 
-        // Convert UTF-16 to UTF-8 directly into our buffer
-        const utf16_slice = temp_buffer[0..len];
-        // Try to convert directly to see how many bytes we need
-        const utf8_len = std.unicode.utf16LeToUtf8(alias_buffers.home[0..], utf16_slice) catch |err| {
-            if (err == error.BufferTooSmall) {
-                std.log.err("Home path too long for buffer", .{});
-                return error.HomePathTooLong;
-            }
-            return error.InvalidUtf8;
-        };
-        return alias_buffers.home[0..utf8_len];
+        @memcpy(alias_buffers.home[0..home.len], home);
+        return alias_buffers.home[0..home.len];
     } else {
-        // On POSIX, getenv returns a pointer without allocation
+        // Unix-like systems
         const home = std.posix.getenv("HOME") orelse {
             std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
             return error.HomeNotFound;
         };
 
-        // Validate home path
-        std.debug.assert(home.len > 0);
-        if (home.len > alias_buffers.home.len) {
-            std.log.err("Home path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-                home.len,
-                alias_buffers.home.len,
-                home,
-            });
+        if (home.len >= alias_buffers.home.len) {
+            std.log.err("Home path too long for buffer", .{});
             return error.HomePathTooLong;
         }
 
         @memcpy(alias_buffers.home[0..home.len], home);
-        const home_slice = alias_buffers.home[0..home.len];
-
-        std.debug.assert(home_slice.len == home.len);
-        std.debug.assert(std.mem.eql(u8, home_slice, home));
-
-        return home_slice;
+        return alias_buffers.home[0..home.len];
     }
 }
 
@@ -257,26 +278,17 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
 
     if (builtin.os.tag == .windows) {
         // On Windows, check for ZVM_HOME environment variable
-        var temp_buffer: [limits.limits.home_dir_length_maximum * 2]u16 = undefined;
-        const zvm_home_w = std.unicode.utf8ToUtf16LeStringLiteral("ZVM_HOME");
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
 
-        const len = std.os.windows.kernel32.GetEnvironmentVariableW(zvm_home_w, &temp_buffer, temp_buffer.len);
-        if (len > 0 and len < temp_buffer.len) {
-            // Convert UTF-16 to UTF-8
-            const utf16_slice = temp_buffer[0..len];
-            const utf8_len = std.unicode.utf16LeToUtf8(alias_buffers.zvm_home[0..], utf16_slice) catch {
-                // If conversion fails, use default
-                var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
-                try fixed_buffer_stream.writer().print("{s}\\.zm", .{home_slice});
-                return fixed_buffer_stream.getWritten();
-            };
-            return alias_buffers.zvm_home[0..utf8_len];
+        if (getWindowsEnvVar(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
+            return zvm_home;
+        } else {
+            // No ZVM_HOME or error, use default
+            var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            try fixed_buffer_stream.writer().print("{s}\\.zm", .{home_slice});
+            return fixed_buffer_stream.getWritten();
         }
-
-        // No ZVM_HOME or too long, use default
-        var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
-        try fixed_buffer_stream.writer().print("{s}\\.zm", .{home_slice});
-        return fixed_buffer_stream.getWritten();
     } else {
         // On POSIX, use getenv without allocation
         if (std.posix.getenv("ZVM_HOME")) |zh| {
@@ -641,18 +653,11 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     const shell_type = if (shell) |s| s else blk: {
         if (builtin.os.tag == .windows) {
             // On Windows, check COMSPEC
-            var temp_buffer: [512]u16 = undefined;
-            const comspec_w = std.unicode.utf8ToUtf16LeStringLiteral("COMSPEC");
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
 
-            const len = std.os.windows.kernel32.GetEnvironmentVariableW(comspec_w, &temp_buffer, temp_buffer.len);
-            if (len > 0 and len < temp_buffer.len) {
-                // Convert UTF-16 to UTF-8 into path buffer
-                const utf16_slice = temp_buffer[0..len];
-                var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-                const utf8_len = std.unicode.utf16LeToUtf8(utf8_buffer[0..], utf16_slice) catch {
-                    break :blk "cmd"; // Default for Windows
-                };
-                const shell_path = utf8_buffer[0..utf8_len];
+            var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+            if (getWindowsEnvVar(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
                     break :blk "powershell";
