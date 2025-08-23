@@ -18,7 +18,16 @@ pub const zvm_logo =
 pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/{s}", .{ ctx.get_home_dir(), segment });
+
+    // Follow XDG Base Directory specification
+    const home_dir = ctx.get_home_dir();
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/{s}", .{ xdg_data, segment });
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/{s}", .{ home_dir, segment });
+    }
+
     return try buffer.set(fbs.getWritten());
 }
 
@@ -26,7 +35,15 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/current/zig", .{ctx.get_home_dir()});
+
+    const home_dir = ctx.get_home_dir();
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/current/zig", .{xdg_data});
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/current/zig", .{home_dir});
+    }
+
     return try buffer.set(fbs.getWritten());
 }
 
@@ -34,7 +51,15 @@ pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/current/zls", .{ctx.get_home_dir()});
+
+    const home_dir = ctx.get_home_dir();
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/current/zls", .{xdg_data});
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/current/zls", .{home_dir});
+    }
+
     return try buffer.set(fbs.getWritten());
 }
 
@@ -47,7 +72,15 @@ pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/version/zig", .{ctx.get_home_dir()});
+
+    const home_dir = ctx.get_home_dir();
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/version/zig", .{xdg_data});
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/version/zig", .{home_dir});
+    }
+
     return try buffer.set(fbs.getWritten());
 }
 
@@ -55,7 +88,15 @@ pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
 pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
     var fbs = std.io.fixedBufferStream(buffer.slice());
-    try fbs.writer().print("{s}/.zm/version/zls", .{ctx.get_home_dir()});
+
+    const home_dir = ctx.get_home_dir();
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/version/zls", .{xdg_data});
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/version/zls", .{home_dir});
+    }
+
     return try buffer.set(fbs.getWritten());
 }
 

@@ -290,22 +290,17 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
             return fixed_buffer_stream.getWritten();
         }
     } else {
-        // On POSIX, use getenv without allocation
-        if (std.posix.getenv("ZVM_HOME")) |zh| {
-            if (zh.len > alias_buffers.zvm_home.len) {
-                std.log.err("ZVM_HOME path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-                    zh.len,
-                    alias_buffers.zvm_home.len,
-                    zh,
-                });
-                return error.ZvmHomePathTooLong;
-            }
-            @memcpy(alias_buffers.zvm_home[0..zh.len], zh);
-            return alias_buffers.zvm_home[0..zh.len];
-        } else {
-            // Build default path: $HOME/.zm
+        // On POSIX (Linux/macOS), follow XDG Base Directory specification
+        // Priority order: XDG_DATA_HOME/.zm -> HOME/.local/share/.zm
+        if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+            // Use XDG_DATA_HOME/.zm if XDG_DATA_HOME is set
             var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
-            try fixed_buffer_stream.writer().print("{s}/.zm", .{home_slice});
+            try fixed_buffer_stream.writer().print("{s}/.zm", .{xdg_data});
+            return fixed_buffer_stream.getWritten();
+        } else {
+            // Use XDG default: $HOME/.local/share/.zm
+            var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            try fixed_buffer_stream.writer().print("{s}/.local/share/.zm", .{home_slice});
             return fixed_buffer_stream.getWritten();
         }
     }
@@ -644,9 +639,17 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
 
-    // Get ZVM bin path
+    // Get ZVM bin path using XDG Base Directory specification
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
-    try fbs.writer().print("{s}/.zm/bin", .{ctx.get_home_dir()});
+    const home_dir = ctx.get_home_dir();
+
+    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        try fbs.writer().print("{s}/.zm/bin", .{xdg_data});
+    } else {
+        // Use XDG default: $HOME/.local/share/.zm
+        try fbs.writer().print("{s}/.local/share/.zm/bin", .{home_dir});
+    }
+
     const zvm_bin_path = try path_buffer.set(fbs.getWritten());
 
     // Determine shell type
