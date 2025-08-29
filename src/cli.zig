@@ -3,13 +3,11 @@ const builtin = @import("builtin");
 const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");
 
-// TigerStyle: Put limits on everything
 const max_argument_count = limits.limits.arguments_maximum;
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_command_name_length = 32;
 
 comptime {
-    // TigerStyle: Assert relationships of compile-time constants
     std.debug.assert(max_argument_count >= 4);
     std.debug.assert(max_argument_count <= 64);
     std.debug.assert(max_version_string_length >= 16);
@@ -19,12 +17,10 @@ comptime {
 }
 
 /// Global configuration affecting all commands
-/// TigerStyle: Simple struct, no complex state
 pub const GlobalConfig = struct {
     output_mode: util_output.OutputMode,
     color_mode: util_output.ColorMode,
 
-    /// TigerStyle: Validate configuration invariants
     pub fn validate(self: GlobalConfig) void {
         // Positive assertions: what we expect
         std.debug.assert(self.output_mode == .human_readable or
@@ -52,7 +48,6 @@ pub const GlobalConfig = struct {
 };
 
 /// Validated command ready for execution
-/// TigerStyle: Explicit union, each command has exactly what it needs
 pub const Command = union(enum) {
     install: InstallCommand,
     remove: RemoveCommand,
@@ -177,7 +172,6 @@ pub const Command = union(enum) {
     };
 
     comptime {
-        // TigerStyle: Assert union is reasonably sized
         const command_size = @sizeOf(Command);
         std.debug.assert(command_size >= max_version_string_length);
         std.debug.assert(command_size <= max_version_string_length + 64);
@@ -185,12 +179,10 @@ pub const Command = union(enum) {
 };
 
 /// Complete parsed command line
-/// TigerStyle: Simple composition, immutable after creation
 pub const ParsedCommandLine = struct {
     global_config: GlobalConfig,
     command: Command,
 
-    /// TigerStyle: Validate entire parsed command line
     pub fn validate(self: *const ParsedCommandLine) void {
         self.global_config.validate();
 
@@ -220,7 +212,6 @@ pub const ParsedCommandLine = struct {
 };
 
 /// Parse command line arguments with strict validation
-/// TigerStyle: Single responsibility, explicit error handling, bounded input
 pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     std.debug.assert(arguments.len > 0); // Must have program name
     std.debug.assert(arguments.len <= max_argument_count);
@@ -285,13 +276,11 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
 }
 
 /// Parse specific command with its arguments
-/// TigerStyle: Explicit command mapping, no string matching tables
 fn parse_command(command_name: []const u8, args: []const []const u8) !Command {
     std.debug.assert(command_name.len > 0);
     std.debug.assert(command_name.len <= max_command_name_length);
     std.debug.assert(args.len <= max_argument_count);
 
-    // TigerStyle: Explicit string comparisons, no hash tables or complex lookups
     if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
         return parse_install_command(args);
     }
@@ -535,7 +524,6 @@ fn parse_help_command(args: []const []const u8) !Command {
 }
 
 /// Detect shell type from environment
-/// TigerStyle: Simple detection, no complex parsing
 fn detect_shell() ?Command.ShellType {
     if (builtin.os.tag == .windows) {
         return .powershell;
@@ -548,7 +536,6 @@ fn detect_shell() ?Command.ShellType {
 }
 
 comptime {
-    // TigerStyle: Assert module-level invariants
     std.debug.assert(@sizeOf(ParsedCommandLine) <= 1024);
     std.debug.assert(@sizeOf(Command) >= @sizeOf(Command.InstallCommand));
 

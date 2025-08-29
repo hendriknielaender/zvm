@@ -130,7 +130,6 @@ pub fn main() !void {
         unreachable; // handle_alias calls execve which never returns on success
     }
 
-    // Parse command line arguments with TigerStyle validation
     const parsed_command_line = cli.parse_command_line(arguments) catch |err| {
         util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
@@ -147,7 +146,6 @@ pub fn main() !void {
 
     std.debug.assert(context_instance == &global_context);
 
-    // Initialize output system with TigerStyle configuration
     const output_config = util_output.OutputConfig{
         .mode = parsed_command_line.global_config.output_mode,
         .color = parsed_command_line.global_config.color_mode,
@@ -397,7 +395,6 @@ fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, rem
 }
 
 fn get_progress_item_count(command: cli.Command) u16 {
-    // TigerStyle: Explicit progress estimates for each command
     return switch (command) {
         .install => 5, // Download, verify, extract, symlink, cleanup
         .remove => 2, // Remove files, update symlinks
@@ -418,9 +415,6 @@ fn execute_command(
     command: cli.Command,
     progress_node: std.Progress.Node,
 ) !void {
-    // TigerStyle: ctx is validated pointer, command is validated union
-    // TigerStyle: Trust that ctx is valid pointer from caller
-
     switch (command) {
         .help => try print_help(),
         .version => try print_version(),

@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# Test script for TigerStyle-compliant centralized output management
 # Demonstrates the new zero-allocation, bounds-checked output system
-
-echo "=== TigerStyle ZVM Output Management Test ==="
-echo
 
 echo "1. Human-readable output (with colors):"
 ./zig-out/bin/zvm version
@@ -42,7 +38,6 @@ echo -n "Missing argument: "
 ./zig-out/bin/zvm install >/dev/null 2>&1 && echo "Exit code: $?" || echo "Exit code: $?"
 
 echo
-echo "=== TigerStyle Features Demonstrated ==="
 echo "✓ Static memory allocation - no malloc/free after init"
 echo "✓ Bounds checking on all operations - assertion density 2+ per function"
 echo "✓ Meaningful exit codes (0-8) - semantic error reporting"

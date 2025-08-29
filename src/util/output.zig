@@ -2,13 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const limits = @import("../limits.zig");
 
-// TigerStyle: Use explicit constants instead of magic numbers
 const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
 const max_message_length_bytes = 2048;
 const max_json_object_fields = 16;
 
 comptime {
-    // TigerStyle: Assert relationships of compile-time constants
     std.debug.assert(io_buffer_size_bytes >= 1024);
     std.debug.assert(max_message_length_bytes >= 256);
     std.debug.assert(max_message_length_bytes <= io_buffer_size_bytes);
@@ -17,7 +15,6 @@ comptime {
 }
 
 /// Exit codes provide meaningful context for automation
-/// TigerStyle: Explicit enum with meaningful names, not generic numbers
 pub const ExitCode = enum(u8) {
     success = 0,
     invalid_arguments = 1,
@@ -29,7 +26,6 @@ pub const ExitCode = enum(u8) {
     corruption_detected = 7,
     resource_exhausted = 8,
 
-    // TigerStyle: Assert the positive space (valid codes) and negative space (invalid range)
     comptime {
         std.debug.assert(@intFromEnum(ExitCode.success) == 0);
         std.debug.assert(@intFromEnum(ExitCode.resource_exhausted) < 16);
@@ -37,7 +33,6 @@ pub const ExitCode = enum(u8) {
     }
 
     /// Convert error union types to semantic exit codes
-    /// TigerStyle: Explicit error mapping, no catch-all defaults
     pub fn from_error(error_value: anyerror) ExitCode {
         return switch (error_value) {
             // File system errors
@@ -64,13 +59,11 @@ pub const ExitCode = enum(u8) {
 };
 
 /// Output modes that determine formatting and destination
-/// TigerStyle: Simple enum, no complex state
 pub const OutputMode = enum {
     human_readable,
     machine_json,
     silent_errors_only,
 
-    // TigerStyle: Assert all enum values are handled
     comptime {
         const mode_count = @typeInfo(OutputMode).@"enum".fields.len;
         std.debug.assert(mode_count == 3);
@@ -80,12 +73,10 @@ pub const OutputMode = enum {
 };
 
 /// Color mode for terminal output
-/// TigerStyle: Explicit behavior, no auto-detection complexity
 pub const ColorMode = enum {
     never_use_color,
     always_use_color,
 
-    /// TigerStyle: Simple boolean decision, no complex detection logic
     pub fn should_use_color(self: ColorMode) bool {
         return switch (self) {
             .never_use_color => false,
@@ -99,12 +90,10 @@ pub const ColorMode = enum {
 };
 
 /// Configuration for output behavior
-/// TigerStyle: Immutable configuration, set once at startup
 pub const OutputConfig = struct {
     mode: OutputMode,
     color: ColorMode,
 
-    /// TigerStyle: Validate configuration at initialization
     pub fn validate(self: OutputConfig) void {
         // Positive assertions
         std.debug.assert(self.mode == .human_readable or
@@ -127,7 +116,6 @@ pub const OutputConfig = struct {
 };
 
 /// Message levels for structured logging
-/// TigerStyle: Clear hierarchy, explicit levels
 pub const MessageLevel = enum {
     success,
     info,
@@ -136,7 +124,6 @@ pub const MessageLevel = enum {
     error_fatal,
 
     /// Convert to string for JSON output
-    /// TigerStyle: No allocations, return compile-time strings
     pub fn to_string(self: MessageLevel) []const u8 {
         return switch (self) {
             .success => "success",
@@ -156,14 +143,12 @@ pub const MessageLevel = enum {
 };
 
 /// Single responsibility: Format and emit program output
-/// TigerStyle: All memory statically allocated, no runtime allocation
 pub const OutputEmitter = struct {
     config: OutputConfig,
     stdout_buffer: [io_buffer_size_bytes]u8,
     stderr_buffer: [io_buffer_size_bytes]u8,
     message_buffer: [max_message_length_bytes]u8,
 
-    /// TigerStyle: Initialize with all required configuration upfront
     pub fn init(config: OutputConfig) OutputEmitter {
         config.validate(); // Assert valid configuration
 
@@ -176,7 +161,6 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit success message to appropriate stream
-    /// TigerStyle: Single responsibility, explicit parameters
     pub fn emit_success(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         std.debug.assert(message.len > 0);
         std.debug.assert(message.len < 1024); // Reasonable message length
@@ -187,7 +171,7 @@ pub const OutputEmitter = struct {
     /// Emit informational message
     pub fn emit_info(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 4096); // TigerStyle: Allow longer informational messages
+        std.debug.assert(message.len < 4096);
 
         self.emit_message(.info, message, args);
     }
@@ -209,7 +193,6 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit fatal error and terminate program
-    /// TigerStyle: Fatal errors never return, explicit noreturn
     pub fn emit_fatal(self: *OutputEmitter, exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
         std.debug.assert(message.len > 0);
         std.debug.assert(message.len < 1024);
@@ -220,7 +203,6 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit JSON array of strings
-    /// TigerStyle: Bounded arrays, no dynamic allocation
     pub fn emit_json_array(self: *OutputEmitter, comptime field_name: []const u8, items: []const []const u8) void {
         std.debug.assert(field_name.len > 0);
         std.debug.assert(field_name.len < 64);
@@ -228,7 +210,6 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        // TigerStyle: Use fixed buffer stream, bounds checked
         var stream = std.io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
@@ -256,7 +237,6 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit JSON key-value pairs
-    /// TigerStyle: Bounded number of fields, type-safe
     pub fn emit_json_object(self: *OutputEmitter, fields: []const JsonField) void {
         std.debug.assert(fields.len > 0);
         std.debug.assert(fields.len <= max_json_object_fields);
@@ -307,7 +287,6 @@ pub const OutputEmitter = struct {
     // Private implementation methods
 
     /// Core message emission logic
-    /// TigerStyle: Central control flow, all paths explicit
     fn emit_message(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         switch (self.config.mode) {
             .silent_errors_only => {
@@ -376,7 +355,6 @@ pub const OutputEmitter = struct {
     }
 
     /// Format message with arguments into fixed buffer
-    /// TigerStyle: Bounded formatting, no allocation
     fn format_message(self: *OutputEmitter, comptime message: []const u8, args: anytype) []const u8 {
         const result = std.fmt.bufPrint(&self.message_buffer, message, args) catch blk: {
             // Fallback to original message if formatting fails
@@ -386,7 +364,6 @@ pub const OutputEmitter = struct {
         };
 
         std.debug.assert(result.len <= self.message_buffer.len);
-        // TigerStyle: Verify result points into our buffer
         std.debug.assert(@intFromPtr(result.ptr) >= @intFromPtr(&self.message_buffer[0]));
         std.debug.assert(@intFromPtr(result.ptr) < @intFromPtr(&self.message_buffer[0]) + self.message_buffer.len);
 
@@ -457,14 +434,12 @@ pub const OutputEmitter = struct {
 
     comptime {
         const emitter_size = @sizeOf(OutputEmitter);
-        // TigerStyle: Assert reasonable memory usage
         std.debug.assert(emitter_size >= 1024); // Must contain buffers
         std.debug.assert(emitter_size <= 32 * 1024); // Not too large
     }
 };
 
 /// JSON field for structured output
-/// TigerStyle: Explicit types, no runtime polymorphism
 pub const JsonField = struct {
     key: []const u8,
     value: Value,
@@ -481,7 +456,6 @@ pub const JsonField = struct {
 };
 
 /// Get ANSI color code for message level
-/// TigerStyle: Pure function, no side effects, compile-time strings
 fn get_color_code(level: MessageLevel) []const u8 {
     return switch (level) {
         .success => "\x1b[32m", // Green
@@ -493,7 +467,6 @@ fn get_color_code(level: MessageLevel) []const u8 {
 }
 
 comptime {
-    // TigerStyle: Validate color codes are reasonable length
     for (@typeInfo(MessageLevel).@"enum".fields) |field| {
         const level: MessageLevel = @enumFromInt(field.value);
         const color = get_color_code(level);
@@ -503,11 +476,9 @@ comptime {
 }
 
 /// Global output emitter instance
-/// TigerStyle: Single global state, initialized once
 var global_emitter: ?*OutputEmitter = null;
 
 /// Initialize global output emitter with configuration
-/// TigerStyle: Must be called exactly once at program start
 pub fn init_global(config: OutputConfig) !*OutputEmitter {
     config.validate();
 
@@ -529,12 +500,10 @@ pub fn init_global(config: OutputConfig) !*OutputEmitter {
 }
 
 /// Get global output emitter instance
-/// TigerStyle: Fail fast if not initialized
 pub fn get_global() *OutputEmitter {
     return global_emitter orelse std.debug.panic("Output emitter not initialized - call init_global() first", .{});
 }
 
-// TigerStyle: Provide convenient global functions that delegate to singleton
 pub fn success(comptime message: []const u8, args: anytype) void {
     get_global().emit_success(message, args);
 }
