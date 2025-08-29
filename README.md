@@ -174,7 +174,7 @@ zvm clean
 ### Compatibility Notes
 Zig is in active development and the APIs can change frequently, making it challenging to support every dev build. This project currently aims to be compatible with stable, non-development builds to provide a consistent experience for the users.
 
-***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.14.1***.
+***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.15.1***.
 
 ### Contributing
 Contributions, issues, and feature requests are welcome!
