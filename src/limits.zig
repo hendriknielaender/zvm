@@ -14,7 +14,7 @@ pub const limits = struct {
     pub const http_operations_maximum: u32 = 2; // ZVM rarely needs concurrent downloads.
 
     /// Maximum size of a single HTTP response.
-    pub const http_response_size_maximum: u32 = 1024 * 1024; // 1MB - matches JSON parse size
+    pub const http_response_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - matches JSON parse size
 
     /// Maximum size for HTTP client internal buffers (headers, TLS, etc).
     pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
@@ -47,7 +47,7 @@ pub const limits = struct {
 
     /// Maximum size of JSON to parse.
     /// GitHub API responses for releases can be 150KB+ when decompressed
-    pub const json_parse_size_maximum: u32 = 1024 * 1024; // 1MB - enough for GitHub API responses
+    pub const json_parse_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - extra space for JSON parser overhead
 
     /// Maximum number of extract operations.
     pub const extract_operations_maximum: u32 = 8;
