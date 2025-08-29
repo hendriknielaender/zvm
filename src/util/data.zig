@@ -1,8 +1,21 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const config = @import("../config.zig");
 const context = @import("../context.zig");
 const object_pools = @import("../object_pools.zig");
 const limits = @import("../limits.zig").limits;
+
+/// Cross-platform environment variable getter
+/// Returns null if variable doesn't exist, slice if it does
+fn getenv_cross_platform(comptime var_name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        // On Windows, we'd need an allocator for std.process.getEnvVarOwned
+        // For now, return null on Windows for these optional env vars
+        return null;
+    } else {
+        return std.posix.getenv(var_name);
+    }
+}
 
 pub const zvm_logo =
     \\⠀⢸⣾⣷⣿⣾⣷⣿⣾⡷⠃⠀⠀⠀⠀⠀⣴⡷⠞⠀⠀⠀⠀⠀⣼⣾⡂
@@ -21,7 +34,7 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 
     // Follow XDG Base Directory specification
     const home_dir = ctx.get_home_dir();
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/{s}", .{ xdg_data, segment });
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -37,7 +50,7 @@ pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
     var fbs = std.io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/current/zig", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -53,7 +66,7 @@ pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
     var fbs = std.io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/current/zls", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -74,7 +87,7 @@ pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     var fbs = std.io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/version/zig", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -90,7 +103,7 @@ pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     var fbs = std.io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/version/zls", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm

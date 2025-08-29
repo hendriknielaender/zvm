@@ -72,6 +72,17 @@ fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: 
     return buffer[0..result.len];
 }
 
+/// Cross-platform environment variable getter
+fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        // On Windows, env vars need special handling due to WTF-16 encoding
+        // For optional env vars, just return null
+        return null;
+    } else {
+        return std.posix.getenv(var_name);
+    }
+}
+
 pub fn main() !void {
     // Collect command line arguments into a fixed buffer.
     var arguments_buffer: [limits.limits.arguments_maximum][]const u8 = undefined;
@@ -165,7 +176,7 @@ pub fn main() !void {
     const has_debug = if (builtin.os.tag == .windows) blk: {
         break :blk hasWindowsEnvVar("ZVM_DEBUG");
     } else blk: {
-        break :blk std.posix.getenv("ZVM_DEBUG") != null;
+        break :blk getenv_cross_platform("ZVM_DEBUG") != null;
     };
 
     if (has_debug) {
@@ -264,7 +275,7 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
         return alias_buffers.home[0..home.len];
     } else {
         // Unix-like systems
-        const home = std.posix.getenv("HOME") orelse {
+        const home = getenv_cross_platform("HOME") orelse {
             std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
             return error.HomeNotFound;
         };
@@ -300,7 +311,7 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
     } else {
         // On POSIX (Linux/macOS), follow XDG Base Directory specification
         // Priority order: XDG_DATA_HOME/.zm -> HOME/.local/share/.zm
-        if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
             // Use XDG_DATA_HOME/.zm if XDG_DATA_HOME is set
             var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
             try fixed_buffer_stream.writer().print("{s}/.zm", .{xdg_data});
@@ -681,7 +692,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
     const home_dir = ctx.get_home_dir();
 
-    if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/bin", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -709,7 +720,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
             break :blk "cmd"; // Default for Windows
         } else {
             // On POSIX, check SHELL
-            if (std.posix.getenv("SHELL")) |shell_path| {
+            if (getenv_cross_platform("SHELL")) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 break :blk shell_name;
             }

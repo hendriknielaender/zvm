@@ -3,6 +3,17 @@ const builtin = @import("builtin");
 const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");
 
+/// Cross-platform environment variable getter
+fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        // On Windows, env vars need special handling due to WTF-16 encoding
+        // For optional env vars, just return null
+        return null;
+    } else {
+        return std.posix.getenv(var_name);
+    }
+}
+
 const max_argument_count = limits.limits.arguments_maximum;
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_command_name_length = 32;
@@ -529,7 +540,7 @@ fn detect_shell() ?Command.ShellType {
         return .powershell;
     }
 
-    const shell_path = std.posix.getenv("SHELL") orelse return null;
+    const shell_path = getenv_cross_platform("SHELL") orelse return null;
     const shell_name = std.fs.path.basename(shell_path);
 
     return Command.ShellType.from_string(shell_name) catch null;
