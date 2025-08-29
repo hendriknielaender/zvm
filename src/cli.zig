@@ -210,6 +210,7 @@ pub const CommandType = enum {
 pub const command_map = std.StaticStringMap(CommandType).initComptime(.{
     .{ "list", .list },
     .{ "install", .install },
+    .{ "i", .install }, // Short alias for install
     .{ "use", .use },
     .{ "remove", .remove },
     .{ "clean", .clean },
@@ -315,7 +316,7 @@ fn parse_clean_args(args: [][]const u8) Command {
 /// Parse install command arguments
 fn parse_install_args_static(args: [][]const u8) Command {
     std.debug.assert(args.len >= 2);
-    std.debug.assert(std.mem.eql(u8, args[1], "install"));
+    std.debug.assert(std.mem.eql(u8, args[1], "install") or std.mem.eql(u8, args[1], "i"));
 
     if (args.len < 3) {
         fatal("install requires a version argument", .{});
