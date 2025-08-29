@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const util_data = @import("util/data.zig");
 const util_tool = @import("util/tool.zig");
+const util_output = @import("util/output.zig");
 const context = @import("context.zig");
 const object_pools = @import("object_pools.zig");
 const limits = @import("limits.zig");
@@ -47,7 +48,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         const stderr = &stderr_writer.interface;
         try stderr.print(err_msg, .{ if (is_zls) "zls" else "Zig", version });
         try stderr.flush();
-        std.process.exit(1);
+        std.process.exit(@intFromEnum(util_output.ExitCode.version_not_found));
     };
 
     // Get symlink path.
