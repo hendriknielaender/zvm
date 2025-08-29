@@ -438,7 +438,7 @@ fn print_help() !void {
         \\  zvm <COMMAND> [OPTIONS]
         \\
         \\COMMANDS:
-        \\  install <version>    Install a specific Zig version
+        \\  install, i <version> Install a specific Zig version
         \\  remove <version>     Remove an installed Zig version
         \\  use <version>        Switch to a specific Zig version
         \\  list                 List installed Zig versions
