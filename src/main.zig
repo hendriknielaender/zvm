@@ -5,6 +5,7 @@ const context = @import("context.zig");
 const limits = @import("limits.zig");
 const static_memory = @import("static_memory.zig");
 const util_data = @import("util/data.zig");
+const util_output = @import("util/output.zig");
 const alias = @import("alias.zig");
 const options = @import("options");
 const object_pools = @import("object_pools.zig");
@@ -129,8 +130,10 @@ pub fn main() !void {
         unreachable; // handle_alias calls execve which never returns on success
     }
 
-    // Parse command line arguments.
-    const command = cli.parse_args_static(arguments);
+    // Parse command line arguments with TigerStyle validation
+    const parsed_command_line = cli.parse_command_line(arguments) catch |err| {
+        util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
+    };
 
     // Initialize our static memory context.
     std.debug.assert(global_static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
@@ -144,14 +147,21 @@ pub fn main() !void {
 
     std.debug.assert(context_instance == &global_context);
 
+    // Initialize output system with TigerStyle configuration
+    const output_config = util_output.OutputConfig{
+        .mode = parsed_command_line.global_config.output_mode,
+        .color = parsed_command_line.global_config.color_mode,
+    };
+    _ = try util_output.init_global(output_config);
+
     // Initialize progress reporting for long operations.
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
-        .estimated_total_items = get_progress_item_count(command),
+        .estimated_total_items = get_progress_item_count(parsed_command_line.command),
     });
 
     // Execute the command.
-    try execute_command(context_instance, command, root_node);
+    try execute_command(context_instance, parsed_command_line.command, root_node);
 
     // If ZVM_DEBUG environment variable is set, print resource usage
     const has_debug = if (builtin.os.tag == .windows) blk: {
@@ -387,19 +397,19 @@ fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, rem
 }
 
 fn get_progress_item_count(command: cli.Command) u16 {
-    // This function has no preconditions as it accepts any valid Command
+    // TigerStyle: Explicit progress estimates for each command
     return switch (command) {
-        .install => 5,
-        .remove => 2,
-        .list => 1,
-        .use => 2,
-        .@"list-remote" => 3,
-        .help => 0,
-        .version => 0,
-        .clean => |opts| if (opts.all) 10 else 5,
-        .current => 1,
-        .env => 1,
-        .completions => 1,
+        .install => 5, // Download, verify, extract, symlink, cleanup
+        .remove => 2, // Remove files, update symlinks
+        .list => 1, // Read directory
+        .use => 2, // Validate version, update symlinks
+        .list_remote => 3, // Fetch metadata, parse, format
+        .help => 0, // No progress needed
+        .version => 0, // No progress needed
+        .clean => |opts| if (opts.remove_all) 10 else 5, // Variable based on scope
+        .current => 1, // Read version files
+        .env => 1, // Generate environment setup
+        .completions => 1, // Generate completion script
     };
 }
 
@@ -408,71 +418,85 @@ fn execute_command(
     command: cli.Command,
     progress_node: std.Progress.Node,
 ) !void {
-    // ctx is a pointer, not optional - no need for null check
-    // We trust that ctx is the current instance
+    // TigerStyle: ctx is validated pointer, command is validated union
+    // TigerStyle: Trust that ctx is valid pointer from caller
 
     switch (command) {
         .help => try print_help(),
         .version => try print_version(),
         .list => try list_installed_versions(ctx),
-        .@"list-remote" => |opts| try list_remote_versions(ctx, opts.zls),
+        .list_remote => |opts| try list_remote_versions(ctx, opts.is_zls),
         .current => try show_current_version(ctx),
-        .env => |opts| try print_env_setup(ctx, opts.shell),
-        .clean => |opts| try clean_unused_versions(ctx, opts.all),
-        .install => |opts| try install.install(ctx, opts.version, opts.zls, progress_node, false),
-        .remove => |opts| try remove.remove(ctx, opts.version, opts.zls, false),
-        .use => |opts| try alias.set_version(ctx, opts.version, opts.zls),
-        .completions => |opts| try print_completions(ctx, opts.shell),
+        .env => |opts| try print_env_setup(ctx, opts.get_shell()),
+        .clean => |opts| try clean_unused_versions(ctx, opts.remove_all),
+        .install => |opts| try install.install(ctx, opts.get_version(), opts.is_zls, progress_node, false),
+        .remove => |opts| try remove.remove(ctx, opts.get_version(), opts.is_zls, false),
+        .use => |opts| try alias.set_version(ctx, opts.get_version(), opts.is_zls),
+        .completions => |opts| try print_completions(ctx, opts.shell_type),
     }
 }
 
 fn print_help() !void {
-    var buffer: [io_buffer_size]u8 = undefined;
-    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
-    const stdout = &stdout_writer.interface;
-    // No input parameters to validate, but ensure stdout is valid
-    try stdout.print(
+    util_output.info(
         \\ZVM - Zig Version Manager
         \\
         \\USAGE:
-        \\  zvm <COMMAND> [OPTIONS]
+        \\    zvm [GLOBAL_OPTIONS] <COMMAND> [COMMAND_OPTIONS]
+        \\
+        \\GLOBAL OPTIONS:
+        \\    --json              Output in JSON format (machine-readable)
+        \\    --quiet, -q         Suppress non-error output
+        \\    --no-color          Disable colored output
+        \\    --color             Force colored output
+        \\    --help, -h          Show this help message
+        \\    --version, -V       Show version information
         \\
         \\COMMANDS:
-        \\  install, i <version> Install a specific Zig version
-        \\  remove <version>     Remove an installed Zig version
-        \\  use <version>        Switch to a specific Zig version
-        \\  list                 List installed Zig versions
-        \\  list-remote          List available Zig versions
-        \\  current              Show current Zig version
-        \\  clean                Remove unused Zig versions
-        \\  env                  Print shell setup
-        \\  help                 Show this help message
-        \\  version              Show ZVM version
+        \\    install, i <version>    Install a specific Zig version
+        \\    remove <version>        Remove an installed Zig version  
+        \\    use <version>           Switch to a specific Zig version
+        \\    list                    List installed Zig versions
+        \\    list-remote             List available Zig versions
+        \\    current                 Show current Zig version
+        \\    clean                   Remove unused Zig versions
+        \\    env                     Print shell setup instructions
+        \\    completions [shell]     Generate shell completion script
+        \\    help                    Show this help message
+        \\    version                 Show ZVM version
         \\
-        \\OPTIONS:
-        \\  --zls                For install/remove/use commands, manage ZLS instead
-        \\  --all                For clean command, remove all versions
-        \\  --shell <shell>      For env command, specify shell type
+        \\COMMAND OPTIONS:
+        \\    --zls                   For install/remove/use commands, manage ZLS instead
+        \\    --all                   For clean command, remove all versions  
+        \\    --shell <shell>         For env command, specify shell type
+        \\
+        \\EXAMPLES:
+        \\    zvm install 0.11.0           Install Zig version 0.11.0
+        \\    zvm --json list              List installed versions in JSON format
+        \\    zvm --quiet install master   Install master build silently
+        \\    zvm use 0.11.0 --zls         Switch to ZLS version 0.11.0
+        \\    zvm clean --all              Remove all unused versions
         \\
     , .{});
-    try stdout.flush();
 }
 
 fn print_version() !void {
-    var buffer: [io_buffer_size]u8 = undefined;
-    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
-    const stdout = &stdout_writer.interface;
-    // Ensure stdout is valid
+    const emitter = util_output.get_global();
 
-    // Print the logo
-    try stdout.print("{s}\n", .{util_data.zvm_logo});
-    try stdout.print("zvm {s}\n", .{options.version});
-    try stdout.flush();
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "name", .value = .{ .string = "zvm" } },
+            .{ .key = "version", .value = .{ .string = options.version } },
+        };
+        util_output.json_object(&fields);
+    } else {
+        // Print the logo and version
+        util_output.info("{s}", .{util_data.zvm_logo});
+        util_output.info("zvm {s}", .{options.version});
+    }
 }
 
 fn list_installed_versions(ctx: *context.CliContext) !void {
-    // Initialize color
-    var color = util_color.Color.RuntimeStyle.init();
+    const emitter = util_output.get_global();
 
     // Get path buffer for zig versions directory
     var zig_versions_buffer = try ctx.acquire_path_buffer();
@@ -485,7 +509,11 @@ fn list_installed_versions(ctx: *context.CliContext) !void {
     var zig_dir = std.fs.openDirAbsolute(zig_versions_path, .{ .iterate = true }) catch |err| {
         switch (err) {
             error.FileNotFound => {
-                try color.bold().red().print("No Zig versions installed.\n", .{});
+                if (emitter.config.mode == .machine_json) {
+                    util_output.json_array("installed", &[_][]const u8{});
+                } else {
+                    util_output.warn("No Zig versions installed.", .{});
+                }
                 return;
             },
             else => return err,
@@ -493,25 +521,34 @@ fn list_installed_versions(ctx: *context.CliContext) !void {
     };
     defer zig_dir.close();
 
-    var found_any = false;
+    var versions: [limits.limits.versions_maximum][]const u8 = undefined;
+    var version_count: usize = 0;
     var iterator = zig_dir.iterate();
 
-    // Print header
-    try color.bold().white().print("Installed Zig versions:\n", .{});
-
-    // List all directories
+    // Collect all directories
     while (try iterator.next()) |entry| {
         if (entry.kind != .directory) continue;
 
         // Skip hidden directories
         if (entry.name[0] == '.') continue;
 
-        found_any = true;
-        try color.green().print("  {s}\n", .{entry.name});
+        if (version_count < versions.len) {
+            versions[version_count] = entry.name;
+            version_count += 1;
+        }
     }
 
-    if (!found_any) {
-        try color.bold().red().print("No Zig versions installed.\n", .{});
+    if (emitter.config.mode == .machine_json) {
+        util_output.json_array("installed", versions[0..version_count]);
+    } else {
+        if (version_count == 0) {
+            util_output.warn("No Zig versions installed.", .{});
+        } else {
+            util_output.info("Installed Zig versions:", .{});
+            for (versions[0..version_count]) |version| {
+                util_output.info("  {s}", .{version});
+            }
+        }
     }
 }
 
@@ -565,10 +602,7 @@ fn list_remote_versions(ctx: *context.CliContext, is_zls: bool) !void {
 }
 
 fn show_current_version(ctx: *context.CliContext) !void {
-    var buffer: [io_buffer_size]u8 = undefined;
-    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
-    const stdout = &stdout_writer.interface;
-    // Ensure stdout is valid
+    const emitter = util_output.get_global();
 
     // Get path buffers from pool
     var zig_version_buffer = try ctx.acquire_path_buffer();
@@ -612,21 +646,31 @@ fn show_current_version(ctx: *context.CliContext) !void {
         break :blk zls_entry.get_name();
     } else null;
 
-    // Print current versions
-    if (zig_version) |v| {
-        const trimmed = std.mem.trim(u8, v, " \t\n\r");
-        try stdout.print("Zig version: {s}\n", .{trimmed});
-    } else {
-        try stdout.print("Zig version: not set\n", .{});
-    }
+    // Output current versions
+    if (emitter.config.mode == .machine_json) {
+        const zig_trimmed = if (zig_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
+        const zls_trimmed = if (zls_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
 
-    if (zls_version) |v| {
-        const trimmed = std.mem.trim(u8, v, " \t\n\r");
-        try stdout.print("ZLS version: {s}\n", .{trimmed});
+        const fields = [_]util_output.JsonField{
+            .{ .key = "zig", .value = .{ .string = zig_trimmed } },
+            .{ .key = "zls", .value = .{ .string = zls_trimmed } },
+        };
+        util_output.json_object(&fields);
     } else {
-        try stdout.print("ZLS version: not set\n", .{});
+        if (zig_version) |v| {
+            const trimmed = std.mem.trim(u8, v, " \t\n\r");
+            util_output.info("Zig version: {s}", .{trimmed});
+        } else {
+            util_output.info("Zig version: not set", .{});
+        }
+
+        if (zls_version) |v| {
+            const trimmed = std.mem.trim(u8, v, " \t\n\r");
+            util_output.info("ZLS version: {s}", .{trimmed});
+        } else {
+            util_output.info("ZLS version: not set", .{});
+        }
     }
-    try stdout.flush();
 }
 
 fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
@@ -848,18 +892,18 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
     }
 }
 
-fn print_completions(ctx: *context.CliContext, shell: cli.Shell) !void {
+fn print_completions(ctx: *context.CliContext, shell_type: cli.Command.ShellType) !void {
     _ = ctx; // Not needed for completions
 
-    switch (shell) {
+    switch (shell_type) {
         .zsh => try print_zsh_completions(),
         .bash => try print_bash_completions(),
         .fish => {
-            std.log.err("Fish shell completions not yet implemented", .{});
+            util_output.err("Fish shell completions not yet implemented", .{});
             return error.NotImplemented;
         },
         .powershell => {
-            std.log.err("PowerShell completions not yet implemented", .{});
+            util_output.err("PowerShell completions not yet implemented", .{});
             return error.NotImplemented;
         },
     }
