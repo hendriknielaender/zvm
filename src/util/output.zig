@@ -14,7 +14,7 @@ comptime {
     std.debug.assert(max_json_object_fields <= 32);
 }
 
-/// Exit codes provide meaningful context for automation
+/// Exit codes with semantic meaning
 pub const ExitCode = enum(u8) {
     success = 0,
     invalid_arguments = 1,
@@ -142,7 +142,7 @@ pub const MessageLevel = enum {
     }
 };
 
-/// Single responsibility: Format and emit program output
+/// Centralized output management
 pub const OutputEmitter = struct {
     config: OutputConfig,
     stdout_buffer: [io_buffer_size_bytes]u8,
