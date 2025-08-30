@@ -6,14 +6,13 @@ const std = @import("std");
 const config = @import("config.zig");
 const util_tool = @import("util/tool.zig");
 const object_pools = @import("object_pools.zig");
-const limits = @import("limits.zig");
 
 const json = std.json;
 const Allocator = std.mem.Allocator;
-const jsonValue = std.json.Parsed(std.json.Value);
+const json_value = std.json.Parsed(std.json.Value);
 
 pub const Zig = struct {
-    data: jsonValue,
+    data: json_value,
 
     /// version data for zig
     pub const VersionData = struct {
@@ -176,7 +175,7 @@ pub const Zig = struct {
 };
 
 pub const Zls = struct {
-    data: jsonValue,
+    data: json_value,
 
     /// version data for zig
     pub const VersionData = struct {

@@ -57,7 +57,7 @@ fn download_file_with_verification(
 
     const new_file = try store.createFile(file_name, .{ .read = true });
 
-    try http_client.HttpClient.downloadFile(ctx, uri, .{}, new_file, progress_node);
+    try http_client.HttpClient.download_file(ctx, uri, .{}, new_file, progress_node);
 
     if (size) |expected_size| {
         const file_stat = try new_file.stat();
@@ -104,14 +104,13 @@ pub fn install(
     version: []const u8,
     is_zls: bool,
     root_node: Progress.Node,
-    debug: bool,
 ) !void {
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100); // Reasonable version length
     if (is_zls) {
-        try install_zls(ctx, version, root_node, debug);
+        try install_zls(ctx, version, root_node);
     } else {
-        try install_zig(ctx, version, root_node, debug);
+        try install_zig(ctx, version, root_node);
     }
 }
 
@@ -119,18 +118,15 @@ fn install_zig(
     ctx: *context.CliContext,
     version: []const u8,
     root_node: Progress.Node,
-    debug: bool,
 ) !void {
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100);
-
-    if (debug) {}
 
     const is_master = std.mem.eql(u8, version, "master");
 
     // Get platform string and store it in a persistent buffer
     const platform_buffer = try ctx.acquire_path_buffer();
-    const platform_str = try get_platform_string_into_buffer(ctx, is_master, debug, platform_buffer);
+    const platform_str = try get_platform_string_into_buffer(is_master, platform_buffer);
 
     var items_done: u32 = 0;
 
@@ -166,7 +162,7 @@ fn install_zig(
         return;
     }
 
-    const version_data = try fetch_version_data(ctx, version, platform_str, &items_done, root_node, debug);
+    const version_data = try fetch_version_data(ctx, platform_str, version, &items_done, root_node);
 
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
     defer tarball_file.close();
@@ -182,10 +178,7 @@ fn install_zig(
     root_node.end();
 }
 
-fn get_platform_string_into_buffer(ctx: *context.CliContext, is_master: bool, debug: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
-    _ = ctx;
-    if (debug) {}
-
+fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
     const platform_str = try util_arch.platform_str_static(
         platform_buffer,
         .{
@@ -206,37 +199,28 @@ fn get_platform_string_into_buffer(ctx: *context.CliContext, is_master: bool, de
     std.debug.assert(platform_str.len > 0);
     std.debug.assert(platform_str.len < 100);
 
-    if (debug) {}
-
     return platform_str;
 }
 
 fn fetch_version_data(
     ctx: *context.CliContext,
-    version: []const u8,
     platform_str: []const u8,
+    version: []const u8,
     items_done: *u32,
     root_node: Progress.Node,
-    debug: bool,
 ) !meta.Zig.VersionData {
     std.debug.assert(version.len > 0);
     std.debug.assert(platform_str.len > 0);
     std.debug.assert(items_done.* >= 0);
 
-    if (debug) {}
-
     const res = try http_client.HttpClient.fetch(ctx, config.zig_url, .{});
 
     std.debug.assert(res.len > 0);
-
-    if (debug) {}
 
     var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
     defer zig_meta.deinit();
 
     const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_json_allocator());
-
-    if (debug) {}
 
     const version_data = tmp_val orelse {
         std.log.err("Unsupported version '{s}' for platform '{s}'. Check available versions with 'zvm list'", .{
@@ -535,11 +519,9 @@ fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8
     return try std.Uri.parse(uri_str);
 }
 
-fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progress.Node, debug: bool) !void {
+fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progress.Node) !void {
     std.debug.assert(version.len > 0);
     std.debug.assert(version.len < 100);
-
-    if (debug) {}
 
     var platform_str_buffer: [100]u8 = undefined;
     const platform_str_temp = try get_zls_platform_string(ctx);
@@ -658,5 +640,3 @@ fn extract_zls(
         root_node,
     );
 }
-
-pub fn build_zls() !void {}

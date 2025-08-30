@@ -9,6 +9,7 @@ const util_output = @import("util/output.zig");
 const alias = @import("alias.zig");
 const options = @import("options");
 const object_pools = @import("object_pools.zig");
+const validation = @import("validation.zig");
 
 // Command handlers.
 const install = @import("install.zig");
@@ -41,7 +42,7 @@ const AliasBuffers = struct {
 };
 
 /// Helper to check if environment variable exists on Windows (Zig 0.15.1 compatible)
-fn hasWindowsEnvVar(var_name: []const u8) bool {
+fn has_windows_env_var(var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -56,7 +57,7 @@ fn hasWindowsEnvVar(var_name: []const u8) bool {
 }
 
 /// Helper to get environment variable on Windows (Zig 0.15.1 compatible)
-fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
 
     const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
@@ -70,17 +71,6 @@ fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: 
 
     @memcpy(buffer[0..result.len], result);
     return buffer[0..result.len];
-}
-
-/// Cross-platform environment variable getter
-fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
-        // On Windows, env vars need special handling due to WTF-16 encoding
-        // For optional env vars, just return null
-        return null;
-    } else {
-        return std.posix.getenv(var_name);
-    }
 }
 
 pub fn main() !void {
@@ -134,6 +124,9 @@ pub fn main() !void {
     std.debug.assert(basename.len > 0);
     std.debug.assert(basename.len <= program_name.len);
 
+    // Initialize config (read environment variables, etc.)
+    config.init_config();
+
     // Handle aliases before parsing commands.
     const is_alias = util_tool.eql_str(basename, "zig") or util_tool.eql_str(basename, "zls");
     if (is_alias) {
@@ -141,9 +134,23 @@ pub fn main() !void {
         unreachable; // handle_alias calls execve which never returns on success
     }
 
+    // Initialize output emitter with defaults first so validation can use it
+    const default_output_config = util_output.OutputConfig{
+        .mode = .human_readable,
+        .color = .always_use_color,
+    };
+    _ = try util_output.init_global(default_output_config);
+
     const parsed_command_line = cli.parse_command_line(arguments) catch |err| {
         util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
+
+    // Update output configuration with parsed values
+    const final_output_config = util_output.OutputConfig{
+        .mode = parsed_command_line.global_config.output_mode,
+        .color = parsed_command_line.global_config.color_mode,
+    };
+    _ = try util_output.update_global(final_output_config);
 
     // Initialize our static memory context.
     std.debug.assert(global_static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
@@ -157,12 +164,6 @@ pub fn main() !void {
 
     std.debug.assert(context_instance == &global_context);
 
-    const output_config = util_output.OutputConfig{
-        .mode = parsed_command_line.global_config.output_mode,
-        .color = parsed_command_line.global_config.color_mode,
-    };
-    _ = try util_output.init_global(output_config);
-
     // Initialize progress reporting for long operations.
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
@@ -174,9 +175,9 @@ pub fn main() !void {
 
     // If ZVM_DEBUG environment variable is set, print resource usage
     const has_debug = if (builtin.os.tag == .windows) blk: {
-        break :blk hasWindowsEnvVar("ZVM_DEBUG");
+        break :blk has_windows_env_var("ZVM_DEBUG");
     } else blk: {
-        break :blk getenv_cross_platform("ZVM_DEBUG") != null;
+        break :blk util_tool.getenv_cross_platform("ZVM_DEBUG") != null;
     };
 
     if (has_debug) {
@@ -275,7 +276,7 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
         return alias_buffers.home[0..home.len];
     } else {
         // Unix-like systems
-        const home = getenv_cross_platform("HOME") orelse {
+        const home = util_tool.getenv_cross_platform("HOME") orelse {
             std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
             return error.HomeNotFound;
         };
@@ -300,7 +301,7 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
 
-        if (getWindowsEnvVar(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
+        if (get_windows_env_var(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
             // No ZVM_HOME or error, use default
@@ -311,7 +312,7 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
     } else {
         // On POSIX (Linux/macOS), follow XDG Base Directory specification
         // Priority order: XDG_DATA_HOME/.zm -> HOME/.local/share/.zm
-        if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
             // Use XDG_DATA_HOME/.zm if XDG_DATA_HOME is set
             var fixed_buffer_stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
             try fixed_buffer_stream.writer().print("{s}/.zm", .{xdg_data});
@@ -405,13 +406,14 @@ fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, rem
     alias_buffers.exec_arguments_count = exec_arguments_count;
 }
 
-fn get_progress_item_count(command: cli.Command) u16 {
+fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
     return switch (command) {
         .install => 5, // Download, verify, extract, symlink, cleanup
         .remove => 2, // Remove files, update symlinks
         .list => 1, // Read directory
         .use => 2, // Validate version, update symlinks
         .list_remote => 3, // Fetch metadata, parse, format
+        .list_mirrors => 0, // No progress needed
         .help => 0, // No progress needed
         .version => 0, // No progress needed
         .clean => |opts| if (opts.remove_all) 10 else 5, // Variable based on scope
@@ -423,21 +425,34 @@ fn get_progress_item_count(command: cli.Command) u16 {
 
 fn execute_command(
     ctx: *context.CliContext,
-    command: cli.Command,
+    command: validation.ValidatedCommand,
     progress_node: std.Progress.Node,
 ) !void {
     switch (command) {
         .help => try print_help(),
         .version => try print_version(),
-        .list => try list_installed_versions(ctx),
-        .list_remote => |opts| try list_remote_versions(ctx, opts.is_zls),
+        .list => |opts| try list_installed_versions(ctx, opts.show_all),
+        .list_remote => |opts| try list_remote_versions(ctx, opts.tool == .zls),
+        .list_mirrors => try list_mirrors(),
         .current => try show_current_version(ctx),
-        .env => |opts| try print_env_setup(ctx, opts.get_shell()),
+        .env => |opts| try print_env_setup(ctx, opts.shell),
         .clean => |opts| try clean_unused_versions(ctx, opts.remove_all),
-        .install => |opts| try install.install(ctx, opts.get_version(), opts.is_zls, progress_node, false),
-        .remove => |opts| try remove.remove(ctx, opts.get_version(), opts.is_zls, false),
-        .use => |opts| try alias.set_version(ctx, opts.get_version(), opts.is_zls),
-        .completions => |opts| try print_completions(ctx, opts.shell_type),
+        .install => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try install.install(ctx, version_str, opts.tool == .zls, progress_node);
+        },
+        .remove => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try remove.remove(ctx, version_str, opts.tool == .zls, false);
+        },
+        .use => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try alias.set_version(ctx, version_str, opts.tool == .zls);
+        },
+        .completions => |opts| try print_completions(ctx, opts.shell),
     }
 }
 
@@ -462,6 +477,7 @@ fn print_help() !void {
         \\    use <version>           Switch to a specific Zig version
         \\    list                    List installed Zig versions
         \\    list-remote             List available Zig versions
+        \\    list-mirrors            List available download mirrors
         \\    current                 Show current Zig version
         \\    clean                   Remove unused Zig versions
         \\    env                     Print shell setup instructions
@@ -500,7 +516,35 @@ fn print_version() !void {
     }
 }
 
-fn list_installed_versions(ctx: *context.CliContext) !void {
+fn list_mirrors() !void {
+    const emitter = util_output.get_global();
+
+    if (emitter.config.mode == .machine_json) {
+        // For JSON mode, create a simple object with mirrors array
+        const json_mirrors_count = config.zig_mirrors.len;
+        var mirror_urls: [6][]const u8 = undefined;
+
+        for (config.zig_mirrors, 0..) |mirror_info, index| {
+            mirror_urls[index] = mirror_info[0];
+        }
+
+        util_output.json_array("mirrors", mirror_urls[0..json_mirrors_count]);
+    } else {
+        util_output.info("Available download mirrors:\n", .{});
+
+        for (config.zig_mirrors, 0..) |mirror_info, index| {
+            const url = mirror_info[0];
+            const maintainer = mirror_info[1];
+            util_output.info("  {d}: {s} ({s})\n", .{ index, url, maintainer });
+        }
+
+        util_output.info("Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
+        util_output.info("Example: ZVM_MIRROR=1 zvm install master\n", .{});
+    }
+}
+
+fn list_installed_versions(ctx: *context.CliContext, show_all: bool) !void {
+    _ = show_all; // For future functionality
     const emitter = util_output.get_global();
 
     // Get path buffer for zig versions directory
@@ -678,7 +722,7 @@ fn show_current_version(ctx: *context.CliContext) !void {
     }
 }
 
-fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
+fn print_env_setup(ctx: *context.CliContext, shell: ?validation.ShellType) !void {
     var buffer: [io_buffer_size]u8 = undefined;
     var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
     const stdout = &stdout_writer.interface;
@@ -692,7 +736,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     var fbs = std.io.fixedBufferStream(path_buffer.slice());
     const home_dir = ctx.get_home_dir();
 
-    if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try fbs.writer().print("{s}/.zm/bin", .{xdg_data});
     } else {
         // Use XDG default: $HOME/.local/share/.zm
@@ -702,14 +746,14 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     const zvm_bin_path = try path_buffer.set(fbs.getWritten());
 
     // Determine shell type
-    const shell_type = if (shell) |s| s else blk: {
+    const shell_type = if (shell) |s| @tagName(s) else blk: {
         if (builtin.os.tag == .windows) {
             // On Windows, check COMSPEC
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
 
             var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-            if (getWindowsEnvVar(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
+            if (get_windows_env_var(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
                     break :blk "powershell";
@@ -720,7 +764,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
             break :blk "cmd"; // Default for Windows
         } else {
             // On POSIX, check SHELL
-            if (getenv_cross_platform("SHELL")) |shell_path| {
+            if (util_tool.getenv_cross_platform("SHELL")) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 break :blk shell_name;
             }
@@ -897,7 +941,7 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
     }
 }
 
-fn print_completions(ctx: *context.CliContext, shell_type: cli.Command.ShellType) !void {
+fn print_completions(ctx: *context.CliContext, shell_type: validation.ShellType) !void {
     _ = ctx; // Not needed for completions
 
     switch (shell_type) {

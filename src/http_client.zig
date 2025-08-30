@@ -168,7 +168,7 @@ pub const HttpClient = struct {
     }
 
     /// Download a file using a pre-allocated HTTP operation
-    pub fn downloadFile(
+    pub fn download_file(
         ctx: *context.CliContext,
         uri: std.Uri,
         headers: std.http.Client.Request.Headers,
@@ -212,6 +212,7 @@ pub const HttpClient = struct {
         // Set up decompression if needed
         var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
         var transfer_buffer: [limits.limits.http_transfer_buffer_size]u8 = undefined;
+        // SAFETY: decompress is initialized before use by readerDecompressing call below
         var decompress: std.http.Decompress = undefined;
         const body_reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 
@@ -236,7 +237,7 @@ pub const HttpClient = struct {
     }
 
     /// Fetch JSON and parse it using pre-allocated buffer
-    pub fn fetchJson(
+    pub fn fetch_json(
         ctx: *context.CliContext,
         uri: std.Uri,
         headers: std.http.Client.Request.Headers,

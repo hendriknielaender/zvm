@@ -22,7 +22,8 @@ pub const StaticMemory = struct {
         std.debug.assert(config.limits.path_length_maximum > 0);
 
         // Path buffers.
-        const path_buffers_size = config.limits.path_buffers_maximum * config.limits.path_length_maximum;
+        const path_buffers_size = config.limits.path_buffers_maximum *
+            config.limits.path_length_maximum;
         std.debug.assert(path_buffers_size > 0);
         total += path_buffers_size;
 
@@ -34,12 +35,14 @@ pub const StaticMemory = struct {
         total += http_size;
 
         // Version entries.
-        const version_size = config.limits.versions_maximum * config.limits.version_string_length_maximum;
+        const version_size = config.limits.versions_maximum *
+            config.limits.version_string_length_maximum;
         std.debug.assert(version_size > 0);
         total += version_size;
 
         // Extract operations.
-        const extract_size = config.limits.extract_operations_maximum * config.limits.extract_buffer_size_maximum;
+        const extract_size = config.limits.extract_operations_maximum *
+            config.limits.extract_buffer_size_maximum;
         std.debug.assert(extract_size > 0);
         total += extract_size;
 

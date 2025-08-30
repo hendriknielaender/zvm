@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const limits = @import("../limits.zig");
 
 const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
@@ -493,10 +492,19 @@ pub fn init_global(config: OutputConfig) !*OutputEmitter {
     global_emitter = emitter;
 
     std.debug.assert(global_emitter == emitter);
-    std.debug.assert(global_emitter.?.config.mode == config.mode);
-    std.debug.assert(global_emitter.?.config.color == config.color);
-
     return emitter;
+}
+
+/// Update global output emitter configuration
+pub fn update_global(config: OutputConfig) !*OutputEmitter {
+    config.validate();
+
+    if (global_emitter) |emitter| {
+        emitter.* = OutputEmitter.init(config);
+        return emitter;
+    } else {
+        return init_global(config);
+    }
 }
 
 /// Get global output emitter instance

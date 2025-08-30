@@ -18,6 +18,21 @@ pub const zig_mirrors = [_][2][]const u8{
 
 pub var preferred_mirror: ?usize = null;
 
+pub fn init_config() void {
+    if (std.posix.getenv("ZVM_MIRROR")) |mirror_str| {
+        if (std.fmt.parseInt(usize, mirror_str, 10)) |mirror_index| {
+            if (mirror_index < zig_mirrors.len) {
+                preferred_mirror = mirror_index;
+                std.log.debug("Using mirror {d} from ZVM_MIRROR environment variable", .{mirror_index});
+            } else {
+                std.log.warn("Invalid ZVM_MIRROR value {d}, must be 0-{d}", .{ mirror_index, zig_mirrors.len - 1 });
+            }
+        } else |_| {
+            std.log.warn("Invalid ZVM_MIRROR value '{s}', must be a number 0-{d}", .{ mirror_str, zig_mirrors.len - 1 });
+        }
+    }
+}
+
 /// zig minisign public key
 pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
 

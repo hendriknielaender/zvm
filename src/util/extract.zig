@@ -13,14 +13,14 @@ pub fn extract_static(
     extract_op: *object_pools.ExtractOperation,
     out_dir: std.fs.Dir,
     file: std.fs.File,
-    file_type: enum { tarxz, zip, tarGz },
+    file_type: enum { tarxz, zip, tar_gz },
     is_zls: bool,
     root_node: std.Progress.Node,
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir_static(extract_op, out_dir, file, root_node),
         .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls, root_node),
-        .tarGz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
+        .tar_gz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
     }
 }
 
@@ -71,14 +71,11 @@ fn extract_targz_to_dir(
     var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
     var file_reader = file.reader(&reader_buffer);
 
-    // Use flate.Decompress API with .gzip container
-    var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-    var decompress: std.compress.flate.Decompress = .init(&file_reader.interface, .gzip, &decompress_buffer);
+    var decompress: std.compress.flate.Decompress = .init(&file_reader.interface, .gzip, &.{});
 
     // Start extraction with an indeterminate progress indicator
     root_node.setEstimatedTotalItems(0);
 
-    // flate.Decompress provides a reader field that is a std.Io.Reader
     try tar.pipeToFileSystem(
         out_dir,
         &decompress.reader,
@@ -118,7 +115,9 @@ fn extract_zip_dir_static(
     const out_path = try out_path_buffer.set(realpath_result);
 
     // Use temporary buffers for copying directories.
+    // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
     var source_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
     var dest_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
     try tool.copy_dir_static(tmp_path, out_path, &source_buffer, &dest_buffer);
 }

@@ -3,18 +3,9 @@ const builtin = @import("builtin");
 const limits = @import("limits.zig");
 const object_pools = @import("object_pools.zig");
 const static_memory = @import("static_memory.zig");
+const util_tool = @import("util/tool.zig");
 
 /// Cross-platform environment variable getter
-fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
-        // On Windows, env vars need special handling due to WTF-16 encoding
-        // For optional env vars, just return null
-        return null;
-    } else {
-        return std.posix.getenv(var_name);
-    }
-}
-
 /// Global application context containing all pre-allocated resources.
 pub const CliContext = struct {
     /// Pre-allocated object pools.
@@ -32,7 +23,7 @@ pub const CliContext = struct {
 
     /// JSON parsing allocator - separate from static allocator to allow JSON parsing
     /// even after static allocator is locked.
-    json_fba: std.heap.FixedBufferAllocator = undefined,
+    json_fba: std.heap.FixedBufferAllocator,
 
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
@@ -134,7 +125,7 @@ pub const CliContext = struct {
                 break :blk std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./";
             } else {
                 // On POSIX, use getenv which doesn't allocate, then copy to our buffer
-                const home_env = getenv_cross_platform("HOME") orelse "./";
+                const home_env = util_tool.getenv_cross_platform("HOME") orelse "./";
                 const allocated = context_storage.static_mem.allocator().dupe(u8, home_env) catch "./";
                 break :blk allocated;
             }
@@ -230,7 +221,7 @@ pub const CliContext = struct {
         std.debug.assert(home_dir.len > 0);
 
         // Follow XDG Base Directory specification
-        if (getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
             try fixed_buffer_stream.writer().print("{s}/.zm/{s}", .{ xdg_data, segment });
         } else {
             // Use XDG default: $HOME/.local/share/.zm

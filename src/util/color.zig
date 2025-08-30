@@ -13,12 +13,12 @@ pub const Color = struct {
         preset: bool = false,
 
         pub inline fn format(self: *ComptimeStyle, comptime text: []const u8) []const u8 {
-            defer self.removeAll();
+            defer self.remove_all();
             return self.open ++ text ++ self.close;
         }
 
         pub inline fn print(self: *ComptimeStyle, comptime text: []const u8) !void {
-            defer self.removeAll();
+            defer self.remove_all();
             const formatted_text = self.format(text);
             var buffer: [io_buffer_size]u8 = undefined;
             var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
@@ -27,8 +27,8 @@ pub const Color = struct {
             try stdout.flush();
         }
 
-        pub inline fn printErr(self: *ComptimeStyle, comptime text: []const u8) !void {
-            defer self.removeAll();
+        pub inline fn print_err(self: *ComptimeStyle, comptime text: []const u8) !void {
+            defer self.remove_all();
             const formatted_text = self.format(text);
             var buffer: [io_buffer_size]u8 = undefined;
             var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
@@ -43,7 +43,7 @@ pub const Color = struct {
             return self;
         }
 
-        inline fn removeAll(self: *ComptimeStyle) void {
+        inline fn remove_all(self: *ComptimeStyle) void {
             if (self.preset) return;
             self.open = "";
             self.close = "";
@@ -95,7 +95,7 @@ pub const Color = struct {
         }
 
         /// Adds a style code to the Style instance.
-        pub fn addStyle(self: *RuntimeStyle, style_code: []const u8) *RuntimeStyle {
+        pub fn add_style(self: *RuntimeStyle, style_code: []const u8) *RuntimeStyle {
             // Check if style code fits in open buffer
             const new_open_len = self.open_len + style_code.len;
             if (new_open_len > self.open_buffer.len) {
@@ -122,14 +122,14 @@ pub const Color = struct {
             return self;
         }
 
-        fn removeAll(self: *RuntimeStyle) void {
+        fn remove_all(self: *RuntimeStyle) void {
             self.open_len = 0;
             self.close_len = 0;
         }
 
         /// Returns the formatted text with styles applied.
         pub fn format(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) ![]u8 {
-            defer self.removeAll();
+            defer self.remove_all();
 
             // Use a temporary buffer for initial formatting to avoid aliasing
             var temp_buffer: [limits.limits.format_buffer_size_maximum]u8 = undefined;
@@ -168,7 +168,7 @@ pub const Color = struct {
         }
 
         /// Prints the formatted text to stderr.
-        pub fn printErr(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
+        pub fn print_err(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
             const formatted_text = try self.format(format_string, args);
             var buffer: [io_buffer_size]u8 = undefined;
             var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
@@ -179,31 +179,31 @@ pub const Color = struct {
 
         // Style methods
         pub fn bold(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[1m");
+            return self.add_style("\x1b[1m");
         }
 
         pub fn red(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[31m");
+            return self.add_style("\x1b[31m");
         }
 
         pub fn green(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[32m");
+            return self.add_style("\x1b[32m");
         }
 
         pub fn magenta(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[35m");
+            return self.add_style("\x1b[35m");
         }
 
         pub fn cyan(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[36m");
+            return self.add_style("\x1b[36m");
         }
 
         pub fn yellow(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[33m");
+            return self.add_style("\x1b[33m");
         }
 
         pub fn white(self: *RuntimeStyle) *RuntimeStyle {
-            return self.addStyle("\x1b[37m");
+            return self.add_style("\x1b[37m");
         }
     };
 };

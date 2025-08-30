@@ -10,7 +10,7 @@ pub const DetectParams = struct {
     is_master: bool = false,
 };
 
-fn osToString(os: std.Target.Os.Tag) ?[]const u8 {
+fn os_to_string(os: std.Target.Os.Tag) ?[]const u8 {
     return switch (os) {
         .linux => "linux",
         .macos => "macos",
@@ -19,7 +19,7 @@ fn osToString(os: std.Target.Os.Tag) ?[]const u8 {
     };
 }
 
-fn archToString(arch: std.Target.Cpu.Arch) ?[]const u8 {
+fn arch_to_string(arch: std.Target.Cpu.Arch) ?[]const u8 {
     return switch (arch) {
         .x86_64 => "x86_64",
         .aarch64 => "aarch64",
@@ -31,7 +31,7 @@ fn archToString(arch: std.Target.Cpu.Arch) ?[]const u8 {
     };
 }
 
-fn archToStringMaster(arch: std.Target.Cpu.Arch) ?[]const u8 {
+fn arch_to_string_master(arch: std.Target.Cpu.Arch) ?[]const u8 {
     return switch (arch) {
         .x86_64 => "x86_64",
         .aarch64 => "aarch64",
@@ -51,16 +51,16 @@ fn archToStringMaster(arch: std.Target.Cpu.Arch) ?[]const u8 {
 ///
 /// for performance, we treat this function as comptime-func when possible
 pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
-    const os_str = (comptime osToString(params.os)) orelse {
+    const os_str = (comptime os_to_string(params.os)) orelse {
         @compileError("Unsupported operating system: " ++ @tagName(params.os) ++ ". Supported: windows, linux, macos");
     };
 
     const arch_str = if (params.is_master)
-        (comptime archToStringMaster(params.arch)) orelse {
+        (comptime arch_to_string_master(params.arch)) orelse {
             @compileError("Unsupported architecture for master builds: " ++ @tagName(params.arch) ++ ". Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc");
         }
     else
-        (comptime archToString(params.arch)) orelse {
+        (comptime arch_to_string(params.arch)) orelse {
             @compileError("Unsupported architecture: " ++ @tagName(params.arch) ++ ". Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc");
         };
 
@@ -72,18 +72,18 @@ pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
 
 /// Runtime version of platform_str using static allocation.
 pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParams) !?[]const u8 {
-    const os_str = osToString(params.os) orelse {
+    const os_str = os_to_string(params.os) orelse {
         std.log.err("Unsupported operating system: {s}. Supported: windows, linux, macos", .{@tagName(params.os)});
         return error.UnsupportedSystem;
     };
 
     const arch_str = if (params.is_master)
-        archToStringMaster(params.arch) orelse {
+        arch_to_string_master(params.arch) orelse {
             std.log.err("Unsupported architecture for master builds: {s}. Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
             return error.UnsupportedSystem;
         }
     else
-        archToString(params.arch) orelse {
+        arch_to_string(params.arch) orelse {
             std.log.err("Unsupported architecture: {s}. Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
             return error.UnsupportedSystem;
         };
