@@ -138,6 +138,7 @@ pub const ValidatedCommand = union(enum) {
     use: UseCommand,
     list: ListCommand,
     list_remote: ListRemoteCommand,
+    list_mirrors: ListMirrorsCommand,
     current: CurrentCommand,
     clean: CleanCommand,
     env: EnvCommand,
@@ -195,6 +196,9 @@ pub const ValidatedCommand = union(enum) {
         tool: ToolType,
     };
 
+    /// Validated list-mirrors command
+    pub const ListMirrorsCommand = struct {};
+
     /// Validated current command
     pub const CurrentCommand = struct {};
 
@@ -228,6 +232,7 @@ pub fn validate_command(raw_command: raw_args.RawArgs) !ValidatedCommand {
         .use => |raw| .{ .use = try validate_use(raw) },
         .list => |raw| .{ .list = try validate_list(raw) },
         .list_remote => |raw| .{ .list_remote = try validate_list_remote(raw) },
+        .list_mirrors => |raw| .{ .list_mirrors = try validate_list_mirrors(raw) },
         .current => |raw| .{ .current = try validate_current(raw) },
         .clean => |raw| .{ .clean = try validate_clean(raw) },
         .env => |raw| .{ .env = try validate_env(raw) },
@@ -381,6 +386,11 @@ fn validate_list_remote(raw: raw_args.RawArgs.ListRemoteArgs) !ValidatedCommand.
     return ValidatedCommand.ListRemoteCommand{
         .tool = ToolType.from_bool(raw.is_zls),
     };
+}
+
+fn validate_list_mirrors(raw: raw_args.RawArgs.ListMirrorsArgs) !ValidatedCommand.ListMirrorsCommand {
+    _ = raw;
+    return ValidatedCommand.ListMirrorsCommand{};
 }
 
 fn validate_current(raw: raw_args.RawArgs.CurrentArgs) !ValidatedCommand.CurrentCommand {

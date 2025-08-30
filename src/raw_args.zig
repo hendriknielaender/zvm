@@ -25,6 +25,7 @@ pub const RawArgs = union(enum) {
     completions: CompletionsArgs,
     version: VersionArgs,
     help: HelpArgs,
+    list_mirrors: ListMirrorsArgs,
 
     pub const InstallArgs = struct {
         version: [max_version_string_length]u8,
@@ -133,6 +134,9 @@ pub const RawArgs = union(enum) {
 
     /// Raw help command arguments
     pub const HelpArgs = struct {};
+
+    /// Raw list-mirrors command arguments
+    pub const ListMirrorsArgs = struct {};
 };
 
 pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawArgs {
@@ -176,6 +180,9 @@ pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawAr
     }
     if (std.mem.eql(u8, command_name, "help") or std.mem.eql(u8, command_name, "--help")) {
         return .{ .help = try parse_help_args(args) };
+    }
+    if (std.mem.eql(u8, command_name, "list-mirrors")) {
+        return .{ .list_mirrors = try parse_list_mirrors_args(args) };
     }
 
     return error.UnknownCommand;
@@ -419,6 +426,13 @@ fn parse_help_args(args: []const []const u8) !RawArgs.HelpArgs {
     return RawArgs.HelpArgs{};
 }
 
+fn parse_list_mirrors_args(args: []const []const u8) !RawArgs.ListMirrorsArgs {
+    if (args.len > 0) {
+        return error.UnexpectedArguments;
+    }
+    return RawArgs.ListMirrorsArgs{};
+}
+
 comptime {
     std.debug.assert(@sizeOf(RawArgs) <= 512);
     std.debug.assert(@sizeOf(RawArgs) > 0);
@@ -431,7 +445,7 @@ comptime {
     std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) <= 64);
     std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) > 0);
 
-    std.debug.assert(@typeInfo(RawArgs).@"union".fields.len == 11);
+    std.debug.assert(@typeInfo(RawArgs).@"union".fields.len == 12);
     std.debug.assert(max_version_string_length == limits.limits.version_string_length_maximum);
     std.debug.assert(max_shell_name_length == 32);
     std.debug.assert(max_version_string_length >= 16);

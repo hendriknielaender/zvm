@@ -124,6 +124,9 @@ pub fn main() !void {
     std.debug.assert(basename.len > 0);
     std.debug.assert(basename.len <= program_name.len);
 
+    // Initialize config (read environment variables, etc.)
+    config.init_config();
+
     // Handle aliases before parsing commands.
     const is_alias = util_tool.eql_str(basename, "zig") or util_tool.eql_str(basename, "zls");
     if (is_alias) {
@@ -410,6 +413,7 @@ fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
         .list => 1, // Read directory
         .use => 2, // Validate version, update symlinks
         .list_remote => 3, // Fetch metadata, parse, format
+        .list_mirrors => 0, // No progress needed
         .help => 0, // No progress needed
         .version => 0, // No progress needed
         .clean => |opts| if (opts.remove_all) 10 else 5, // Variable based on scope
@@ -429,6 +433,7 @@ fn execute_command(
         .version => try print_version(),
         .list => |opts| try list_installed_versions(ctx, opts.show_all),
         .list_remote => |opts| try list_remote_versions(ctx, opts.tool == .zls),
+        .list_mirrors => try list_mirrors(),
         .current => try show_current_version(ctx),
         .env => |opts| try print_env_setup(ctx, opts.shell),
         .clean => |opts| try clean_unused_versions(ctx, opts.remove_all),
@@ -472,6 +477,7 @@ fn print_help() !void {
         \\    use <version>           Switch to a specific Zig version
         \\    list                    List installed Zig versions
         \\    list-remote             List available Zig versions
+        \\    list-mirrors            List available download mirrors
         \\    current                 Show current Zig version
         \\    clean                   Remove unused Zig versions
         \\    env                     Print shell setup instructions
@@ -507,6 +513,33 @@ fn print_version() !void {
         // Print the logo and version
         util_output.info("{s}", .{util_data.zvm_logo});
         util_output.info("zvm {s}", .{options.version});
+    }
+}
+
+fn list_mirrors() !void {
+    const emitter = util_output.get_global();
+
+    if (emitter.config.mode == .machine_json) {
+        // For JSON mode, create a simple object with mirrors array
+        const json_mirrors_count = config.zig_mirrors.len;
+        var mirror_urls: [6][]const u8 = undefined;
+
+        for (config.zig_mirrors, 0..) |mirror_info, index| {
+            mirror_urls[index] = mirror_info[0];
+        }
+
+        util_output.json_array("mirrors", mirror_urls[0..json_mirrors_count]);
+    } else {
+        util_output.info("Available download mirrors:\n", .{});
+
+        for (config.zig_mirrors, 0..) |mirror_info, index| {
+            const url = mirror_info[0];
+            const maintainer = mirror_info[1];
+            util_output.info("  {d}: {s} ({s})\n", .{ index, url, maintainer });
+        }
+
+        util_output.info("Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
+        util_output.info("Example: ZVM_MIRROR=1 zvm install master\n", .{});
     }
 }
 

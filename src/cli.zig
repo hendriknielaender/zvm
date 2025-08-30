@@ -65,6 +65,48 @@ pub const ParsedCommandLine = struct {
     }
 };
 
+/// Check if an argument is a global option
+fn is_global_option(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "--json") or
+        std.mem.eql(u8, arg, "--quiet") or
+        std.mem.eql(u8, arg, "-q") or
+        std.mem.eql(u8, arg, "--color") or
+        std.mem.eql(u8, arg, "--no-color");
+}
+
+/// Extract global options from any position in arguments, return filtered args
+fn extract_global_options(arguments: []const []const u8, global_config: *GlobalConfig) ![]const []const u8 {
+    var filtered_args_storage: [max_argument_count][]const u8 = undefined;
+    var filtered_count: usize = 0;
+
+    filtered_args_storage[filtered_count] = arguments[0]; // Keep program name
+    filtered_count += 1;
+
+    var i: usize = 1;
+    while (i < arguments.len) : (i += 1) {
+        const arg = arguments[i];
+
+        if (std.mem.eql(u8, arg, "--json")) {
+            global_config.output_mode = .machine_json;
+            global_config.color_mode = .never_use_color;
+        } else if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
+            global_config.output_mode = .silent_errors_only;
+        } else if (std.mem.eql(u8, arg, "--color")) {
+            global_config.color_mode = .always_use_color;
+        } else if (std.mem.eql(u8, arg, "--no-color")) {
+            global_config.color_mode = .never_use_color;
+        } else {
+            if (filtered_count >= filtered_args_storage.len) {
+                return error.TooManyArguments;
+            }
+            filtered_args_storage[filtered_count] = arg;
+            filtered_count += 1;
+        }
+    }
+
+    return filtered_args_storage[0..filtered_count];
+}
+
 /// Parse command line arguments
 pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     std.debug.assert(arguments.len > 0); // Must have program name
@@ -77,45 +119,23 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     }
 
     var global_config = GlobalConfig.default;
-    var arg_index: usize = 1; // Skip program name
 
-    // Parse global flags first
-    while (arg_index < arguments.len) {
-        const arg = arguments[arg_index];
+    // Extract global options from any position
+    const filtered_args = try extract_global_options(arguments, &global_config);
 
-        if (std.mem.eql(u8, arg, "--json")) {
-            global_config.output_mode = .machine_json;
-            global_config.color_mode = .never_use_color; // JSON never uses color
-            arg_index += 1;
-        } else if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
-            global_config.output_mode = .silent_errors_only;
-            arg_index += 1;
-        } else if (std.mem.eql(u8, arg, "--color")) {
-            global_config.color_mode = .always_use_color;
-            arg_index += 1;
-        } else if (std.mem.eql(u8, arg, "--no-color")) {
-            global_config.color_mode = .never_use_color;
-            arg_index += 1;
-        } else {
-            // Not a global flag, must be command
-            break;
-        }
-    }
-
-    // Must have a command
-    if (arg_index >= arguments.len) {
+    // Must have at least program name and command
+    if (filtered_args.len < 2) {
         return ParsedCommandLine{
             .global_config = global_config,
             .command = .{ .help = .{} },
         };
     }
 
-    const command_name = arguments[arg_index];
+    const command_name = filtered_args[1];
     std.debug.assert(command_name.len > 0);
     std.debug.assert(command_name.len <= max_command_name_length);
 
-    arg_index += 1; // Move past command name
-    const remaining_args = arguments[arg_index..];
+    const remaining_args = filtered_args[2..];
 
     // Stage 1: Parse raw arguments
     const raw_command = raw_args.parse_raw_args(command_name, remaining_args) catch |err| switch (err) {
