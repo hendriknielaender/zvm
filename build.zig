@@ -107,11 +107,23 @@ pub fn build(b: *Build) void {
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
+    // Add staged validation tests
+    const staged_validation_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_staged_validation.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_staged_validation_tests = b.addRunArtifact(staged_validation_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_staged_validation_tests.step);
     // Additional build steps for different configurations or tasks
     // Add here as needed (e.g., documentation generation, code linting)
 }

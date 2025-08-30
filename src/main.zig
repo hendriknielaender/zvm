@@ -41,7 +41,7 @@ const AliasBuffers = struct {
 };
 
 /// Helper to check if environment variable exists on Windows (Zig 0.15.1 compatible)
-fn hasWindowsEnvVar(var_name: []const u8) bool {
+fn has_windows_env_var(var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -56,7 +56,7 @@ fn hasWindowsEnvVar(var_name: []const u8) bool {
 }
 
 /// Helper to get environment variable on Windows (Zig 0.15.1 compatible)
-fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
 
     const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
@@ -141,9 +141,23 @@ pub fn main() !void {
         unreachable; // handle_alias calls execve which never returns on success
     }
 
+    // Initialize output emitter with defaults first so validation can use it
+    const default_output_config = util_output.OutputConfig{
+        .mode = .human_readable,
+        .color = .always_use_color,
+    };
+    _ = try util_output.init_global(default_output_config);
+
     const parsed_command_line = cli.parse_command_line(arguments) catch |err| {
         util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
+
+    // Update output configuration with parsed values
+    const final_output_config = util_output.OutputConfig{
+        .mode = parsed_command_line.global_config.output_mode,
+        .color = parsed_command_line.global_config.color_mode,
+    };
+    _ = try util_output.update_global(final_output_config);
 
     // Initialize our static memory context.
     std.debug.assert(global_static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
@@ -157,12 +171,6 @@ pub fn main() !void {
 
     std.debug.assert(context_instance == &global_context);
 
-    const output_config = util_output.OutputConfig{
-        .mode = parsed_command_line.global_config.output_mode,
-        .color = parsed_command_line.global_config.color_mode,
-    };
-    _ = try util_output.init_global(output_config);
-
     // Initialize progress reporting for long operations.
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
@@ -174,7 +182,7 @@ pub fn main() !void {
 
     // If ZVM_DEBUG environment variable is set, print resource usage
     const has_debug = if (builtin.os.tag == .windows) blk: {
-        break :blk hasWindowsEnvVar("ZVM_DEBUG");
+        break :blk has_windows_env_var("ZVM_DEBUG");
     } else blk: {
         break :blk getenv_cross_platform("ZVM_DEBUG") != null;
     };
@@ -300,7 +308,7 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
 
-        if (getWindowsEnvVar(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
+        if (get_windows_env_var(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
             // No ZVM_HOME or error, use default
@@ -709,7 +717,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
             defer arena.deinit();
 
             var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-            if (getWindowsEnvVar(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
+            if (get_windows_env_var(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
                     break :blk "powershell";

@@ -168,7 +168,7 @@ pub const HttpClient = struct {
     }
 
     /// Download a file using a pre-allocated HTTP operation
-    pub fn downloadFile(
+    pub fn download_file(
         ctx: *context.CliContext,
         uri: std.Uri,
         headers: std.http.Client.Request.Headers,
@@ -236,7 +236,7 @@ pub const HttpClient = struct {
     }
 
     /// Fetch JSON and parse it using pre-allocated buffer
-    pub fn fetchJson(
+    pub fn fetch_json(
         ctx: *context.CliContext,
         uri: std.Uri,
         headers: std.http.Client.Request.Headers,

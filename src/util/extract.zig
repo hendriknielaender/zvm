@@ -13,14 +13,14 @@ pub fn extract_static(
     extract_op: *object_pools.ExtractOperation,
     out_dir: std.fs.Dir,
     file: std.fs.File,
-    file_type: enum { tarxz, zip, tarGz },
+    file_type: enum { tarxz, zip, tar_gz },
     is_zls: bool,
     root_node: std.Progress.Node,
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir_static(extract_op, out_dir, file, root_node),
         .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls, root_node),
-        .tarGz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
+        .tar_gz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
     }
 }
 

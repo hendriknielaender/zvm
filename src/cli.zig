@@ -2,9 +2,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");
+const raw_args = @import("raw_args.zig");
+const validation = @import("validation.zig");
 
 /// Cross-platform environment variable getter
-fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
+pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
     if (builtin.os.tag == .windows) {
         // On Windows, env vars need special handling due to WTF-16 encoding
         // For optional env vars, just return null
@@ -222,7 +224,7 @@ pub const ParsedCommandLine = struct {
     }
 };
 
-/// Parse command line arguments with strict validation
+/// Parse command line arguments with staged validation
 pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     std.debug.assert(arguments.len > 0); // Must have program name
     std.debug.assert(arguments.len <= max_argument_count);
@@ -263,7 +265,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     if (arg_index >= arguments.len) {
         return ParsedCommandLine{
             .global_config = global_config,
-            .command = .{ .help = .{} },
+            .command = convert_validated_to_legacy(.{ .help = .{} }),
         };
     }
 
@@ -274,8 +276,49 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     arg_index += 1; // Move past command name
     const remaining_args = arguments[arg_index..];
 
-    // Parse command
-    const command = try parse_command(command_name, remaining_args);
+    // Stage 1: Parse raw arguments
+    const raw_command = raw_args.parse_raw_args(command_name, remaining_args) catch |err| switch (err) {
+        error.UnknownCommand => {
+            util_output.fatal(.invalid_arguments, "Unknown command: '{s}'", .{command_name});
+        },
+        error.MissingVersionArgument => {
+            util_output.fatal(.invalid_arguments, "{s} command requires a version argument", .{command_name});
+        },
+        error.EmptyVersionArgument => {
+            util_output.fatal(.invalid_arguments, "{s} command version argument cannot be empty", .{command_name});
+        },
+        error.VersionStringTooLong => {
+            util_output.fatal(
+                .invalid_arguments,
+                "version string too long (maximum: {d} characters)",
+                .{limits.limits.version_string_length_maximum},
+            );
+        },
+        error.UnknownFlag => {
+            util_output.fatal(.invalid_arguments, "unknown flag in {s} command", .{command_name});
+        },
+        error.UnexpectedArguments => {
+            util_output.fatal(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
+        },
+        error.EmptyShellArgument => {
+            util_output.fatal(.invalid_arguments, "shell argument cannot be empty", .{});
+        },
+        error.ShellNameTooLong => {
+            util_output.fatal(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
+        },
+        error.TooManyArguments => {
+            util_output.fatal(.invalid_arguments, "too many arguments for {s} command", .{command_name});
+        },
+    };
+
+    // Stage 2: Validate and transform
+    const validated_command = validation.validate_command(raw_command) catch |err| switch (err) {
+        // Validation errors are handled inside validation.zig with detailed messages
+        else => return err,
+    };
+
+    // Convert validated command back to legacy format for compatibility
+    const command = convert_validated_to_legacy(validated_command);
 
     const result = ParsedCommandLine{
         .global_config = global_config,
@@ -286,48 +329,105 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     return result;
 }
 
-/// Parse specific command with its arguments
+/// Convert validated command back to legacy format for compatibility
+fn convert_validated_to_legacy(validated: validation.ValidatedCommand) Command {
+    return switch (validated) {
+        .install => |cmd| blk: {
+            var version_buffer: [max_version_string_length]u8 = undefined;
+            const version_str = cmd.version.to_string(&version_buffer) catch unreachable;
+            std.debug.assert(version_str.len > 0);
+            std.debug.assert(version_str.len < max_version_string_length);
+
+            var install_cmd = Command.InstallCommand{
+                .version_string = std.mem.zeroes([max_version_string_length]u8),
+                .version_length = @intCast(version_str.len),
+                .is_zls = (cmd.tool == .zls),
+            };
+            std.debug.assert(install_cmd.version_length > 0);
+            std.debug.assert(install_cmd.version_length == version_str.len);
+
+            @memcpy(install_cmd.version_string[0..version_str.len], version_str);
+            std.debug.assert(install_cmd.version_string[0] != 0);
+
+            const result_version = install_cmd.get_version();
+            std.debug.assert(result_version.len == version_str.len);
+            std.debug.assert(std.mem.eql(u8, result_version, version_str));
+            break :blk .{ .install = install_cmd };
+        },
+        .remove => |cmd| blk: {
+            var version_buffer: [max_version_string_length]u8 = undefined;
+            const version_str = cmd.version.to_string(&version_buffer) catch unreachable;
+
+            var remove_cmd = Command.RemoveCommand{
+                .version_string = std.mem.zeroes([max_version_string_length]u8),
+                .version_length = @intCast(version_str.len),
+                .is_zls = (cmd.tool == .zls),
+            };
+            @memcpy(remove_cmd.version_string[0..version_str.len], version_str);
+            break :blk .{ .remove = remove_cmd };
+        },
+        .use => |cmd| blk: {
+            var version_buffer: [max_version_string_length]u8 = undefined;
+            const version_str = cmd.version.to_string(&version_buffer) catch unreachable;
+
+            var use_cmd = Command.UseCommand{
+                .version_string = std.mem.zeroes([max_version_string_length]u8),
+                .version_length = @intCast(version_str.len),
+                .is_zls = (cmd.tool == .zls),
+            };
+            @memcpy(use_cmd.version_string[0..version_str.len], version_str);
+            break :blk .{ .use = use_cmd };
+        },
+        .list => |cmd| .{ .list = .{ .show_all = cmd.show_all } },
+        .list_remote => |cmd| .{ .list_remote = .{ .is_zls = (cmd.tool == .zls) } },
+        .current => .{ .current = .{} },
+        .clean => |cmd| .{ .clean = .{ .remove_all = cmd.remove_all } },
+        .env => |cmd| blk: {
+            var env_cmd = Command.EnvCommand{
+                .shell_name = null,
+                .shell_length = 0,
+            };
+
+            if (cmd.shell) |shell| {
+                const shell_str = @tagName(shell);
+                env_cmd.shell_name = std.mem.zeroes([32]u8);
+                @memcpy(env_cmd.shell_name.?[0..shell_str.len], shell_str);
+                env_cmd.shell_length = @intCast(shell_str.len);
+            }
+
+            break :blk .{ .env = env_cmd };
+        },
+        .completions => |cmd| .{ .completions = .{ .shell_type = switch (cmd.shell) {
+            .bash => .bash,
+            .zsh => .zsh,
+            .fish => .fish,
+            .powershell => .powershell,
+        } } },
+        .version => .{ .version = .{} },
+        .help => .{ .help = .{} },
+    };
+}
+
+/// Legacy command parsing - now redirects to staged validation
+/// This function is kept for compatibility but the actual parsing is done in raw_args.zig
 fn parse_command(command_name: []const u8, args: []const []const u8) !Command {
     std.debug.assert(command_name.len > 0);
     std.debug.assert(command_name.len <= max_command_name_length);
     std.debug.assert(args.len <= max_argument_count);
 
-    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
-        return parse_install_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
-        return parse_remove_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
-        return parse_use_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
-        return parse_list_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "list-remote")) {
-        return parse_list_remote_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "current")) {
-        return parse_current_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "clean")) {
-        return parse_clean_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "env")) {
-        return parse_env_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "completions")) {
-        return parse_completions_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "version") or std.mem.eql(u8, command_name, "--version")) {
-        return parse_version_command(args);
-    }
-    if (std.mem.eql(u8, command_name, "help") or std.mem.eql(u8, command_name, "--help")) {
-        return parse_help_command(args);
-    }
+    // Use staged validation system
+    const raw_command = raw_args.parse_raw_args(command_name, args) catch |err| switch (err) {
+        error.UnknownCommand => {
+            util_output.fatal(.invalid_arguments, "Unknown command: '{s}'", .{command_name});
+        },
+        else => return err,
+    };
 
-    // Unknown command
-    util_output.fatal(.invalid_arguments, "Unknown command: '{s}'", .{command_name});
+    const validated_command = validation.validate_command(raw_command) catch |err| {
+        return err;
+    };
+
+    return convert_validated_to_legacy(validated_command);
 }
 
 /// Parse install command arguments

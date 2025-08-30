@@ -10,7 +10,7 @@ pub const ByteSize = struct {
 };
 
 /// Resolve command aliases to their full names
-fn resolveAlias(cmd: []const u8) []const u8 {
+fn resolve_alias(cmd: []const u8) []const u8 {
     if (std.mem.eql(u8, cmd, "ls")) return "list";
     if (std.mem.eql(u8, cmd, "i")) return "install";
     if (std.mem.eql(u8, cmd, "u")) return "use";
@@ -35,7 +35,7 @@ pub fn parse(arguments_iterator: *std.process.ArgIterator, comptime Union: type)
     const command_str = arguments_iterator.next() orelse fatal("no command specified", .{});
 
     // Map aliases to full command names
-    const resolved_command = resolveAlias(command_str);
+    const resolved_command = resolve_alias(command_str);
 
     // Check for help flag first
     const is_help_long = std.mem.eql(u8, resolved_command, "--help");
@@ -46,21 +46,21 @@ pub fn parse(arguments_iterator: *std.process.ArgIterator, comptime Union: type)
         if (@hasField(Union, "help")) {
             return @unionInit(Union, "help", .{});
         }
-        printHelp(Union);
+        print_help(Union);
         std.process.exit(0);
     }
     if (is_help_short) {
         if (@hasField(Union, "help")) {
             return @unionInit(Union, "help", .{});
         }
-        printHelp(Union);
+        print_help(Union);
         std.process.exit(0);
     }
     if (is_help_cmd) {
         if (@hasField(Union, "help")) {
             return @unionInit(Union, "help", .{});
         }
-        printHelp(Union);
+        print_help(Union);
         std.process.exit(0);
     }
 
@@ -94,15 +94,15 @@ pub fn parse(arguments_iterator: *std.process.ArgIterator, comptime Union: type)
 
     // Match command to union tag
     inline for (union_info.fields) |field| {
-        if (matchCommand(resolved_command, field.name)) {
-            return parseCommand(Union, field, arguments_iterator);
+        if (match_command(resolved_command, field.name)) {
+            return parse_command(Union, field, arguments_iterator);
         }
     }
 
     fatal("unknown command: {s}", .{command_str});
 }
 
-fn matchCommand(input: []const u8, comptime field_name: []const u8) bool {
+fn match_command(input: []const u8, comptime field_name: []const u8) bool {
     // Direct match
     if (std.mem.eql(u8, input, field_name)) return true;
 
@@ -117,7 +117,7 @@ fn matchCommand(input: []const u8, comptime field_name: []const u8) bool {
     return std.mem.eql(u8, input, &dash_name);
 }
 
-fn parseCommand(
+fn parse_command(
     comptime Union: type,
     comptime field: std.builtin.Type.UnionField,
     arguments_iterator: *std.process.ArgIterator,
@@ -171,16 +171,16 @@ fn parseCommand(
                     if (arg_field.name[0] != '_') {
                         if (@typeInfo(arg_field.type) != .@"struct") {
                             const flag_name = "--" ++ arg_field.name;
-                            const flag_name_dashes = computeFlagName(arg_field.name);
+                            const flag_name_dashes = compute_flag_name(arg_field.name);
 
                             if (std.mem.eql(u8, flag, flag_name)) {
                                 found = true;
-                                parseFieldValue(FieldType, &result, arg_field.name, value, arguments_iterator);
+                                parse_field_value(FieldType, &result, arg_field.name, value, arguments_iterator);
                                 break;
                             }
                             if (std.mem.eql(u8, flag, flag_name_dashes)) {
                                 found = true;
-                                parseFieldValue(FieldType, &result, arg_field.name, value, arguments_iterator);
+                                parse_field_value(FieldType, &result, arg_field.name, value, arguments_iterator);
                                 break;
                             }
                         }
@@ -235,7 +235,7 @@ fn parseCommand(
     return @unionInit(Union, field.name, result);
 }
 
-fn computeFlagName(comptime name: []const u8) *const [name.len + 2]u8 {
+fn compute_flag_name(comptime name: []const u8) *const [name.len + 2]u8 {
     const result = comptime blk: {
         var buf: [name.len + 2]u8 = undefined;
         buf[0] = '-';
@@ -248,7 +248,7 @@ fn computeFlagName(comptime name: []const u8) *const [name.len + 2]u8 {
     return &result;
 }
 
-fn parseFieldValue(
+fn parse_field_value(
     comptime T: type,
     result: *T,
     comptime field_name: []const u8,
@@ -291,7 +291,7 @@ fn parseFieldValue(
     }
 }
 
-fn printHelp(comptime Union: type) void {
+fn print_help(comptime Union: type) void {
     if (@hasDecl(Union, "help_text")) {
         std.debug.print("{s}\n", .{Union.help_text});
     } else {

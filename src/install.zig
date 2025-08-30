@@ -57,7 +57,7 @@ fn download_file_with_verification(
 
     const new_file = try store.createFile(file_name, .{ .read = true });
 
-    try http_client.HttpClient.downloadFile(ctx, uri, .{}, new_file, progress_node);
+    try http_client.HttpClient.download_file(ctx, uri, .{}, new_file, progress_node);
 
     if (size) |expected_size| {
         const file_stat = try new_file.stat();
