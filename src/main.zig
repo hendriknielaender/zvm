@@ -435,7 +435,7 @@ fn execute_command(
         .install => |opts| {
             var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
             const version_str = try opts.version.to_string(&version_buffer);
-            try install.install(ctx, version_str, opts.tool == .zls, progress_node, false);
+            try install.install(ctx, version_str, opts.tool == .zls, progress_node);
         },
         .remove => |opts| {
             var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
