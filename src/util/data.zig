@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const limits = @import("../limits.zig");
 const object_pools = @import("../object_pools.zig");
 const context = @import("../context.zig");

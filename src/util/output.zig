@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const limits = @import("../limits.zig");
 
 const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;

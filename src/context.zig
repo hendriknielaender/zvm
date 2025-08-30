@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const limits = @import("limits.zig");
 const object_pools = @import("object_pools.zig");
-const util_output = @import("util/output.zig");
 const static_memory = @import("static_memory.zig");
 const util_tool = @import("util/tool.zig");
 
@@ -24,7 +23,7 @@ pub const CliContext = struct {
 
     /// JSON parsing allocator - separate from static allocator to allow JSON parsing
     /// even after static allocator is locked.
-    json_fba: std.heap.FixedBufferAllocator = undefined,
+    json_fba: std.heap.FixedBufferAllocator,
 
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;

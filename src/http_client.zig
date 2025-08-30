@@ -212,6 +212,7 @@ pub const HttpClient = struct {
         // Set up decompression if needed
         var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
         var transfer_buffer: [limits.limits.http_transfer_buffer_size]u8 = undefined;
+        // SAFETY: decompress is initialized before use by readerDecompressing call below
         var decompress: std.http.Decompress = undefined;
         const body_reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
 

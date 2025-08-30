@@ -167,40 +167,50 @@ pub const ProcessBuffer = struct {
 
 /// All object pools for the application - completely static.
 pub const ObjectPools = struct {
-    path_buffers: [limits.limits.path_buffers_maximum]PathBuffer =
-        [_]PathBuffer{.{ .data = undefined, .used = 0 }} ** limits.limits.path_buffers_maximum,
-
-    http_operations: [limits.limits.http_operations_maximum]HttpOperation =
-        [_]HttpOperation{.{
-            .response_buffer = undefined,
-            .url_buffer = undefined,
-            .header_buffer = undefined,
-            .in_use = false,
-        }} ** limits.limits.http_operations_maximum,
-
-    version_entries: [limits.limits.versions_maximum]VersionEntry =
-        [_]VersionEntry{.{ .name_buffer = undefined, .name_length = 0, .metadata = .{}, .occupied = false }} ** limits.limits.versions_maximum,
-
-    extract_operations: [limits.limits.extract_operations_maximum]ExtractOperation =
-        [_]ExtractOperation{.{
-            .buffer = undefined,
-            .tmp_path_buffer = .{ .data = undefined, .used = 0 },
-            .out_path_buffer = .{ .data = undefined, .used = 0 },
-            .in_use = false,
-        }} ** limits.limits.extract_operations_maximum,
-
-    process_buffer: ProcessBuffer = .{
-        .output = undefined,
-        .arguments = undefined,
-        .arguments_storage = undefined,
-        .arguments_count = 0,
-    },
-
-    json_parse_buffer: [limits.limits.json_parse_size_maximum]u8 = undefined,
+    path_buffers: [limits.limits.path_buffers_maximum]PathBuffer,
+    http_operations: [limits.limits.http_operations_maximum]HttpOperation,
+    version_entries: [limits.limits.versions_maximum]VersionEntry,
+    extract_operations: [limits.limits.extract_operations_maximum]ExtractOperation,
+    process_buffer: ProcessBuffer,
+    json_parse_buffer: [limits.limits.json_parse_size_maximum]u8,
 
     /// Initialize object pools - no allocation needed!
     pub fn init() ObjectPools {
-        return .{};
+        return ObjectPools{
+            // SAFETY: PathBuffer data arrays are initialized before first use by set() method
+            .path_buffers = [_]PathBuffer{.{ .data = undefined, .used = 0 }} ** limits.limits.path_buffers_maximum,
+            .http_operations = [_]HttpOperation{.{
+                // SAFETY: HTTP buffers are initialized before first use by HTTP client
+                .response_buffer = undefined,
+                // SAFETY: HTTP buffers are initialized before first use by HTTP client
+                .url_buffer = undefined,
+                // SAFETY: HTTP buffers are initialized before first use by HTTP client
+                .header_buffer = undefined,
+                .in_use = false,
+            }} ** limits.limits.http_operations_maximum,
+            // SAFETY: VersionEntry name buffers are initialized before first use by set_name() method
+            .version_entries = [_]VersionEntry{.{ .name_buffer = undefined, .name_length = 0, .metadata = .{}, .occupied = false }} ** limits.limits.versions_maximum,
+            .extract_operations = [_]ExtractOperation{.{
+                // SAFETY: Extract buffer is initialized before first use by extract operations
+                .buffer = undefined,
+                // SAFETY: PathBuffer data arrays are initialized before first use by set() method
+                .tmp_path_buffer = .{ .data = undefined, .used = 0 },
+                // SAFETY: PathBuffer data arrays are initialized before first use by set() method
+                .out_path_buffer = .{ .data = undefined, .used = 0 },
+                .in_use = false,
+            }} ** limits.limits.extract_operations_maximum,
+            .process_buffer = .{
+                // SAFETY: Process buffers are initialized before first use by process operations
+                .output = undefined,
+                // SAFETY: Process buffers are initialized before first use by process operations
+                .arguments = undefined,
+                // SAFETY: Process buffers are initialized before first use by process operations
+                .arguments_storage = undefined,
+                .arguments_count = 0,
+            },
+            // SAFETY: JSON buffer is initialized before first use by JSON parsing operations
+            .json_parse_buffer = undefined,
+        };
     }
 
     pub fn acquire_path_buffer(self: *ObjectPools) !*PathBuffer {

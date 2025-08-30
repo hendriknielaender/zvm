@@ -1,5 +1,4 @@
 const std = @import("std");
-const cli = @import("cli.zig");
 const raw_args = @import("raw_args.zig");
 const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");

@@ -6,7 +6,6 @@ const std = @import("std");
 const config = @import("config.zig");
 const util_tool = @import("util/tool.zig");
 const object_pools = @import("object_pools.zig");
-const limits = @import("limits.zig");
 
 const json = std.json;
 const Allocator = std.mem.Allocator;

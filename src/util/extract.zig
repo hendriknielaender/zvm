@@ -118,7 +118,9 @@ fn extract_zip_dir_static(
     const out_path = try out_path_buffer.set(realpath_result);
 
     // Use temporary buffers for copying directories.
+    // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
     var source_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
     var dest_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
     try tool.copy_dir_static(tmp_path, out_path, &source_buffer, &dest_buffer);
 }
