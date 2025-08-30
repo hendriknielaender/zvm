@@ -3,6 +3,7 @@ const cli = @import("cli.zig");
 const raw_args = @import("raw_args.zig");
 const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");
+const util_tool = @import("util/tool.zig");
 
 pub const VersionSpec = union(enum) {
     master,
@@ -445,7 +446,7 @@ fn detect_shell_from_environment() ?ShellType {
         return .powershell;
     }
 
-    const getenv = @import("cli.zig").getenv_cross_platform;
+    const getenv = util_tool.getenv_cross_platform;
     const shell_path = getenv("SHELL") orelse return null;
     std.debug.assert(shell_path.len > 0);
 

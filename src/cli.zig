@@ -4,17 +4,7 @@ const limits = @import("limits.zig");
 const util_output = @import("util/output.zig");
 const raw_args = @import("raw_args.zig");
 const validation = @import("validation.zig");
-
-/// Cross-platform environment variable getter
-pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
-    if (builtin.os.tag == .windows) {
-        // On Windows, env vars need special handling due to WTF-16 encoding
-        // For optional env vars, just return null
-        return null;
-    } else {
-        return std.posix.getenv(var_name);
-    }
-}
+const util_tool = @import("util/tool.zig");
 
 const max_argument_count = limits.limits.arguments_maximum;
 const max_version_string_length = limits.limits.version_string_length_maximum;

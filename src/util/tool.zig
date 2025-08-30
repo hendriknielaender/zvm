@@ -1,5 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const object_pools = @import("../object_pools.zig");
+
+/// Cross-platform environment variable getter
+pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        // On Windows, env vars need special handling due to WTF-16 encoding
+        // For optional env vars, just return null
+        return null;
+    } else {
+        return std.posix.getenv(var_name);
+    }
+}
 
 /// eql str
 pub fn eql_str(str1: []const u8, str2: []const u8) bool {
