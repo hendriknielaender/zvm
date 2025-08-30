@@ -71,14 +71,11 @@ fn extract_targz_to_dir(
     var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
     var file_reader = file.reader(&reader_buffer);
 
-    // Use flate.Decompress API with .gzip container
-    var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-    var decompress: std.compress.flate.Decompress = .init(&file_reader.interface, .gzip, &decompress_buffer);
+    var decompress: std.compress.flate.Decompress = .init(&file_reader.interface, .gzip, &.{});
 
     // Start extraction with an indeterminate progress indicator
     root_node.setEstimatedTotalItems(0);
 
-    // flate.Decompress provides a reader field that is a std.Io.Reader
     try tar.pipeToFileSystem(
         out_dir,
         &decompress.reader,

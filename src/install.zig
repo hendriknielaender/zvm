@@ -162,7 +162,7 @@ fn install_zig(
         return;
     }
 
-    const version_data = try fetch_version_data(ctx, version, platform_str, &items_done, root_node);
+    const version_data = try fetch_version_data(ctx, platform_str, version, &items_done, root_node);
 
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
     defer tarball_file.close();
