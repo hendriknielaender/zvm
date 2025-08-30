@@ -9,6 +9,7 @@ const util_output = @import("util/output.zig");
 const alias = @import("alias.zig");
 const options = @import("options");
 const object_pools = @import("object_pools.zig");
+const validation = @import("validation.zig");
 
 // Command handlers.
 const install = @import("install.zig");
@@ -413,7 +414,7 @@ fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, rem
     alias_buffers.exec_arguments_count = exec_arguments_count;
 }
 
-fn get_progress_item_count(command: cli.Command) u16 {
+fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
     return switch (command) {
         .install => 5, // Download, verify, extract, symlink, cleanup
         .remove => 2, // Remove files, update symlinks
@@ -431,21 +432,33 @@ fn get_progress_item_count(command: cli.Command) u16 {
 
 fn execute_command(
     ctx: *context.CliContext,
-    command: cli.Command,
+    command: validation.ValidatedCommand,
     progress_node: std.Progress.Node,
 ) !void {
     switch (command) {
         .help => try print_help(),
         .version => try print_version(),
-        .list => try list_installed_versions(ctx),
-        .list_remote => |opts| try list_remote_versions(ctx, opts.is_zls),
+        .list => |opts| try list_installed_versions(ctx, opts.show_all),
+        .list_remote => |opts| try list_remote_versions(ctx, opts.tool == .zls),
         .current => try show_current_version(ctx),
-        .env => |opts| try print_env_setup(ctx, opts.get_shell()),
+        .env => |opts| try print_env_setup(ctx, opts.shell),
         .clean => |opts| try clean_unused_versions(ctx, opts.remove_all),
-        .install => |opts| try install.install(ctx, opts.get_version(), opts.is_zls, progress_node, false),
-        .remove => |opts| try remove.remove(ctx, opts.get_version(), opts.is_zls, false),
-        .use => |opts| try alias.set_version(ctx, opts.get_version(), opts.is_zls),
-        .completions => |opts| try print_completions(ctx, opts.shell_type),
+        .install => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try install.install(ctx, version_str, opts.tool == .zls, progress_node, false);
+        },
+        .remove => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try remove.remove(ctx, version_str, opts.tool == .zls, false);
+        },
+        .use => |opts| {
+            var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const version_str = try opts.version.to_string(&version_buffer);
+            try alias.set_version(ctx, version_str, opts.tool == .zls);
+        },
+        .completions => |opts| try print_completions(ctx, opts.shell),
     }
 }
 
@@ -508,7 +521,8 @@ fn print_version() !void {
     }
 }
 
-fn list_installed_versions(ctx: *context.CliContext) !void {
+fn list_installed_versions(ctx: *context.CliContext, show_all: bool) !void {
+    _ = show_all; // For future functionality
     const emitter = util_output.get_global();
 
     // Get path buffer for zig versions directory
@@ -686,7 +700,7 @@ fn show_current_version(ctx: *context.CliContext) !void {
     }
 }
 
-fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
+fn print_env_setup(ctx: *context.CliContext, shell: ?validation.ShellType) !void {
     var buffer: [io_buffer_size]u8 = undefined;
     var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &buffer);
     const stdout = &stdout_writer.interface;
@@ -710,7 +724,7 @@ fn print_env_setup(ctx: *context.CliContext, shell: ?[]const u8) !void {
     const zvm_bin_path = try path_buffer.set(fbs.getWritten());
 
     // Determine shell type
-    const shell_type = if (shell) |s| s else blk: {
+    const shell_type = if (shell) |s| @tagName(s) else blk: {
         if (builtin.os.tag == .windows) {
             // On Windows, check COMSPEC
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -905,7 +919,7 @@ fn clean_unused_versions(ctx: *context.CliContext, all: bool) !void {
     }
 }
 
-fn print_completions(ctx: *context.CliContext, shell_type: cli.Command.ShellType) !void {
+fn print_completions(ctx: *context.CliContext, shell_type: validation.ShellType) !void {
     _ = ctx; // Not needed for completions
 
     switch (shell_type) {
