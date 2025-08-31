@@ -2,8 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 
 // Import modules from same directory
-const raw_args = @import("raw_args.zig");
-const validation = @import("validation.zig");
+const raw_args = @import("cli/raw_args.zig");
+const validation = @import("cli/validation.zig");
 
 test "raw args parsing - install command" {
     const install_raw = try raw_args.parse_raw_args("install", &.{"0.11.0"});

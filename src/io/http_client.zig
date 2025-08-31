@@ -1,6 +1,6 @@
 const std = @import("std");
-const context = @import("context.zig");
-const limits = @import("limits.zig");
+const context = @import("../Context.zig");
+const limits = @import("../memory/limits.zig");
 
 /// HTTP client that uses pre-allocated operations from the pool.
 ///

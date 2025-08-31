@@ -1,7 +1,7 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
-const object_pools = @import("../object_pools.zig");
-const context = @import("../context.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const context = @import("../Context.zig");
 
 pub const DetectParams = struct {
     os: std.Target.Os.Tag,

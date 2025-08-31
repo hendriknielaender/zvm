@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const limits = @import("limits.zig");
-const object_pools = @import("object_pools.zig");
-const static_memory = @import("static_memory.zig");
+const limits = @import("memory/limits.zig");
+const object_pools = @import("memory/object_pools.zig");
+const static_memory = @import("memory/static_memory.zig");
 const util_tool = @import("util/tool.zig");
 
 /// Cross-platform environment variable getter
@@ -32,7 +32,7 @@ pub const CliContext = struct {
     pub fn init(
         context_storage: *CliContext,
         static_buffer: []u8,
-        arguments: [][]const u8,
+        arguments: []const []const u8,
     ) !*CliContext {
         // context_storage is a pointer, not optional - can't be null in Zig
         std.debug.assert(static_buffer.len > 0);
@@ -81,7 +81,7 @@ pub const CliContext = struct {
     }
 
     /// Copy command line arguments into pre-allocated buffer
-    fn copy_args(context_storage: *CliContext, arguments: [][]const u8) !void {
+    fn copy_args(context_storage: *CliContext, arguments: []const []const u8) !void {
         std.debug.assert(arguments.len > 0);
         std.debug.assert(arguments.len <= limits.limits.arguments_maximum);
 

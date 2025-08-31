@@ -1,6 +1,6 @@
 // color.zig
 const std = @import("std");
-const limits = @import("../limits.zig");
+const limits = @import("../memory/limits.zig");
 
 // Cleaner access to I/O buffer size
 const io_buffer_size = limits.limits.io_buffer_size_maximum;

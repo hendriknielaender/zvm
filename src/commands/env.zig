@@ -1,9 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const context = @import("../context.zig");
-const validation = @import("../validation.zig");
+const context = @import("../Context.zig");
+const validation = @import("../cli/validation.zig");
 const util_tool = @import("../util/tool.zig");
-const limits = @import("../limits.zig");
+const limits = @import("../memory/limits.zig");
 
 pub fn execute(
     ctx: *context.CliContext,

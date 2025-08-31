@@ -1,5 +1,5 @@
 const std = @import("std");
-const limits = @import("limits.zig");
+const limits = @import("../memory/limits.zig");
 
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_shell_name_length = 32;

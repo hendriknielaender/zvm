@@ -1,8 +1,8 @@
 const std = @import("std");
 const raw_args = @import("raw_args.zig");
-const limits = @import("limits.zig");
-const util_output = @import("util/output.zig");
-const util_tool = @import("util/tool.zig");
+const limits = @import("../memory/limits.zig");
+const util_output = @import("../util/output.zig");
+const util_tool = @import("../util/tool.zig");
 
 pub const VersionSpec = union(enum) {
     master,

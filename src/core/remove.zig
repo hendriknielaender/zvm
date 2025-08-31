@@ -1,11 +1,11 @@
 //! For removing the zig or zls
 const std = @import("std");
 const builtin = @import("builtin");
-const config = @import("config.zig");
-const util_data = @import("util/data.zig");
-const util_tool = @import("util/tool.zig");
-const context = @import("context.zig");
-const limits = @import("limits.zig");
+const config = @import("../metadata.zig");
+const util_data = @import("../util/data.zig");
+const util_tool = @import("../util/tool.zig");
+const context = @import("../Context.zig");
+const limits = @import("../memory/limits.zig");
 
 /// Try remove specified version.
 pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug: bool) !void {

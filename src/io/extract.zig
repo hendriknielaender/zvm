@@ -1,9 +1,9 @@
 //! This file is used to decompress the file
 const std = @import("std");
-const data = @import("data.zig");
-const tool = @import("tool.zig");
-const object_pools = @import("../object_pools.zig");
-const limits = @import("../limits.zig");
+const data = @import("../util/data.zig");
+const tool = @import("../util/tool.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const limits = @import("../memory/limits.zig");
 
 const xz = std.compress.xz;
 const tar = std.tar;

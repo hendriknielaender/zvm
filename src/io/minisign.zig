@@ -3,8 +3,8 @@ const base64 = std.base64;
 const crypto = std.crypto;
 const fs = std.fs;
 const mem = std.mem;
-const context = @import("../context.zig");
-const limits = @import("../limits.zig");
+const context = @import("../Context.zig");
+const limits = @import("../memory/limits.zig");
 
 // Cleaner access to I/O buffer size
 const io_buffer_size = limits.limits.io_buffer_size_maximum;

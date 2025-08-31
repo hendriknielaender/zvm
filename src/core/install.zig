@@ -1,17 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const config = @import("config.zig");
+const config = @import("../metadata.zig");
 const alias = @import("alias.zig");
 const meta = @import("meta.zig");
-const util_arch = @import("util/arch.zig");
-const util_data = @import("util/data.zig");
-const util_extract = @import("util/extract.zig");
-const util_tool = @import("util/tool.zig");
-const http_client = @import("http_client.zig");
-const util_minimumisign = @import("util/minisign.zig");
-const context = @import("context.zig");
-const object_pools = @import("object_pools.zig");
-const limits = @import("limits.zig");
+const util_arch = @import("../util/arch.zig");
+const util_data = @import("../util/data.zig");
+const util_extract = @import("../io/extract.zig");
+const util_tool = @import("../util/tool.zig");
+const http_client = @import("../io/http_client.zig");
+const util_minimumisign = @import("../io/minisign.zig");
+const context = @import("../Context.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const limits = @import("../memory/limits.zig");
 const Progress = std.Progress;
 
 /// Helper function to download a file with hash verification
