@@ -54,8 +54,6 @@ pub fn execute(
     , .{});
 }
 
-const testing = std.testing;
-
 test "help command executes without error" {
     const output_config = util_output.OutputConfig{
         .mode = .human_readable,

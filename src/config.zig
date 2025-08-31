@@ -23,7 +23,9 @@ pub fn init() Self {
         .color_mode = .always_use_color,
         .log_level = .info,
         .preferred_mirror = null,
+        // SAFETY: home_buffer is initialized by get_home_path() before use
         .home_buffer = undefined,
+        // SAFETY: zvm_home_buffer is initialized by get_zvm_home_path() before use
         .zvm_home_buffer = undefined,
     };
 

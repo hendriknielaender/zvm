@@ -1,5 +1,3 @@
-const std = @import("std");
-
 pub const ZvmError = error{
     DownloadFailed,
     NetworkTimeout,

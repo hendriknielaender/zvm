@@ -1,6 +1,6 @@
 const std = @import("std");
 const context = @import("../Context.zig");
-const util_output = @import("../util/output.zig");
+
 const util_color = @import("../util/color.zig");
 const validation = @import("../cli/validation.zig");
 const config = @import("../metadata.zig");

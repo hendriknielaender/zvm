@@ -8,9 +8,7 @@ const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
 const Config = @import("Config.zig");
 const metadata = @import("metadata.zig");
-const platform_exec = @import("platform/exec.zig");
-const platform_paths = @import("platform/paths.zig");
-const platform_env = @import("platform/env.zig");
+
 const log = std.log.scoped(.zvm);
 
 const commands = struct {
@@ -27,8 +25,11 @@ const commands = struct {
     pub const completions = @import("commands/completions.zig");
 };
 
+// SAFETY: global_static_buffer is initialized before first use in main()
 var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
+// SAFETY: global_context is initialized in main() before being accessed
 var global_context: Context.CliContext = undefined;
+// SAFETY: global_config is initialized in main() with Config.init() before being used
 var global_config: Config = undefined;
 
 const AliasBuffers = struct {
@@ -150,6 +151,7 @@ pub fn main() !void {
 }
 
 fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+    // SAFETY: All undefined fields are initialized by subsequent function calls before use
     var alias_buffers: AliasBuffers = .{
         .home = undefined,
         .zvm_home = undefined,
