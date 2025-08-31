@@ -6,7 +6,7 @@ const memory_limits = @import("memory/limits.zig");
 const memory_static = @import("memory/static_memory.zig");
 const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
-const Config = @import("Config.zig");
+const Config = @import("config.zig");
 const metadata = @import("metadata.zig");
 
 const log = std.log.scoped(.zvm);
