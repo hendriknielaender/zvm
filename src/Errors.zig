@@ -36,7 +36,7 @@ pub const ZvmResult = union(enum) {
         context: []const u8,
     },
 
-    pub fn isSuccess(self: ZvmResult) bool {
+    pub fn is_success(self: ZvmResult) bool {
         return switch (self) {
             .success => true,
             .error_with_context => false,
@@ -55,7 +55,7 @@ pub fn success() ZvmResult {
     return ZvmResult{ .success = {} };
 }
 
-pub fn errorWithContext(err: ZvmError, context: []const u8) ZvmResult {
+pub fn error_with_context(err: ZvmError, context: []const u8) ZvmResult {
     return ZvmResult{
         .error_with_context = .{
             .err = err,

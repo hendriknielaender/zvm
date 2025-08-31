@@ -27,22 +27,22 @@ pub fn init() Self {
         .zvm_home_buffer = undefined,
     };
 
-    config.loadFromEnv();
+    config.load_from_env();
     return config;
 }
 
-fn loadFromEnv(self: *Self) void {
-    const home = self.getHomePath() catch return;
-    self.zvm_home = self.getZvmHomePath(home) catch return;
+fn load_from_env(self: *Self) void {
+    const home = self.get_home_path() catch return;
+    self.zvm_home = self.get_zvm_home_path(home) catch return;
 
-    if (self.getEnvVar("ZVM_VERIFY_SIGNATURES")) |verify_str| {
+    if (self.get_env_var("ZVM_VERIFY_SIGNATURES")) |verify_str| {
         self.verify_signatures = std.mem.eql(u8, verify_str, "true");
     }
 
     self.preferred_mirror = metadata.preferred_mirror;
 }
 
-fn getHomePath(self: *Self) ![]const u8 {
+fn get_home_path(self: *Self) ![]const u8 {
     if (builtin.os.tag == .windows) {
         const home = std.posix.getenv("USERPROFILE") orelse return error.HomeNotFound;
         if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
@@ -56,9 +56,9 @@ fn getHomePath(self: *Self) ![]const u8 {
     }
 }
 
-fn getZvmHomePath(self: *Self, home: []const u8) ![]const u8 {
+fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
     if (builtin.os.tag == .windows) {
-        if (self.getEnvVar("ZVM_HOME")) |zvm_home| {
+        if (self.get_env_var("ZVM_HOME")) |zvm_home| {
             if (zvm_home.len >= self.zvm_home_buffer.len) return error.HomePathTooLong;
             @memcpy(self.zvm_home_buffer[0..zvm_home.len], zvm_home);
             return self.zvm_home_buffer[0..zvm_home.len];
@@ -80,7 +80,7 @@ fn getZvmHomePath(self: *Self, home: []const u8) ![]const u8 {
     }
 }
 
-fn getEnvVar(self: *Self, name: []const u8) ?[]const u8 {
+fn get_env_var(self: *Self, name: []const u8) ?[]const u8 {
     _ = self;
     return std.posix.getenv(name);
 }

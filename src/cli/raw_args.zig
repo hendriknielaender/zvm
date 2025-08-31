@@ -1,14 +1,15 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
+const assert = std.debug.assert;
 
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_shell_name_length = 32;
 
 comptime {
-    std.debug.assert(max_version_string_length >= 16);
-    std.debug.assert(max_version_string_length <= 256);
-    std.debug.assert(max_shell_name_length >= 8);
-    std.debug.assert(max_shell_name_length <= 64);
+    assert(max_version_string_length >= 16);
+    assert(max_version_string_length <= 256);
+    assert(max_shell_name_length >= 8);
+    assert(max_shell_name_length <= 64);
 }
 
 /// Stage 1: Raw argument parsing with minimal validation
@@ -32,13 +33,13 @@ pub const RawArgs = union(enum) {
         is_zls: bool,
 
         pub fn get_version(self: *const InstallArgs) []const u8 {
-            std.debug.assert(self.version_length > 0);
-            std.debug.assert(self.version_length <= max_version_string_length);
-            std.debug.assert(self.version_length <= self.version.len);
+            assert(self.version_length > 0);
+            assert(self.version_length <= max_version_string_length);
+            assert(self.version_length <= self.version.len);
 
             const result = self.version[0..self.version_length];
-            std.debug.assert(result.len > 0);
-            std.debug.assert(result.len == self.version_length);
+            assert(result.len > 0);
+            assert(result.len == self.version_length);
             return result;
         }
     };
@@ -49,13 +50,13 @@ pub const RawArgs = union(enum) {
         is_zls: bool,
 
         pub fn get_version(self: *const RemoveArgs) []const u8 {
-            std.debug.assert(self.version_length > 0);
-            std.debug.assert(self.version_length <= max_version_string_length);
-            std.debug.assert(self.version_length <= self.version.len);
+            assert(self.version_length > 0);
+            assert(self.version_length <= max_version_string_length);
+            assert(self.version_length <= self.version.len);
 
             const result = self.version[0..self.version_length];
-            std.debug.assert(result.len > 0);
-            std.debug.assert(result.len == self.version_length);
+            assert(result.len > 0);
+            assert(result.len == self.version_length);
             return result;
         }
     };
@@ -66,13 +67,13 @@ pub const RawArgs = union(enum) {
         is_zls: bool,
 
         pub fn get_version(self: *const UseArgs) []const u8 {
-            std.debug.assert(self.version_length > 0);
-            std.debug.assert(self.version_length <= max_version_string_length);
-            std.debug.assert(self.version_length <= self.version.len);
+            assert(self.version_length > 0);
+            assert(self.version_length <= max_version_string_length);
+            assert(self.version_length <= self.version.len);
 
             const result = self.version[0..self.version_length];
-            std.debug.assert(result.len > 0);
-            std.debug.assert(result.len == self.version_length);
+            assert(result.len > 0);
+            assert(result.len == self.version_length);
             return result;
         }
     };
@@ -99,7 +100,7 @@ pub const RawArgs = union(enum) {
 
         pub fn get_shell(self: *const EnvArgs) ?[]const u8 {
             if (self.shell_length == 0) return null;
-            std.debug.assert(self.shell_length <= max_shell_name_length);
+            assert(self.shell_length <= max_shell_name_length);
             return self.shell_name.?[0..self.shell_length];
         }
     };
@@ -110,17 +111,17 @@ pub const RawArgs = union(enum) {
         shell_length: u8,
 
         pub fn get_shell(self: *const CompletionsArgs) ?[]const u8 {
-            std.debug.assert(self.shell_length <= max_shell_name_length);
+            assert(self.shell_length <= max_shell_name_length);
 
             if (self.shell_length == 0) {
-                std.debug.assert(self.shell == null);
+                assert(self.shell == null);
                 return null;
             }
 
-            std.debug.assert(self.shell != null);
+            assert(self.shell != null);
             const result = self.shell.?[0..self.shell_length];
-            std.debug.assert(result.len > 0);
-            std.debug.assert(result.len == self.shell_length);
+            assert(result.len > 0);
+            assert(result.len == self.shell_length);
             return result;
         }
     };
@@ -136,12 +137,12 @@ pub const RawArgs = union(enum) {
 };
 
 pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawArgs {
-    std.debug.assert(command_name.len > 0);
-    std.debug.assert(command_name.len <= 32);
-    std.debug.assert(args.len <= limits.limits.arguments_maximum);
+    assert(command_name.len > 0);
+    assert(command_name.len <= 32);
+    assert(args.len <= limits.limits.arguments_maximum);
 
     for (args) |arg| {
-        std.debug.assert(arg.len < 1024);
+        assert(arg.len < 1024);
     }
 
     if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
@@ -182,14 +183,14 @@ pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawAr
 }
 
 fn parse_install_args(args: []const []const u8) !RawArgs.InstallArgs {
-    std.debug.assert(args.len <= limits.limits.arguments_maximum);
+    assert(args.len <= limits.limits.arguments_maximum);
 
     if (args.len == 0) {
         return error.MissingVersionArgument;
     }
 
     const version_arg = args[0];
-    std.debug.assert(version_arg.len < 1024);
+    assert(version_arg.len < 1024);
 
     if (version_arg.len == 0) {
         return error.EmptyVersionArgument;
@@ -203,14 +204,14 @@ fn parse_install_args(args: []const []const u8) !RawArgs.InstallArgs {
         .version_length = @intCast(version_arg.len),
         .is_zls = false,
     };
-    std.debug.assert(install_args.version_length > 0);
-    std.debug.assert(install_args.version_length < max_version_string_length);
+    assert(install_args.version_length > 0);
+    assert(install_args.version_length < max_version_string_length);
 
     @memcpy(install_args.version[0..version_arg.len], version_arg);
-    std.debug.assert(install_args.version[0] != 0);
+    assert(install_args.version[0] != 0);
 
     for (args[1..]) |arg| {
-        std.debug.assert(arg.len > 0);
+        assert(arg.len > 0);
 
         if (std.mem.eql(u8, arg, "--zls")) {
             install_args.is_zls = true;
@@ -220,8 +221,8 @@ fn parse_install_args(args: []const []const u8) !RawArgs.InstallArgs {
     }
 
     const result_version = install_args.get_version();
-    std.debug.assert(result_version.len == version_arg.len);
-    std.debug.assert(std.mem.eql(u8, result_version, version_arg));
+    assert(result_version.len == version_arg.len);
+    assert(std.mem.eql(u8, result_version, version_arg));
     return install_args;
 }
 
@@ -358,7 +359,7 @@ fn parse_env_args(args: []const []const u8) !RawArgs.EnvArgs {
 }
 
 fn parse_completions_args(args: []const []const u8) !RawArgs.CompletionsArgs {
-    std.debug.assert(args.len <= limits.limits.arguments_maximum);
+    assert(args.len <= limits.limits.arguments_maximum);
 
     var completions_args = RawArgs.CompletionsArgs{
         .shell = null,
@@ -367,7 +368,7 @@ fn parse_completions_args(args: []const []const u8) !RawArgs.CompletionsArgs {
 
     if (args.len > 0) {
         const shell_arg = args[0];
-        std.debug.assert(shell_arg.len < 1024);
+        assert(shell_arg.len < 1024);
 
         if (shell_arg.len == 0) {
             return error.EmptyShellArgument;
@@ -379,8 +380,8 @@ fn parse_completions_args(args: []const []const u8) !RawArgs.CompletionsArgs {
         completions_args.shell = std.mem.zeroes([max_shell_name_length]u8);
         @memcpy(completions_args.shell.?[0..shell_arg.len], shell_arg);
         completions_args.shell_length = @intCast(shell_arg.len);
-        std.debug.assert(completions_args.shell_length > 0);
-        std.debug.assert(completions_args.shell_length == shell_arg.len);
+        assert(completions_args.shell_length > 0);
+        assert(completions_args.shell_length == shell_arg.len);
 
         if (args.len > 1) {
             return error.TooManyArguments;
@@ -389,10 +390,10 @@ fn parse_completions_args(args: []const []const u8) !RawArgs.CompletionsArgs {
 
     const result_shell = completions_args.get_shell();
     if (completions_args.shell_length > 0) {
-        std.debug.assert(result_shell != null);
-        std.debug.assert(result_shell.?.len == completions_args.shell_length);
+        assert(result_shell != null);
+        assert(result_shell.?.len == completions_args.shell_length);
     } else {
-        std.debug.assert(result_shell == null);
+        assert(result_shell == null);
     }
 
     return completions_args;
@@ -420,20 +421,20 @@ fn parse_list_mirrors_args(args: []const []const u8) !RawArgs.ListMirrorsArgs {
 }
 
 comptime {
-    std.debug.assert(@sizeOf(RawArgs) <= 512);
-    std.debug.assert(@sizeOf(RawArgs) > 0);
-    std.debug.assert(@sizeOf(RawArgs.InstallArgs) <= 300);
-    std.debug.assert(@sizeOf(RawArgs.InstallArgs) > 0);
-    std.debug.assert(@sizeOf(RawArgs.RemoveArgs) <= 300);
-    std.debug.assert(@sizeOf(RawArgs.RemoveArgs) > 0);
-    std.debug.assert(@sizeOf(RawArgs.UseArgs) <= 300);
-    std.debug.assert(@sizeOf(RawArgs.UseArgs) > 0);
-    std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) <= 64);
-    std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) > 0);
+    assert(@sizeOf(RawArgs) <= 512);
+    assert(@sizeOf(RawArgs) > 0);
+    assert(@sizeOf(RawArgs.InstallArgs) <= 300);
+    assert(@sizeOf(RawArgs.InstallArgs) > 0);
+    assert(@sizeOf(RawArgs.RemoveArgs) <= 300);
+    assert(@sizeOf(RawArgs.RemoveArgs) > 0);
+    assert(@sizeOf(RawArgs.UseArgs) <= 300);
+    assert(@sizeOf(RawArgs.UseArgs) > 0);
+    assert(@sizeOf(RawArgs.CompletionsArgs) <= 64);
+    assert(@sizeOf(RawArgs.CompletionsArgs) > 0);
 
-    std.debug.assert(@typeInfo(RawArgs).@"union".fields.len == 11);
-    std.debug.assert(max_version_string_length == limits.limits.version_string_length_maximum);
-    std.debug.assert(max_shell_name_length == 32);
-    std.debug.assert(max_version_string_length >= 16);
-    std.debug.assert(max_version_string_length <= 512);
+    assert(@typeInfo(RawArgs).@"union".fields.len == 11);
+    assert(max_version_string_length == limits.limits.version_string_length_maximum);
+    assert(max_shell_name_length == 32);
+    assert(max_version_string_length >= 16);
+    assert(max_version_string_length <= 512);
 }

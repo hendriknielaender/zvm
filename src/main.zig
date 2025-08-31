@@ -39,7 +39,7 @@ const AliasBuffers = struct {
     exec_arguments_count: u32 = 0,
 };
 
-fn hasWindowsEnvVar(var_name: []const u8) bool {
+fn has_windows_env_var(var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -53,7 +53,7 @@ fn hasWindowsEnvVar(var_name: []const u8) bool {
     return result.len > 0;
 }
 
-fn getWindowsEnvVar(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
 
     const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
@@ -104,7 +104,7 @@ pub fn main() !void {
 
     const is_alias = util_tool.eql_str(basename, "zig") or util_tool.eql_str(basename, "zls");
     if (is_alias) {
-        try handleAlias(basename, arguments[1..]);
+        try handle_alias(basename, arguments[1..]);
         unreachable;
     }
 
@@ -132,13 +132,13 @@ pub fn main() !void {
 
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
-        .estimated_total_items = getProgressItemCount(parsed_command_line.command),
+        .estimated_total_items = get_progress_item_count(parsed_command_line.command),
     });
 
-    try executeCommand(context_instance, parsed_command_line.command, root_node);
+    try execute_command(context_instance, parsed_command_line.command, root_node);
 
     const has_debug = if (builtin.os.tag == .windows) blk: {
-        break :blk hasWindowsEnvVar("ZVM_DEBUG");
+        break :blk has_windows_env_var("ZVM_DEBUG");
     } else blk: {
         break :blk util_tool.getenv_cross_platform("ZVM_DEBUG") != null;
     };
@@ -148,7 +148,7 @@ pub fn main() !void {
     }
 }
 
-fn handleAlias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
     var alias_buffers: AliasBuffers = .{
         .home = undefined,
         .zvm_home = undefined,
@@ -158,10 +158,10 @@ fn handleAlias(program_name: []const u8, remaining_arguments: []const []const u8
         .exec_arguments_count = 0,
     };
 
-    const home_slice = try getHomePath(&alias_buffers);
-    const zvm_home = try getZvmHomePath(&alias_buffers, home_slice);
-    const tool_path = try buildToolPath(&alias_buffers, program_name, zvm_home);
-    try buildExecArguments(&alias_buffers, tool_path, remaining_arguments);
+    const home_slice = try get_home_path(&alias_buffers);
+    const zvm_home = try get_zvm_home_path(&alias_buffers, home_slice);
+    const tool_path = try build_tool_path(&alias_buffers, program_name, zvm_home);
+    try build_exec_arguments(&alias_buffers, tool_path, remaining_arguments);
 
     if (builtin.os.tag == .windows) {
         var argv_list: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
@@ -188,7 +188,7 @@ fn handleAlias(program_name: []const u8, remaining_arguments: []const []const u8
     }
 }
 
-fn getHomePath(alias_buffers: *AliasBuffers) ![]const u8 {
+fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
     if (builtin.os.tag == .windows) {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
@@ -229,12 +229,12 @@ fn getHomePath(alias_buffers: *AliasBuffers) ![]const u8 {
     }
 }
 
-fn getZvmHomePath(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]const u8 {
+fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]const u8 {
     if (builtin.os.tag == .windows) {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
 
-        if (getWindowsEnvVar(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
+        if (get_windows_env_var(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
             var stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
@@ -254,7 +254,7 @@ fn getZvmHomePath(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]const
     }
 }
 
-fn buildToolPath(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
+fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
     var stream = std.io.fixedBufferStream(&alias_buffers.tool_path);
@@ -262,7 +262,7 @@ fn buildToolPath(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_hom
     return stream.getWritten();
 }
 
-fn buildExecArguments(alias_buffers: *AliasBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {
+fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {
     var exec_arguments_count: u32 = 0;
     var storage_offset: u32 = 0;
 
@@ -295,7 +295,7 @@ fn buildExecArguments(alias_buffers: *AliasBuffers, tool_path: []const u8, remai
     alias_buffers.exec_arguments_count = exec_arguments_count;
 }
 
-fn getProgressItemCount(command: @import("cli/validation.zig").ValidatedCommand) u16 {
+fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedCommand) u16 {
     return switch (command) {
         .install => 5,
         .remove => 2,
@@ -311,7 +311,7 @@ fn getProgressItemCount(command: @import("cli/validation.zig").ValidatedCommand)
     };
 }
 
-fn executeCommand(
+fn execute_command(
     ctx: *Context.CliContext,
     command: @import("cli/validation.zig").ValidatedCommand,
     progress_node: std.Progress.Node,

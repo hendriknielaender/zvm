@@ -1,16 +1,17 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
+const assert = std.debug.assert;
 
 const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
 const max_message_length_bytes = 2048;
 const max_json_object_fields = 16;
 
 comptime {
-    std.debug.assert(io_buffer_size_bytes >= 1024);
-    std.debug.assert(max_message_length_bytes >= 256);
-    std.debug.assert(max_message_length_bytes <= io_buffer_size_bytes);
-    std.debug.assert(max_json_object_fields >= 4);
-    std.debug.assert(max_json_object_fields <= 32);
+    assert(io_buffer_size_bytes >= 1024);
+    assert(max_message_length_bytes >= 256);
+    assert(max_message_length_bytes <= io_buffer_size_bytes);
+    assert(max_json_object_fields >= 4);
+    assert(max_json_object_fields <= 32);
 }
 
 /// Exit codes with semantic meaning
@@ -26,9 +27,9 @@ pub const ExitCode = enum(u8) {
     resource_exhausted = 8,
 
     comptime {
-        std.debug.assert(@intFromEnum(ExitCode.success) == 0);
-        std.debug.assert(@intFromEnum(ExitCode.resource_exhausted) < 16);
-        std.debug.assert(@intFromEnum(ExitCode.resource_exhausted) >= @intFromEnum(ExitCode.success));
+        assert(@intFromEnum(ExitCode.success) == 0);
+        assert(@intFromEnum(ExitCode.resource_exhausted) < 16);
+        assert(@intFromEnum(ExitCode.resource_exhausted) >= @intFromEnum(ExitCode.success));
     }
 
     /// Convert error union types to semantic exit codes
@@ -65,9 +66,9 @@ pub const OutputMode = enum {
 
     comptime {
         const mode_count = @typeInfo(OutputMode).@"enum".fields.len;
-        std.debug.assert(mode_count == 3);
-        std.debug.assert(mode_count >= 2);
-        std.debug.assert(mode_count <= 8);
+        assert(mode_count == 3);
+        assert(mode_count >= 2);
+        assert(mode_count <= 8);
     }
 };
 
@@ -84,7 +85,7 @@ pub const ColorMode = enum {
     }
 
     comptime {
-        std.debug.assert(@typeInfo(ColorMode).@"enum".fields.len == 2);
+        assert(@typeInfo(ColorMode).@"enum".fields.len == 2);
     }
 };
 
@@ -95,22 +96,22 @@ pub const OutputConfig = struct {
 
     pub fn validate(self: OutputConfig) void {
         // Positive assertions
-        std.debug.assert(self.mode == .human_readable or
+        assert(self.mode == .human_readable or
             self.mode == .machine_json or
             self.mode == .silent_errors_only);
-        std.debug.assert(self.color == .never_use_color or
+        assert(self.color == .never_use_color or
             self.color == .always_use_color);
 
         // Negative assertions - invalid combinations
         if (self.mode == .machine_json) {
-            std.debug.assert(self.color == .never_use_color); // JSON never uses colors
+            assert(self.color == .never_use_color); // JSON never uses colors
         }
     }
 
     comptime {
         const config_size = @sizeOf(OutputConfig);
-        std.debug.assert(config_size <= 16); // Keep config small
-        std.debug.assert(config_size >= 2); // Must contain meaningful data
+        assert(config_size <= 16); // Keep config small
+        assert(config_size >= 2); // Must contain meaningful data
     }
 };
 
@@ -134,10 +135,10 @@ pub const MessageLevel = enum {
     }
 
     comptime {
-        std.debug.assert(@typeInfo(MessageLevel).@"enum".fields.len == 5);
+        assert(@typeInfo(MessageLevel).@"enum".fields.len == 5);
         // Assert string lengths are reasonable
-        std.debug.assert(MessageLevel.success.to_string().len <= 16);
-        std.debug.assert(MessageLevel.error_fatal.to_string().len <= 16);
+        assert(MessageLevel.success.to_string().len <= 16);
+        assert(MessageLevel.error_fatal.to_string().len <= 16);
     }
 };
 
@@ -161,41 +162,41 @@ pub const OutputEmitter = struct {
 
     /// Emit success message to appropriate stream
     pub fn emit_success(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
-        std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 1024); // Reasonable message length
+        assert(message.len > 0);
+        assert(message.len < 1024); // Reasonable message length
 
         self.emit_message(.success, message, args);
     }
 
     /// Emit informational message
     pub fn emit_info(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
-        std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 4096);
+        assert(message.len > 0);
+        assert(message.len < 4096);
 
         self.emit_message(.info, message, args);
     }
 
     /// Emit warning message to stderr
     pub fn emit_warning(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
-        std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 1024);
+        assert(message.len > 0);
+        assert(message.len < 1024);
 
         self.emit_message(.warning, message, args);
     }
 
     /// Emit recoverable error to stderr
     pub fn emit_error(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
-        std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 1024);
+        assert(message.len > 0);
+        assert(message.len < 1024);
 
         self.emit_message(.error_recoverable, message, args);
     }
 
     /// Emit fatal error and terminate program
     pub fn emit_fatal(self: *OutputEmitter, exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
-        std.debug.assert(message.len > 0);
-        std.debug.assert(message.len < 1024);
-        std.debug.assert(exit_code != .success); // Fatal errors never succeed
+        assert(message.len > 0);
+        assert(message.len < 1024);
+        assert(exit_code != .success); // Fatal errors never succeed
 
         self.emit_message(.error_fatal, message, args);
         std.process.exit(@intFromEnum(exit_code));
@@ -203,9 +204,9 @@ pub const OutputEmitter = struct {
 
     /// Emit JSON array of strings
     pub fn emit_json_array(self: *OutputEmitter, comptime field_name: []const u8, items: []const []const u8) void {
-        std.debug.assert(field_name.len > 0);
-        std.debug.assert(field_name.len < 64);
-        std.debug.assert(items.len <= limits.limits.versions_maximum);
+        assert(field_name.len > 0);
+        assert(field_name.len < 64);
+        assert(items.len <= limits.limits.versions_maximum);
 
         if (self.config.mode != .machine_json) return;
 
@@ -218,8 +219,8 @@ pub const OutputEmitter = struct {
         writer.writeAll("\":[") catch return;
 
         for (items, 0..) |item, index| {
-            std.debug.assert(item.len > 0);
-            std.debug.assert(item.len < 256); // Reasonable item length
+            assert(item.len > 0);
+            assert(item.len < 256); // Reasonable item length
 
             if (index > 0) {
                 writer.writeAll(",") catch return;
@@ -237,8 +238,8 @@ pub const OutputEmitter = struct {
 
     /// Emit JSON key-value pairs
     pub fn emit_json_object(self: *OutputEmitter, fields: []const JsonField) void {
-        std.debug.assert(fields.len > 0);
-        std.debug.assert(fields.len <= max_json_object_fields);
+        assert(fields.len > 0);
+        assert(fields.len <= max_json_object_fields);
 
         if (self.config.mode != .machine_json) return;
 
@@ -248,8 +249,8 @@ pub const OutputEmitter = struct {
         writer.writeAll("{") catch return;
 
         for (fields, 0..) |field, index| {
-            std.debug.assert(field.key.len > 0);
-            std.debug.assert(field.key.len < 64);
+            assert(field.key.len > 0);
+            assert(field.key.len < 64);
 
             if (index > 0) {
                 writer.writeAll(",") catch return;
@@ -262,7 +263,7 @@ pub const OutputEmitter = struct {
             switch (field.value) {
                 .string => |s| {
                     if (s) |str| {
-                        std.debug.assert(str.len < 256);
+                        assert(str.len < 256);
                         writer.writeAll("\"") catch return;
                         writer.writeAll(str) catch return;
                         writer.writeAll("\"") catch return;
@@ -362,9 +363,9 @@ pub const OutputEmitter = struct {
             break :blk self.message_buffer[0..len];
         };
 
-        std.debug.assert(result.len <= self.message_buffer.len);
-        std.debug.assert(@intFromPtr(result.ptr) >= @intFromPtr(&self.message_buffer[0]));
-        std.debug.assert(@intFromPtr(result.ptr) < @intFromPtr(&self.message_buffer[0]) + self.message_buffer.len);
+        assert(result.len <= self.message_buffer.len);
+        assert(@intFromPtr(result.ptr) >= @intFromPtr(&self.message_buffer[0]));
+        assert(@intFromPtr(result.ptr) < @intFromPtr(&self.message_buffer[0]) + self.message_buffer.len);
 
         return result;
     }
@@ -416,7 +417,7 @@ pub const OutputEmitter = struct {
     /// Flush stdout buffer to system
     fn flush_stdout_buffer(self: *OutputEmitter, content: []const u8) void {
         _ = self; // Buffer is not used after writing
-        std.debug.assert(content.len <= io_buffer_size_bytes);
+        assert(content.len <= io_buffer_size_bytes);
 
         const stdout = std.fs.File.stdout();
         stdout.writeAll(content) catch return;
@@ -425,7 +426,7 @@ pub const OutputEmitter = struct {
     /// Flush stderr buffer to system
     fn flush_stderr_buffer(self: *OutputEmitter, content: []const u8) void {
         _ = self; // Buffer is not used after writing
-        std.debug.assert(content.len <= io_buffer_size_bytes);
+        assert(content.len <= io_buffer_size_bytes);
 
         const stderr = std.fs.File.stderr();
         stderr.writeAll(content) catch return;
@@ -433,8 +434,8 @@ pub const OutputEmitter = struct {
 
     comptime {
         const emitter_size = @sizeOf(OutputEmitter);
-        std.debug.assert(emitter_size >= 1024); // Must contain buffers
-        std.debug.assert(emitter_size <= 32 * 1024); // Not too large
+        assert(emitter_size >= 1024); // Must contain buffers
+        assert(emitter_size <= 32 * 1024); // Not too large
     }
 };
 
@@ -449,8 +450,8 @@ pub const JsonField = struct {
     };
 
     comptime {
-        std.debug.assert(@sizeOf(JsonField) <= 64); // Keep reasonably small
-        std.debug.assert(@alignOf(JsonField) >= 1); // Must be aligned
+        assert(@sizeOf(JsonField) <= 64); // Keep reasonably small
+        assert(@alignOf(JsonField) >= 1); // Must be aligned
     }
 };
 
@@ -469,8 +470,8 @@ comptime {
     for (@typeInfo(MessageLevel).@"enum".fields) |field| {
         const level: MessageLevel = @enumFromInt(field.value);
         const color = get_color_code(level);
-        std.debug.assert(color.len >= 4); // Minimum ANSI sequence
-        std.debug.assert(color.len <= 8); // Maximum reasonable length
+        assert(color.len >= 4); // Minimum ANSI sequence
+        assert(color.len <= 8); // Maximum reasonable length
     }
 }
 
@@ -491,7 +492,7 @@ pub fn init_global(config: OutputConfig) !*OutputEmitter {
 
     global_emitter = emitter;
 
-    std.debug.assert(global_emitter == emitter);
+    assert(global_emitter == emitter);
     return emitter;
 }
 

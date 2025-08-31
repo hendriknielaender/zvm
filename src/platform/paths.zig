@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Errors = @import("../Errors.zig");
 
-pub fn getHomePath(allocator: std.mem.Allocator, buffer: []u8) ![]const u8 {
+pub fn get_home_path(allocator: std.mem.Allocator, buffer: []u8) ![]const u8 {
     if (builtin.os.tag == .windows) {
         const home = std.process.getEnvVarOwned(allocator, "USERPROFILE") catch |err| {
             return switch (err) {
@@ -32,7 +32,7 @@ pub fn getHomePath(allocator: std.mem.Allocator, buffer: []u8) ![]const u8 {
     }
 }
 
-pub fn getZvmHomePath(home: []const u8, buffer: []u8) ![]const u8 {
+pub fn get_zvm_home_path(home: []const u8, buffer: []u8) ![]const u8 {
     if (builtin.os.tag == .windows) {
         if (std.posix.getenv("ZVM_HOME")) |zvm_home| {
             if (zvm_home.len >= buffer.len) {

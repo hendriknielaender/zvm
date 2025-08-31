@@ -10,7 +10,7 @@ pub const ExecBuffers = struct {
     exec_arguments_count: u32 = 0,
 };
 
-pub fn buildToolPath(buffers: *ExecBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
+pub fn build_tool_path(buffers: *ExecBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (std.mem.eql(u8, program_name, "zig")) "zig" else "zls";
 
     var stream = std.io.fixedBufferStream(&buffers.tool_path);
@@ -18,7 +18,7 @@ pub fn buildToolPath(buffers: *ExecBuffers, program_name: []const u8, zvm_home: 
     return stream.getWritten();
 }
 
-pub fn buildExecArguments(buffers: *ExecBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {
+pub fn build_exec_arguments(buffers: *ExecBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {
     var exec_arguments_count: u32 = 0;
     var storage_offset: u32 = 0;
 
@@ -51,7 +51,7 @@ pub fn buildExecArguments(buffers: *ExecBuffers, tool_path: []const u8, remainin
     buffers.exec_arguments_count = exec_arguments_count;
 }
 
-pub fn execTool(buffers: *ExecBuffers, tool_path: []const u8) !void {
+pub fn exec_tool(buffers: *ExecBuffers, tool_path: []const u8) !void {
     if (builtin.os.tag == .windows) {
         var argv_list: [limits.limits.arguments_maximum][]const u8 = undefined;
         var i: usize = 0;

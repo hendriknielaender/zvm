@@ -6,22 +6,23 @@ const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
+const assert = std.debug.assert;
 
 /// Try remove specified version.
 pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug: bool) !void {
     _ = debug;
 
     // ctx is a pointer, not optional - no need for null check
-    std.debug.assert(version.len > 0);
-    std.debug.assert(version.len < 100); // Reasonable version length
+    assert(version.len > 0);
+    assert(version.len < 100); // Reasonable version length
 
     const true_version = blk: {
         if (!is_zls)
             break :blk version;
         for (config.zls_list_1, 0..) |val, i| {
             // Validate index bounds
-            std.debug.assert(i < config.zls_list_1.len);
-            std.debug.assert(i < config.zls_list_2.len);
+            assert(i < config.zls_list_1.len);
+            assert(i < config.zls_list_2.len);
 
             if (util_tool.eql_str(val, version))
                 break :blk config.zls_list_2[i];
@@ -29,8 +30,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
         break :blk version;
     };
 
-    std.debug.assert(true_version.len > 0);
-    std.debug.assert(true_version.len <= version.len or is_zls);
+    assert(true_version.len > 0);
+    assert(true_version.len <= version.len or is_zls);
 
     // Get current path using path buffer.
     var current_path_buffer = try ctx.acquire_path_buffer();
@@ -42,8 +43,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     else
         util_data.get_zvm_current_zig(current_path_buffer);
 
-    std.debug.assert(current_path.len > 0);
-    std.debug.assert(current_path.len <= limits.limits.path_length_maximum);
+    assert(current_path.len > 0);
+    assert(current_path.len <= limits.limits.path_length_maximum);
 
     // Try remove current path.
     if (util_tool.does_path_exist(current_path)) {
@@ -54,8 +55,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
         var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
         // Validate buffer size
-        std.debug.assert(output_buffer.len >= 256);
-        std.debug.assert(output_buffer.len >= limits.limits.version_string_length_maximum);
+        assert(output_buffer.len >= 256);
+        assert(output_buffer.len >= limits.limits.version_string_length_maximum);
 
         const current_version = try util_data.get_current_version(
             version_buffer,
@@ -63,8 +64,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
             is_zls,
         );
 
-        std.debug.assert(current_version.len > 0);
-        std.debug.assert(current_version.len <= output_buffer.len);
+        assert(current_version.len > 0);
+        assert(current_version.len <= output_buffer.len);
 
         if (util_tool.eql_str(current_version, true_version)) {
             if (builtin.os.tag == .windows) {
@@ -85,8 +86,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     else
         util_data.get_zvm_zig_version(base_path_buffer);
 
-    std.debug.assert(base_path.len > 0);
-    std.debug.assert(base_path.len <= limits.limits.path_length_maximum);
+    assert(base_path.len > 0);
+    assert(base_path.len <= limits.limits.path_length_maximum);
 
     var version_path_buffer = try ctx.acquire_path_buffer();
     defer version_path_buffer.reset();
@@ -96,19 +97,19 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     try fbs.writer().print("{s}/{s}", .{ base_path, true_version });
     const version_path = try version_path_buffer.set(fbs.getWritten());
 
-    std.debug.assert(version_path.len > 0);
-    std.debug.assert(version_path.len <= limits.limits.path_length_maximum);
+    assert(version_path.len > 0);
+    assert(version_path.len <= limits.limits.path_length_maximum);
     // Assert relationship: version_path contains base_path and true_version
-    std.debug.assert(version_path.len >= base_path.len + true_version.len + 1); // +1 for '/'
+    assert(version_path.len >= base_path.len + true_version.len + 1); // +1 for '/'
 
     // Try remove version path.
     if (util_tool.does_path_exist(version_path)) {
-        std.debug.assert(std.mem.indexOf(u8, version_path, ".zm") != null);
+        assert(std.mem.indexOf(u8, version_path, ".zm") != null);
 
         try std.fs.deleteTreeAbsolute(version_path);
 
         if (!util_tool.does_path_exist(version_path)) {
-            std.debug.assert(!util_tool.does_path_exist(version_path));
+            assert(!util_tool.does_path_exist(version_path));
         }
     }
 }
