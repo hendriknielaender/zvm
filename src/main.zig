@@ -11,6 +11,7 @@ const metadata = @import("metadata.zig");
 const platform_exec = @import("platform/exec.zig");
 const platform_paths = @import("platform/paths.zig");
 const platform_env = @import("platform/env.zig");
+const log = std.log.scoped(.zvm);
 
 const commands = struct {
     pub const help = @import("commands/help.zig");
@@ -79,7 +80,7 @@ pub fn main() !void {
 
         while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
             if (arguments_count >= arguments_buffer.len) {
-                std.log.err("Too many arguments: got {d}, maximum is {d}", .{
+                log.err("Too many arguments: got {d}, maximum is {d}", .{
                     arguments_count + 1,
                     arguments_buffer.len,
                 });
@@ -92,7 +93,7 @@ pub fn main() !void {
 
     const arguments = arguments_buffer[0..arguments_count];
     if (arguments.len == 0) {
-        std.log.err("No arguments provided to zvm", .{});
+        log.err("No arguments provided to zvm", .{});
         return error.NoArguments;
     }
 
@@ -173,7 +174,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
 
         var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
         process.spawn() catch |err| {
-            std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
             return err;
         };
         const term = try process.wait();
@@ -183,7 +184,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
 
         const result = std.posix.execveZ(argv[0].?, argv, envp);
-        std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
         return result;
     }
 }
@@ -196,18 +197,18 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
         const home = std.process.getEnvVarOwned(arena.allocator(), "USERPROFILE") catch |err| {
             switch (err) {
                 error.EnvironmentVariableNotFound => {
-                    std.log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
+                    log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
                     return error.HomeNotFound;
                 },
                 else => {
-                    std.log.err("Error reading USERPROFILE: {}", .{err});
+                    log.err("Error reading USERPROFILE: {}", .{err});
                     return error.HomeNotFound;
                 },
             }
         };
 
         if (home.len >= alias_buffers.home.len) {
-            std.log.err("Home path too long for buffer", .{});
+            log.err("Home path too long for buffer", .{});
             return error.HomePathTooLong;
         }
 
@@ -215,12 +216,12 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
         return alias_buffers.home[0..home.len];
     } else {
         const home = util_tool.getenv_cross_platform("HOME") orelse {
-            std.log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
+            log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
             return error.HomeNotFound;
         };
 
         if (home.len >= alias_buffers.home.len) {
-            std.log.err("Home path too long for buffer", .{});
+            log.err("Home path too long for buffer", .{});
             return error.HomePathTooLong;
         }
 

@@ -1,5 +1,6 @@
 const std = @import("std");
 const limits = @import("limits.zig");
+const log = std.log.scoped(.memory);
 
 /// Pre-allocated path buffer with static storage.
 pub const PathBuffer = struct {
@@ -12,7 +13,7 @@ pub const PathBuffer = struct {
 
     pub fn set(self: *PathBuffer, path: []const u8) ![]const u8 {
         if (path.len > self.data.len) {
-            std.log.err("Path too long: got {d} bytes, maximum is {d} bytes. Path starts with: '{s}...'", .{
+            log.err("Path too long: got {d} bytes, maximum is {d} bytes. Path starts with: '{s}...'", .{
                 path.len,
                 self.data.len,
                 if (path.len > 50) path[0..50] else path,
@@ -59,7 +60,7 @@ pub const HttpOperation = struct {
 
     pub fn acquire(self: *HttpOperation) !void {
         if (self.in_use) {
-            std.log.err("HttpOperation already in use: cannot acquire an operation that hasn't been released", .{});
+            log.err("HttpOperation already in use: cannot acquire an operation that hasn't been released", .{});
             return error.HttpOperationInUse;
         }
         self.in_use = true;
@@ -98,7 +99,7 @@ pub const VersionEntry = struct {
 
     pub fn set_name(self: *VersionEntry, name: []const u8) !void {
         if (name.len > self.name_buffer.len) {
-            std.log.err("Version name too long: got {d} bytes, maximum is {d} bytes. Name: '{s}'", .{
+            log.err("Version name too long: got {d} bytes, maximum is {d} bytes. Name: '{s}'", .{
                 name.len,
                 self.name_buffer.len,
                 name,
@@ -130,7 +131,7 @@ pub const ExtractOperation = struct {
 
     pub fn acquire(self: *ExtractOperation) !void {
         if (self.in_use) {
-            std.log.err("ExtractOperation already in use: cannot acquire an operation that hasn't been released", .{});
+            log.err("ExtractOperation already in use: cannot acquire an operation that hasn't been released", .{});
             return error.ExtractOperationInUse;
         }
         self.in_use = true;
@@ -219,7 +220,7 @@ pub const ObjectPools = struct {
                 return pb;
             }
         }
-        std.log.err("No PathBuffer available: all {d} path buffers are in use. Consider increasing path_buffers_maximum", .{
+        log.err("No PathBuffer available: all {d} path buffers are in use. Consider increasing path_buffers_maximum", .{
             limits.limits.path_buffers_maximum,
         });
         return error.NoPathBufferAvailable;
@@ -232,7 +233,7 @@ pub const ObjectPools = struct {
                 return ho;
             }
         }
-        std.log.err("No HttpOperation available: all {d} HTTP operations are in use. Consider increasing http_operations_maximum", .{
+        log.err("No HttpOperation available: all {d} HTTP operations are in use. Consider increasing http_operations_maximum", .{
             limits.limits.http_operations_maximum,
         });
         return error.NoHttpOperationAvailable;
@@ -245,7 +246,7 @@ pub const ObjectPools = struct {
                 return eo;
             }
         }
-        std.log.err("No ExtractOperation available: extract operation is already in use", .{});
+        log.err("No ExtractOperation available: extract operation is already in use", .{});
         return error.NoExtractOperationAvailable;
     }
 
@@ -256,7 +257,7 @@ pub const ObjectPools = struct {
                 return ve;
             }
         }
-        std.log.err("No VersionEntry available: all {d} version entries are in use. Consider increasing versions_maximum", .{
+        log.err("No VersionEntry available: all {d} version entries are in use. Consider increasing versions_maximum", .{
             limits.limits.versions_maximum,
         });
         return error.NoVersionEntryAvailable;

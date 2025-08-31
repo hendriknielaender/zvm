@@ -5,6 +5,7 @@ const object_pools = @import("memory/object_pools.zig");
 const static_memory = @import("memory/static_memory.zig");
 const util_tool = @import("util/tool.zig");
 const assert = std.debug.assert;
+const log = std.log.scoped(.context);
 
 /// Cross-platform environment variable getter
 /// Global application context containing all pre-allocated resources.
@@ -42,7 +43,7 @@ pub const CliContext = struct {
         assert(arguments.len <= limits.limits.arguments_maximum);
 
         if (instance != null) {
-            std.log.err("CliContext already initialized: multiple initialization attempts are not allowed", .{});
+            log.err("CliContext already initialized: multiple initialization attempts are not allowed", .{});
             return error.AlreadyInitialized;
         }
 
@@ -138,7 +139,7 @@ pub const CliContext = struct {
 
         // Copy home directory into our buffer
         if (home.len > context_storage.home_dir_buffer.len) {
-            std.log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
+            log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
                 home.len,
                 context_storage.home_dir_buffer.len,
                 home,
@@ -154,7 +155,7 @@ pub const CliContext = struct {
 
     pub fn get() !*CliContext {
         const context_instance = instance orelse {
-            std.log.err("CliContext not initialized: call CliContext.init() before get()", .{});
+            log.err("CliContext not initialized: call CliContext.init() before get()", .{});
             return error.NotInitialized;
         };
         assert(context_instance.home_dir_length > 0);

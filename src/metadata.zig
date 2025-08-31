@@ -1,6 +1,7 @@
 // ! this file just store some config meta data
 const std = @import("std");
 const builtin = @import("builtin");
+const log = std.log.scoped(.metadata);
 
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
@@ -23,12 +24,12 @@ pub fn init_config() void {
         if (std.fmt.parseInt(usize, mirror_str, 10)) |mirror_index| {
             if (mirror_index < zig_mirrors.len) {
                 preferred_mirror = mirror_index;
-                std.log.debug("Using mirror {d} from ZVM_MIRROR environment variable", .{mirror_index});
+                log.debug("Using mirror {d} from ZVM_MIRROR environment variable", .{mirror_index});
             } else {
-                std.log.warn("Invalid ZVM_MIRROR value {d}, must be 0-{d}", .{ mirror_index, zig_mirrors.len - 1 });
+                log.warn("Invalid ZVM_MIRROR value {d}, must be 0-{d}", .{ mirror_index, zig_mirrors.len - 1 });
             }
         } else |_| {
-            std.log.warn("Invalid ZVM_MIRROR value '{s}', must be a number 0-{d}", .{ mirror_str, zig_mirrors.len - 1 });
+            log.warn("Invalid ZVM_MIRROR value '{s}', must be a number 0-{d}", .{ mirror_str, zig_mirrors.len - 1 });
         }
     }
 }

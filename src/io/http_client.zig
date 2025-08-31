@@ -1,6 +1,7 @@
 const std = @import("std");
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
+const log = std.log.scoped(.http);
 
 /// HTTP client that uses pre-allocated operations from the pool.
 ///
@@ -142,7 +143,7 @@ pub const HttpClient = struct {
             while (true) {
                 const available = operation.response_buffer[response_offset..];
                 if (available.len == 0) {
-                    std.log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
+                    log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
                         limits.limits.http_response_size_maximum,
                         uri,
                     });
@@ -199,7 +200,7 @@ pub const HttpClient = struct {
 
         // Check status code
         if (response.head.status != .ok) {
-            std.log.err("HTTP request failed with status: {}", .{response.head.status});
+            log.err("HTTP request failed with status: {}", .{response.head.status});
             return error.HttpRequestFailed;
         }
 

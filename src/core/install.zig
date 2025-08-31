@@ -13,6 +13,7 @@ const context = @import("../Context.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
 const assert = std.debug.assert;
+const log = std.log.scoped(.install);
 const Progress = std.Progress;
 
 /// Helper function to download a file with hash verification
@@ -189,7 +190,7 @@ fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_poo
             .is_master = is_master,
         },
     ) orelse {
-        std.log.err("Unsupported platform: {s}-{s} is not supported for version {s}", .{
+        log.err("Unsupported platform: {s}-{s} is not supported for version {s}", .{
             @tagName(builtin.os.tag),
             @tagName(builtin.cpu.arch),
             if (is_master) "master" else "release",
@@ -224,7 +225,7 @@ fn fetch_version_data(
     const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_json_allocator());
 
     const version_data = tmp_val orelse {
-        std.log.err("Unsupported version '{s}' for platform '{s}'. Check available versions with 'zvm list'", .{
+        log.err("Unsupported version '{s}' for platform '{s}'. Check available versions with 'zvm list'", .{
             version,
             platform_str,
         });
@@ -355,7 +356,7 @@ fn extract_and_install(
         false,
         extract_node,
     ) catch |err| {
-        std.log.err("Extraction failed with error: {s} for path: {s}", .{ @errorName(err), extract_path });
+        log.err("Extraction failed with error: {s} for path: {s}", .{ @errorName(err), extract_path });
 
         try std.fs.deleteTreeAbsolute(extract_path);
         return err;
@@ -401,7 +402,7 @@ fn download_with_mirrors(
 
             const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
                 download_node.end();
-                std.log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
+                log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
                 // Continue to try official source and other mirrors.
                 return try download_with_fallbacks(ctx, version_data, file_name, root_node, items_done);
             };
@@ -409,10 +410,10 @@ fn download_with_mirrors(
             items_done.* += 1;
             return result;
         } else {
-            std.log.warn("Specified mirror index {d} is out of range (0-{d})", .{ mirror_index, config.zig_mirrors.len - 1 });
+            log.warn("Specified mirror index {d} is out of range (0-{d})", .{ mirror_index, config.zig_mirrors.len - 1 });
         }
     } else {
-        std.log.debug("No preferred mirror specified, using official source", .{});
+        log.debug("No preferred mirror specified, using official source", .{});
     }
 
     return try download_with_fallbacks(ctx, version_data, file_name, root_node, items_done);
@@ -431,7 +432,7 @@ fn download_with_fallbacks(
 
     const parsed_uri = try std.Uri.parse(version_data.tarball);
 
-    std.log.info("Downloading from official source: {s}", .{version_data.tarball});
+    log.info("Downloading from official source: {s}", .{version_data.tarball});
 
     var node_name_buffer = try ctx.acquire_path_buffer();
     defer node_name_buffer.reset();
@@ -443,7 +444,7 @@ fn download_with_fallbacks(
 
     const result = download_file_with_verification(ctx, parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
         download_node.end();
-        std.log.warn("Failed to download from official source: {s}", .{@errorName(err)});
+        log.warn("Failed to download from official source: {s}", .{@errorName(err)});
 
         return try download_from_mirrors(ctx, version_data, file_name, root_node);
     };
@@ -467,12 +468,12 @@ fn download_from_mirrors(
         const mirror_url = mirror_info[0];
         const mirror_maintainer = mirror_info[1];
 
-        std.log.info("Trying mirror {d} ({s}): {s}", .{ i, mirror_maintainer, mirror_url });
+        log.info("Trying mirror {d} ({s}): {s}", .{ i, mirror_maintainer, mirror_url });
 
         var mirror_uri_buffer = try ctx.acquire_path_buffer();
         defer mirror_uri_buffer.reset();
         const mirror_uri = construct_mirror_uri(mirror_uri_buffer, mirror_url, file_name) catch |err| {
-            std.log.warn("Failed to construct mirror URI for {s}: {s}", .{ mirror_url, @errorName(err) });
+            log.warn("Failed to construct mirror URI for {s}: {s}", .{ mirror_url, @errorName(err) });
             continue;
         };
 
@@ -486,7 +487,7 @@ fn download_from_mirrors(
 
         const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
             download_node.end();
-            std.log.warn("Failed to download from mirror {s}: {s}", .{ mirror_url, @errorName(err) });
+            log.warn("Failed to download from mirror {s}: {s}", .{ mirror_url, @errorName(err) });
             continue;
         };
 
@@ -494,7 +495,7 @@ fn download_from_mirrors(
         return result;
     }
 
-    std.log.err("All download attempts failed from {} mirrors", .{config.zig_mirrors.len});
+    log.err("All download attempts failed from {} mirrors", .{config.zig_mirrors.len});
     return error.AllDownloadsFailed;
 }
 
@@ -557,7 +558,7 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
 
 fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
     const platform_str = try util_arch.platform_str_for_zls(ctx) orelse {
-        std.log.err("Unsupported platform for ZLS: {s}-{s}", .{
+        log.err("Unsupported platform for ZLS: {s}-{s}", .{
             @tagName(builtin.os.tag),
             @tagName(builtin.cpu.arch),
         });
@@ -583,7 +584,7 @@ fn fetch_zls_version_data(
     defer zls_meta.deinit();
 
     const version_data = try zls_meta.get_version_data(version, platform_str, ctx.get_json_allocator()) orelse {
-        std.log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with 'zvm ls --zls'", .{
+        log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with 'zvm ls --zls'", .{
             version,
             platform_str,
         });

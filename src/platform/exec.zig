@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Errors = @import("../Errors.zig");
 const limits = @import("../memory/limits.zig");
+const log = std.log.scoped(.exec);
 
 pub const ExecBuffers = struct {
     tool_path: [limits.limits.path_length_maximum]u8,
@@ -62,7 +63,7 @@ pub fn exec_tool(buffers: *ExecBuffers, tool_path: []const u8) !void {
 
         var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
         process.spawn() catch |err| {
-            std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
             return err;
         };
         const term = try process.wait();
@@ -72,7 +73,7 @@ pub fn exec_tool(buffers: *ExecBuffers, tool_path: []const u8) !void {
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
 
         const result = std.posix.execveZ(argv[0].?, argv, envp);
-        std.log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
         return result;
     }
 }
