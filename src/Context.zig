@@ -1,9 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const limits = @import("limits.zig");
-const object_pools = @import("object_pools.zig");
-const static_memory = @import("static_memory.zig");
+const limits = @import("memory/limits.zig");
+const object_pools = @import("memory/object_pools.zig");
+const static_memory = @import("memory/static_memory.zig");
 const util_tool = @import("util/tool.zig");
+const assert = std.debug.assert;
+const log = std.log.scoped(.context);
 
 /// Cross-platform environment variable getter
 /// Global application context containing all pre-allocated resources.
@@ -32,16 +34,16 @@ pub const CliContext = struct {
     pub fn init(
         context_storage: *CliContext,
         static_buffer: []u8,
-        arguments: [][]const u8,
+        arguments: []const []const u8,
     ) !*CliContext {
         // context_storage is a pointer, not optional - can't be null in Zig
-        std.debug.assert(static_buffer.len > 0);
-        std.debug.assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
-        std.debug.assert(arguments.len > 0);
-        std.debug.assert(arguments.len <= limits.limits.arguments_maximum);
+        assert(static_buffer.len > 0);
+        assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
+        assert(arguments.len > 0);
+        assert(arguments.len <= limits.limits.arguments_maximum);
 
         if (instance != null) {
-            std.log.err("CliContext already initialized: multiple initialization attempts are not allowed", .{});
+            log.err("CliContext already initialized: multiple initialization attempts are not allowed", .{});
             return error.AlreadyInitialized;
         }
 
@@ -57,17 +59,17 @@ pub const CliContext = struct {
         instance = context_storage;
 
         // Final postconditions
-        std.debug.assert(instance == context_storage);
-        std.debug.assert(context_storage.arguments_count > 0);
-        std.debug.assert(context_storage.home_dir_length > 0);
+        assert(instance == context_storage);
+        assert(context_storage.arguments_count > 0);
+        assert(context_storage.home_dir_length > 0);
 
         return context_storage;
     }
 
     /// Initialize core systems (memory and pools)
     fn init_core_systems(context_storage: *CliContext, static_buffer: []u8) !void {
-        std.debug.assert(static_buffer.len > 0);
-        std.debug.assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
+        assert(static_buffer.len > 0);
+        assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
 
         // Initialize static memory system
         context_storage.static_mem = static_memory.StaticMemory.init(static_buffer);
@@ -81,9 +83,9 @@ pub const CliContext = struct {
     }
 
     /// Copy command line arguments into pre-allocated buffer
-    fn copy_args(context_storage: *CliContext, arguments: [][]const u8) !void {
-        std.debug.assert(arguments.len > 0);
-        std.debug.assert(arguments.len <= limits.limits.arguments_maximum);
+    fn copy_args(context_storage: *CliContext, arguments: []const []const u8) !void {
+        assert(arguments.len > 0);
+        assert(arguments.len <= limits.limits.arguments_maximum);
 
         const process_buffer = context_storage.pools.get_process_buffer();
         // process_buffer is a pointer, not optional - no need for null check
@@ -92,8 +94,8 @@ pub const CliContext = struct {
         var arguments_count: u32 = 0;
 
         for (arguments) |argument| {
-            std.debug.assert(argument.len > 0);
-            std.debug.assert(arguments_count < limits.limits.arguments_maximum);
+            assert(argument.len > 0);
+            assert(arguments_count < limits.limits.arguments_maximum);
 
             if (arguments_count >= limits.limits.arguments_maximum) break;
 
@@ -106,14 +108,14 @@ pub const CliContext = struct {
             storage_offset += @intCast(argument_length);
             arguments_count += 1;
 
-            std.debug.assert(storage_offset == old_offset + argument_length);
-            std.debug.assert(process_buffer.arguments[arguments_count - 1].len == argument.len);
+            assert(storage_offset == old_offset + argument_length);
+            assert(process_buffer.arguments[arguments_count - 1].len == argument.len);
         }
 
         process_buffer.arguments_count = arguments_count;
         context_storage.arguments_count = arguments_count;
 
-        std.debug.assert(context_storage.arguments_count == arguments_count);
+        assert(context_storage.arguments_count == arguments_count);
     }
 
     /// Initialize home directory
@@ -132,12 +134,12 @@ pub const CliContext = struct {
         };
 
         // Validate home directory
-        std.debug.assert(home.len > 0);
-        std.debug.assert(home.len <= limits.limits.home_dir_length_maximum);
+        assert(home.len > 0);
+        assert(home.len <= limits.limits.home_dir_length_maximum);
 
         // Copy home directory into our buffer
         if (home.len > context_storage.home_dir_buffer.len) {
-            std.log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
+            log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
                 home.len,
                 context_storage.home_dir_buffer.len,
                 home,
@@ -147,42 +149,42 @@ pub const CliContext = struct {
         @memcpy(context_storage.home_dir_buffer[0..home.len], home);
         context_storage.home_dir_length = @intCast(home.len);
 
-        std.debug.assert(context_storage.home_dir_length == home.len);
-        std.debug.assert(context_storage.home_dir_length <= context_storage.home_dir_buffer.len);
+        assert(context_storage.home_dir_length == home.len);
+        assert(context_storage.home_dir_length <= context_storage.home_dir_buffer.len);
     }
 
     pub fn get() !*CliContext {
         const context_instance = instance orelse {
-            std.log.err("CliContext not initialized: call CliContext.init() before get()", .{});
+            log.err("CliContext not initialized: call CliContext.init() before get()", .{});
             return error.NotInitialized;
         };
-        std.debug.assert(context_instance.home_dir_length > 0);
-        std.debug.assert(context_instance.home_dir_length <= limits.limits.home_dir_length_maximum);
+        assert(context_instance.home_dir_length > 0);
+        assert(context_instance.home_dir_length <= limits.limits.home_dir_length_maximum);
         return context_instance;
     }
 
     /// Get home directory.
     pub fn get_home_dir(self: *const CliContext) []const u8 {
-        std.debug.assert(self.home_dir_length > 0);
-        std.debug.assert(self.home_dir_length <= self.home_dir_buffer.len);
+        assert(self.home_dir_length > 0);
+        assert(self.home_dir_length <= self.home_dir_buffer.len);
 
         const result = self.home_dir_buffer[0..self.home_dir_length];
 
-        std.debug.assert(result.len == self.home_dir_length);
+        assert(result.len == self.home_dir_length);
         return result;
     }
 
     /// Get command line arguments.
     pub fn get_args(self: *CliContext) [][]const u8 {
-        std.debug.assert(self.arguments_count > 0);
-        std.debug.assert(self.arguments_count <= limits.limits.arguments_maximum);
+        assert(self.arguments_count > 0);
+        assert(self.arguments_count <= limits.limits.arguments_maximum);
 
         const process_buffer = self.pools.get_process_buffer();
         // process_buffer is a pointer, not optional - no need for null check
 
         const result = process_buffer.arguments[0..self.arguments_count];
 
-        std.debug.assert(result.len == self.arguments_count);
+        assert(result.len == self.arguments_count);
         return result;
     }
 
@@ -208,8 +210,8 @@ pub const CliContext = struct {
 
     /// Build a ZVM path using a path buffer.
     pub fn build_zvm_path(self: *CliContext, segment: []const u8) ![]const u8 {
-        std.debug.assert(segment.len > 0);
-        std.debug.assert(segment.len < limits.limits.path_length_maximum / 2); // Leave room for home dir
+        assert(segment.len > 0);
+        assert(segment.len < limits.limits.path_length_maximum / 2); // Leave room for home dir
 
         var buffer = try self.acquire_path_buffer();
         defer buffer.reset();
@@ -218,7 +220,7 @@ pub const CliContext = struct {
 
         var fixed_buffer_stream = std.io.fixedBufferStream(buffer.slice());
         const home_dir = self.get_home_dir();
-        std.debug.assert(home_dir.len > 0);
+        assert(home_dir.len > 0);
 
         // Follow XDG Base Directory specification
         if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -230,8 +232,8 @@ pub const CliContext = struct {
 
         const result = try buffer.set(fixed_buffer_stream.getWritten());
 
-        std.debug.assert(result.len > 0);
-        std.debug.assert(result.len <= limits.limits.path_length_maximum);
+        assert(result.len > 0);
+        assert(result.len <= limits.limits.path_length_maximum);
 
         return result;
     }
@@ -239,8 +241,8 @@ pub const CliContext = struct {
     /// Get the JSON parse buffer.
     pub fn get_json_buffer(self: *CliContext) []u8 {
         const buffer = self.pools.get_json_buffer();
-        std.debug.assert(buffer.len > 0);
-        std.debug.assert(buffer.len == limits.limits.json_parse_size_maximum);
+        assert(buffer.len > 0);
+        assert(buffer.len == limits.limits.json_parse_size_maximum);
         return buffer;
     }
 
@@ -260,15 +262,15 @@ pub const CliContext = struct {
     /// Note: This should be used sparingly as we prefer pre-allocated pools.
     pub fn get_allocator(self: *CliContext) std.mem.Allocator {
         // Verify static memory is initialized
-        std.debug.assert(self.static_mem.buffer.len > 0);
+        assert(self.static_mem.buffer.len > 0);
         return self.static_mem.allocator();
     }
 
     /// Get memory usage statistics.
     pub fn get_memory_usage(self: *const CliContext) static_memory.StaticMemory.MemoryUsage {
         const usage = self.static_mem.get_usage();
-        std.debug.assert(usage.used <= usage.total);
-        std.debug.assert(usage.available == usage.total - usage.used);
+        assert(usage.used <= usage.total);
+        assert(usage.available == usage.total - usage.used);
         return usage;
     }
 
@@ -300,8 +302,8 @@ pub const CliContext = struct {
         self.home_dir_length = 0;
         instance = null;
 
-        std.debug.assert(self.arguments_count == 0);
-        std.debug.assert(self.home_dir_length == 0);
-        std.debug.assert(instance == null);
+        assert(self.arguments_count == 0);
+        assert(self.home_dir_length == 0);
+        assert(instance == null);
     }
 };

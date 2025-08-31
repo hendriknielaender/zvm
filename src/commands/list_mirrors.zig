@@ -1,8 +1,8 @@
 const std = @import("std");
-const context = @import("../context.zig");
+const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
-const validation = @import("../validation.zig");
-const config = @import("../config.zig");
+const validation = @import("../cli/validation.zig");
+const config = @import("../metadata.zig");
 
 pub fn execute(
     ctx: *context.CliContext,

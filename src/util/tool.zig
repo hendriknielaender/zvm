@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const object_pools = @import("../object_pools.zig");
+const object_pools = @import("../memory/object_pools.zig");
 
 /// Cross-platform environment variable getter
 pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {

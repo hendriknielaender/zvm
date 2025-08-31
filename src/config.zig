@@ -1,84 +1,98 @@
-// ! this file just store some config meta data
 const std = @import("std");
 const builtin = @import("builtin");
+const util_output = @import("util/output.zig");
+const metadata = @import("metadata.zig");
 
-/// zig meta data url
-pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
+zvm_home: []const u8,
+verify_signatures: bool,
+output_mode: util_output.OutputMode,
+color_mode: util_output.ColorMode,
+log_level: std.log.Level,
+preferred_mirror: ?usize,
 
-/// Alternative mirrors for downloading Zig binaries
-/// Format: [url, maintainer]
-pub const zig_mirrors = [_][2][]const u8{
-    [_][]const u8{ "https://pkg.machengine.org/zig", "slimsag <stephen@hexops.com>" },
-    [_][]const u8{ "https://zigmirror.hryx.net/zig", "hryx <codroid@gmail.com>" },
-    [_][]const u8{ "https://zig.linus.dev/zig", "linusg <mail@linusgroh.de>" },
-    [_][]const u8{ "https://fs.liujiacai.net/zigbuilds", "jiacai2050 <hello@liujiacai.net>" },
-    [_][]const u8{ "https://zigmirror.nesovic.dev/zig", "kaynetik <aleksandar@nesovic.dev>" },
-    [_][]const u8{ "https://zig.nekos.space/zig", "0t4u <rattley@nekos.space>" },
-};
+home_buffer: [512]u8,
+zvm_home_buffer: [512]u8,
 
-pub var preferred_mirror: ?usize = null;
+const Self = @This();
 
-pub fn init_config() void {
-    if (std.posix.getenv("ZVM_MIRROR")) |mirror_str| {
-        if (std.fmt.parseInt(usize, mirror_str, 10)) |mirror_index| {
-            if (mirror_index < zig_mirrors.len) {
-                preferred_mirror = mirror_index;
-                std.log.debug("Using mirror {d} from ZVM_MIRROR environment variable", .{mirror_index});
-            } else {
-                std.log.warn("Invalid ZVM_MIRROR value {d}, must be 0-{d}", .{ mirror_index, zig_mirrors.len - 1 });
-            }
-        } else |_| {
-            std.log.warn("Invalid ZVM_MIRROR value '{s}', must be a number 0-{d}", .{ mirror_str, zig_mirrors.len - 1 });
+pub fn init() Self {
+    var config = Self{
+        .zvm_home = "",
+        .verify_signatures = true,
+        .output_mode = .human_readable,
+        .color_mode = .always_use_color,
+        .log_level = .info,
+        .preferred_mirror = null,
+        // SAFETY: home_buffer is initialized by get_home_path() before use
+        .home_buffer = undefined,
+        // SAFETY: zvm_home_buffer is initialized by get_zvm_home_path() before use
+        .zvm_home_buffer = undefined,
+    };
+
+    config.load_from_env();
+    return config;
+}
+
+fn load_from_env(self: *Self) void {
+    const home = self.get_home_path() catch return;
+    self.zvm_home = self.get_zvm_home_path(home) catch return;
+
+    if (self.get_env_var("ZVM_VERIFY_SIGNATURES")) |verify_str| {
+        self.verify_signatures = std.mem.eql(u8, verify_str, "true");
+    }
+
+    self.preferred_mirror = metadata.preferred_mirror;
+}
+
+fn get_home_path(self: *Self) ![]const u8 {
+    if (builtin.os.tag == .windows) {
+        const home = std.posix.getenv("USERPROFILE") orelse return error.HomeNotFound;
+        if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
+        @memcpy(self.home_buffer[0..home.len], home);
+        return self.home_buffer[0..home.len];
+    } else {
+        const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
+        if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
+        @memcpy(self.home_buffer[0..home.len], home);
+        return self.home_buffer[0..home.len];
+    }
+}
+
+fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
+    if (builtin.os.tag == .windows) {
+        if (self.get_env_var("ZVM_HOME")) |zvm_home| {
+            if (zvm_home.len >= self.zvm_home_buffer.len) return error.HomePathTooLong;
+            @memcpy(self.zvm_home_buffer[0..zvm_home.len], zvm_home);
+            return self.zvm_home_buffer[0..zvm_home.len];
+        } else {
+            var stream = std.io.fixedBufferStream(&self.zvm_home_buffer);
+            try stream.writer().print("{s}\\.zm", .{home});
+            return stream.getWritten();
+        }
+    } else {
+        if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+            var stream = std.io.fixedBufferStream(&self.zvm_home_buffer);
+            try stream.writer().print("{s}/.zm", .{xdg_data});
+            return stream.getWritten();
+        } else {
+            var stream = std.io.fixedBufferStream(&self.zvm_home_buffer);
+            try stream.writer().print("{s}/.local/share/.zm", .{home});
+            return stream.getWritten();
         }
     }
 }
 
-/// zig minisign public key
-pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U";
+fn get_env_var(self: *Self, name: []const u8) ?[]const u8 {
+    _ = self;
+    return std.posix.getenv(name);
+}
 
-/// zls meta data url
-pub const zls_meta_url: []const u8 = "https://api.github.com/repos/zigtools/zls/releases";
+pub fn validate(self: Self) !void {
+    if (self.zvm_home.len == 0) {
+        return error.InvalidConfig;
+    }
 
-/// parsed zig url
-pub const zig_url = std.Uri.parse(zig_meta_url) catch @panic("Invalid zig_meta_url");
-/// parsed zls url
-pub const zls_url = std.Uri.parse(zls_meta_url) catch @panic("Invalid zls_meta_url");
-
-/// zig file name
-pub const zig_name = switch (builtin.os.tag) {
-    .windows => "zig.exe",
-    .linux, .macos => "zig",
-    else => @compileError("Current platform not supported"),
-};
-
-/// zig file name
-pub const zls_name = switch (builtin.os.tag) {
-    .windows => "zls.exe",
-    .linux, .macos => "zls",
-    else => @compileError("Current platform not supported"),
-};
-
-/// zig archive_ext
-pub const archive_ext = if (builtin.os.tag == .windows)
-    "zip"
-else
-    "tar.xz";
-
-/// zls_list_1 and zls_list_2 are path for zls version
-/// because zls not have 0.12.1,
-/// so when user install zls 0.12.1
-/// zvm will automatically install 0.12.0
-/// zls_list_1 is the list for mapping source
-pub const zls_list_1 = [_][]const u8{
-    "0.12.1",
-};
-/// zls_list_2 is the list for mapping result
-pub const zls_list_2 = [_][]const u8{
-    "0.12.0",
-};
-
-// ensure correct
-comptime {
-    if (zls_list_1.len != zls_list_2.len)
-        @compileError("zls_list_1 length not equal to zls_list_2!");
+    if (self.output_mode == .machine_json and self.color_mode == .always_use_color) {
+        return error.InvalidConfig;
+    }
 }

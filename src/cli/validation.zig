@@ -1,8 +1,9 @@
 const std = @import("std");
 const raw_args = @import("raw_args.zig");
-const limits = @import("limits.zig");
-const util_output = @import("util/output.zig");
-const util_tool = @import("util/tool.zig");
+const limits = @import("../memory/limits.zig");
+const util_output = @import("../util/output.zig");
+const util_tool = @import("../util/tool.zig");
+const assert = std.debug.assert;
 
 pub const VersionSpec = union(enum) {
     master,
@@ -20,17 +21,17 @@ pub const VersionSpec = union(enum) {
         }
 
         comptime {
-            std.debug.assert(@sizeOf(VersionNumbers) == 12);
-            std.debug.assert(@alignOf(VersionNumbers) == 4);
+            assert(@sizeOf(VersionNumbers) == 12);
+            assert(@alignOf(VersionNumbers) == 4);
         }
     };
 
     const VersionSpec_Self = @This();
 
     pub fn parse(version_str: []const u8) !VersionSpec_Self {
-        std.debug.assert(version_str.len > 0);
-        std.debug.assert(version_str.len <= limits.limits.version_string_length_maximum);
-        std.debug.assert(version_str.len < 1024);
+        assert(version_str.len > 0);
+        assert(version_str.len <= limits.limits.version_string_length_maximum);
+        assert(version_str.len < 1024);
 
         if (std.mem.eql(u8, version_str, "master")) {
             return .master;
@@ -43,9 +44,9 @@ pub const VersionSpec = union(enum) {
         const major_str = parts.next() orelse return error.InvalidVersionFormat;
         const minor_str = parts.next() orelse return error.InvalidVersionFormat;
         const patch_str = parts.next() orelse return error.InvalidVersionFormat;
-        std.debug.assert(major_str.len > 0);
-        std.debug.assert(minor_str.len > 0);
-        std.debug.assert(patch_str.len > 0);
+        assert(major_str.len > 0);
+        assert(minor_str.len > 0);
+        assert(patch_str.len > 0);
 
         if (parts.next() != null) {
             return error.TooManyVersionParts;
@@ -67,14 +68,14 @@ pub const VersionSpec = union(enum) {
             },
         };
 
-        std.debug.assert(result.specific.major == major);
-        std.debug.assert(result.specific.minor == minor);
-        std.debug.assert(result.specific.patch == patch);
+        assert(result.specific.major == major);
+        assert(result.specific.minor == minor);
+        assert(result.specific.patch == patch);
         return result;
     }
 
     pub fn to_string(self: VersionSpec, buffer: []u8) ![]const u8 {
-        std.debug.assert(buffer.len >= limits.limits.version_string_length_maximum);
+        assert(buffer.len >= limits.limits.version_string_length_maximum);
 
         return switch (self) {
             .master => "master",
@@ -119,7 +120,7 @@ pub const ShellType = enum {
     powershell,
 
     pub fn parse(shell_str: []const u8) !ShellType {
-        std.debug.assert(shell_str.len > 0);
+        assert(shell_str.len > 0);
 
         if (std.mem.eql(u8, shell_str, "bash")) return .bash;
         if (std.mem.eql(u8, shell_str, "zsh")) return .zsh;
@@ -447,28 +448,28 @@ fn detect_shell_from_environment() ?ShellType {
 
     const getenv = util_tool.getenv_cross_platform;
     const shell_path = getenv("SHELL") orelse return null;
-    std.debug.assert(shell_path.len > 0);
+    assert(shell_path.len > 0);
 
     const shell_name = std.fs.path.basename(shell_path);
-    std.debug.assert(shell_name.len > 0);
-    std.debug.assert(shell_name.len <= shell_path.len);
+    assert(shell_name.len > 0);
+    assert(shell_name.len <= shell_path.len);
 
     return ShellType.parse(shell_name) catch null;
 }
 
 comptime {
-    std.debug.assert(@sizeOf(ValidatedCommand) <= 64);
-    std.debug.assert(@sizeOf(ValidatedCommand) >= 16);
-    std.debug.assert(@sizeOf(VersionSpec) <= 16);
-    std.debug.assert(@sizeOf(VersionSpec) >= 4);
-    std.debug.assert(@sizeOf(ValidatedCommand.InstallCommand) <= 32);
-    std.debug.assert(@sizeOf(ValidatedCommand.InstallCommand) >= 16);
-    std.debug.assert(@sizeOf(ValidatedCommand.RemoveCommand) <= 32);
-    std.debug.assert(@sizeOf(ValidatedCommand.RemoveCommand) >= 16);
-    std.debug.assert(@sizeOf(ValidatedCommand.UseCommand) <= 32);
-    std.debug.assert(@sizeOf(ValidatedCommand.UseCommand) >= 16);
+    assert(@sizeOf(ValidatedCommand) <= 64);
+    assert(@sizeOf(ValidatedCommand) >= 16);
+    assert(@sizeOf(VersionSpec) <= 16);
+    assert(@sizeOf(VersionSpec) >= 4);
+    assert(@sizeOf(ValidatedCommand.InstallCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.InstallCommand) >= 16);
+    assert(@sizeOf(ValidatedCommand.RemoveCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.RemoveCommand) >= 16);
+    assert(@sizeOf(ValidatedCommand.UseCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.UseCommand) >= 16);
 
-    std.debug.assert(@typeInfo(ShellType).@"enum".fields.len == 4);
-    std.debug.assert(@typeInfo(ToolType).@"enum".fields.len == 2);
-    std.debug.assert(@typeInfo(VersionSpec).@"union".fields.len == 2);
+    assert(@typeInfo(ShellType).@"enum".fields.len == 4);
+    assert(@typeInfo(ToolType).@"enum".fields.len == 2);
+    assert(@typeInfo(VersionSpec).@"union".fields.len == 2);
 }

@@ -3,9 +3,9 @@
 //! The json of zls comes from the official github api
 //! We can get version list and version data
 const std = @import("std");
-const config = @import("config.zig");
-const util_tool = @import("util/tool.zig");
-const object_pools = @import("object_pools.zig");
+const config = @import("../metadata.zig");
+const util_tool = @import("../util/tool.zig");
+const object_pools = @import("../memory/object_pools.zig");
 
 const json = std.json;
 const Allocator = std.mem.Allocator;

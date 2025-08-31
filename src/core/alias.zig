@@ -4,12 +4,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const util_data = @import("util/data.zig");
-const util_tool = @import("util/tool.zig");
-const util_output = @import("util/output.zig");
-const context = @import("context.zig");
-const object_pools = @import("object_pools.zig");
-const limits = @import("limits.zig");
+const util_data = @import("../util/data.zig");
+const util_tool = @import("../util/tool.zig");
+const util_output = @import("../util/output.zig");
+const context = @import("../Context.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const limits = @import("../memory/limits.zig");
 
 // Cleaner access to I/O buffer size
 const io_buffer_size = limits.limits.io_buffer_size_maximum;

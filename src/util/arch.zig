@@ -1,7 +1,8 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
-const object_pools = @import("../object_pools.zig");
-const context = @import("../context.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const context = @import("../Context.zig");
+const log = std.log.scoped(.arch);
 
 pub const DetectParams = struct {
     os: std.Target.Os.Tag,
@@ -73,18 +74,18 @@ pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
 /// Runtime version of platform_str using static allocation.
 pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParams) !?[]const u8 {
     const os_str = os_to_string(params.os) orelse {
-        std.log.err("Unsupported operating system: {s}. Supported: windows, linux, macos", .{@tagName(params.os)});
+        log.err("Unsupported operating system: {s}. Supported: windows, linux, macos", .{@tagName(params.os)});
         return error.UnsupportedSystem;
     };
 
     const arch_str = if (params.is_master)
         arch_to_string_master(params.arch) orelse {
-            std.log.err("Unsupported architecture for master builds: {s}. Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
+            log.err("Unsupported architecture for master builds: {s}. Supported: x86_64, aarch64, arm, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
             return error.UnsupportedSystem;
         }
     else
         arch_to_string(params.arch) orelse {
-            std.log.err("Unsupported architecture: {s}. Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
+            log.err("Unsupported architecture: {s}. Supported: x86_64, aarch64, armv7a, riscv64, powerpc64le, powerpc", .{@tagName(params.arch)});
             return error.UnsupportedSystem;
         };
 

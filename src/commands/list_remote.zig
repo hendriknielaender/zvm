@@ -1,13 +1,13 @@
 const std = @import("std");
-const context = @import("../context.zig");
-const util_output = @import("../util/output.zig");
+const context = @import("../Context.zig");
+
 const util_color = @import("../util/color.zig");
-const validation = @import("../validation.zig");
-const config = @import("../config.zig");
-const http_client = @import("../http_client.zig");
-const meta = @import("../meta.zig");
-const object_pools = @import("../object_pools.zig");
-const limits = @import("../limits.zig");
+const validation = @import("../cli/validation.zig");
+const config = @import("../metadata.zig");
+const http_client = @import("../io/http_client.zig");
+const meta = @import("../core/meta.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const limits = @import("../memory/limits.zig");
 
 pub fn execute(
     ctx: *context.CliContext,

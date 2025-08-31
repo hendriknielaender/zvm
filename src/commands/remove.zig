@@ -1,8 +1,8 @@
 const std = @import("std");
-const context = @import("../context.zig");
-const validation = @import("../validation.zig");
-const limits = @import("../limits.zig");
-const remove = @import("../remove.zig");
+const context = @import("../Context.zig");
+const validation = @import("../cli/validation.zig");
+const limits = @import("../memory/limits.zig");
+const remove = @import("../core/remove.zig");
 
 pub fn execute(
     ctx: *context.CliContext,

@@ -78,7 +78,7 @@ pub fn build(b: *Build) void {
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),
                 .target = resolved_target,
-                .optimize = .ReleaseFast,
+                .optimize = .ReleaseSafe,
                 .strip = true,
             }),
         });

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 /// Static compile-time limits for the entire application.
 /// These define the maximum capacity for every resource in the system.
@@ -116,25 +117,25 @@ pub const limits = struct {
 comptime {
     // Compile-time assertions to validate our limits.
     // Ensure args storage can hold at least one max-length arg per allowed arg.
-    std.debug.assert(limits.arguments_storage_size_maximum >= limits.arguments_maximum * 32);
+    assert(limits.arguments_storage_size_maximum >= limits.arguments_maximum * 32);
 
     // Ensure path length is reasonable.
-    std.debug.assert(limits.path_length_maximum >= 256);
-    std.debug.assert(limits.path_length_maximum <= 4096);
+    assert(limits.path_length_maximum >= 256);
+    assert(limits.path_length_maximum <= 4096);
 
     // Ensure HTTP response can fit JSON data.
-    std.debug.assert(limits.http_response_size_maximum >= limits.json_parse_size_maximum);
+    assert(limits.http_response_size_maximum >= limits.json_parse_size_maximum);
 
     // Ensure version string can hold semantic version plus metadata.
-    std.debug.assert(limits.version_string_length_maximum >= 32);
+    assert(limits.version_string_length_maximum >= 32);
 
     // Ensure we have enough path buffers for concurrent operations.
-    std.debug.assert(limits.path_buffers_maximum >= 4);
+    assert(limits.path_buffers_maximum >= 4);
 
     // Ensure extract buffer is large enough for reasonable operations.
-    std.debug.assert(limits.extract_buffer_size_maximum >= 16 * 1024);
+    assert(limits.extract_buffer_size_maximum >= 16 * 1024);
 
     // Ensure process output buffer is reasonable.
-    std.debug.assert(limits.process_output_size_maximum >= 1024);
-    std.debug.assert(limits.process_output_size_maximum <= 16 * 1024);
+    assert(limits.process_output_size_maximum >= 1024);
+    assert(limits.process_output_size_maximum <= 16 * 1024);
 }

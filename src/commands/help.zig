@@ -1,7 +1,7 @@
 const std = @import("std");
-const context = @import("../context.zig");
+const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
-const validation = @import("../validation.zig");
+const validation = @import("../cli/validation.zig");
 
 pub fn execute(
     ctx: *context.CliContext,
@@ -53,8 +53,6 @@ pub fn execute(
         \\
     , .{});
 }
-
-const testing = std.testing;
 
 test "help command executes without error" {
     const output_config = util_output.OutputConfig{

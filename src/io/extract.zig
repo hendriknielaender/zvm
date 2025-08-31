@@ -1,9 +1,10 @@
 //! This file is used to decompress the file
 const std = @import("std");
-const data = @import("data.zig");
-const tool = @import("tool.zig");
-const object_pools = @import("../object_pools.zig");
-const limits = @import("../limits.zig");
+const data = @import("../util/data.zig");
+const tool = @import("../util/tool.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const limits = @import("../memory/limits.zig");
+const log = std.log.scoped(.extract);
 
 const xz = std.compress.xz;
 const tar = std.tar;
@@ -96,7 +97,7 @@ fn extract_zip_dir_static(
     const tmp_path_buffer = &extract_op.tmp_path_buffer;
     const tmp_path = try data.get_zvm_path_segment(tmp_path_buffer, "tmpdir");
     defer std.fs.deleteTreeAbsolute(tmp_path) catch |err| {
-        std.log.warn("Failed to delete temporary directory: {}", .{err});
+        log.warn("Failed to delete temporary directory: {}", .{err});
     };
 
     try std.fs.makeDirAbsolute(tmp_path);

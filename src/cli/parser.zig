@@ -1,20 +1,21 @@
 const std = @import("std");
-const limits = @import("limits.zig");
-const util_output = @import("util/output.zig");
+const limits = @import("../memory/limits.zig");
+const util_output = @import("../util/output.zig");
 const raw_args = @import("raw_args.zig");
 const validation = @import("validation.zig");
+const assert = std.debug.assert;
 
 const max_argument_count = limits.limits.arguments_maximum;
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_command_name_length = 32;
 
 comptime {
-    std.debug.assert(max_argument_count >= 4);
-    std.debug.assert(max_argument_count <= 64);
-    std.debug.assert(max_version_string_length >= 16);
-    std.debug.assert(max_version_string_length <= 256);
-    std.debug.assert(max_command_name_length >= 8);
-    std.debug.assert(max_command_name_length <= 64);
+    assert(max_argument_count >= 4);
+    assert(max_argument_count <= 64);
+    assert(max_version_string_length >= 16);
+    assert(max_version_string_length <= 256);
+    assert(max_command_name_length >= 8);
+    assert(max_command_name_length <= 64);
 }
 
 /// Global configuration affecting all commands
@@ -24,15 +25,15 @@ pub const GlobalConfig = struct {
 
     pub fn validate(self: GlobalConfig) void {
         // Positive assertions: what we expect
-        std.debug.assert(self.output_mode == .human_readable or
+        assert(self.output_mode == .human_readable or
             self.output_mode == .machine_json or
             self.output_mode == .silent_errors_only);
-        std.debug.assert(self.color_mode == .never_use_color or
+        assert(self.color_mode == .never_use_color or
             self.color_mode == .always_use_color);
 
         // Negative assertions: invalid combinations
         if (self.output_mode == .machine_json) {
-            std.debug.assert(self.color_mode == .never_use_color);
+            assert(self.color_mode == .never_use_color);
         }
     }
 
@@ -43,8 +44,8 @@ pub const GlobalConfig = struct {
     };
 
     comptime {
-        std.debug.assert(@sizeOf(GlobalConfig) <= 16);
-        std.debug.assert(@sizeOf(GlobalConfig) >= 2);
+        assert(@sizeOf(GlobalConfig) <= 16);
+        assert(@sizeOf(GlobalConfig) >= 2);
     }
 };
 
@@ -60,8 +61,8 @@ pub const ParsedCommandLine = struct {
 
     comptime {
         const parsed_size = @sizeOf(ParsedCommandLine);
-        std.debug.assert(parsed_size >= @sizeOf(GlobalConfig) + @sizeOf(validation.ValidatedCommand));
-        std.debug.assert(parsed_size <= 512); // Keep reasonable
+        assert(parsed_size >= @sizeOf(GlobalConfig) + @sizeOf(validation.ValidatedCommand));
+        assert(parsed_size <= 512); // Keep reasonable
     }
 };
 
@@ -109,13 +110,13 @@ fn extract_global_options(arguments: []const []const u8, global_config: *GlobalC
 
 /// Parse command line arguments
 pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
-    std.debug.assert(arguments.len > 0); // Must have program name
-    std.debug.assert(arguments.len <= max_argument_count);
+    assert(arguments.len > 0); // Must have program name
+    assert(arguments.len <= max_argument_count);
 
     // Validate all arguments are non-empty and reasonably sized
     for (arguments) |arg| {
-        std.debug.assert(arg.len > 0);
-        std.debug.assert(arg.len < 1024); // Reasonable argument length
+        assert(arg.len > 0);
+        assert(arg.len < 1024); // Reasonable argument length
     }
 
     var global_config = GlobalConfig.default;
@@ -132,8 +133,8 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     }
 
     const command_name = filtered_args[1];
-    std.debug.assert(command_name.len > 0);
-    std.debug.assert(command_name.len <= max_command_name_length);
+    assert(command_name.len > 0);
+    assert(command_name.len <= max_command_name_length);
 
     const remaining_args = filtered_args[2..];
 
@@ -188,6 +189,6 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
 }
 
 comptime {
-    std.debug.assert(@sizeOf(ParsedCommandLine) <= 1024);
-    std.debug.assert(@sizeOf(validation.ValidatedCommand) <= 64);
+    assert(@sizeOf(ParsedCommandLine) <= 1024);
+    assert(@sizeOf(validation.ValidatedCommand) <= 64);
 }

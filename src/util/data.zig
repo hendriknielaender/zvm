@@ -1,8 +1,8 @@
 const std = @import("std");
-const limits = @import("../limits.zig");
-const object_pools = @import("../object_pools.zig");
-const context = @import("../context.zig");
-const config = @import("../config.zig");
+const limits = @import("../memory/limits.zig");
+const object_pools = @import("../memory/object_pools.zig");
+const context = @import("../Context.zig");
+const config = @import("../metadata.zig");
 const util_tool = @import("tool.zig");
 
 /// Cross-platform environment variable getter
