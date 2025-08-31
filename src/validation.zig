@@ -139,7 +139,6 @@ pub const ValidatedCommand = union(enum) {
     list: ListCommand,
     list_remote: ListRemoteCommand,
     list_mirrors: ListMirrorsCommand,
-    current: CurrentCommand,
     clean: CleanCommand,
     env: EnvCommand,
     completions: CompletionsCommand,
@@ -199,9 +198,6 @@ pub const ValidatedCommand = union(enum) {
     /// Validated list-mirrors command
     pub const ListMirrorsCommand = struct {};
 
-    /// Validated current command
-    pub const CurrentCommand = struct {};
-
     /// Validated clean command
     pub const CleanCommand = struct {
         remove_all: bool,
@@ -233,7 +229,6 @@ pub fn validate_command(raw_command: raw_args.RawArgs) !ValidatedCommand {
         .list => |raw| .{ .list = try validate_list(raw) },
         .list_remote => |raw| .{ .list_remote = try validate_list_remote(raw) },
         .list_mirrors => |raw| .{ .list_mirrors = try validate_list_mirrors(raw) },
-        .current => |raw| .{ .current = try validate_current(raw) },
         .clean => |raw| .{ .clean = try validate_clean(raw) },
         .env => |raw| .{ .env = try validate_env(raw) },
         .completions => |raw| .{ .completions = try validate_completions(raw) },
@@ -391,11 +386,6 @@ fn validate_list_remote(raw: raw_args.RawArgs.ListRemoteArgs) !ValidatedCommand.
 fn validate_list_mirrors(raw: raw_args.RawArgs.ListMirrorsArgs) !ValidatedCommand.ListMirrorsCommand {
     _ = raw;
     return ValidatedCommand.ListMirrorsCommand{};
-}
-
-fn validate_current(raw: raw_args.RawArgs.CurrentArgs) !ValidatedCommand.CurrentCommand {
-    _ = raw;
-    return ValidatedCommand.CurrentCommand{};
 }
 
 fn validate_clean(raw: raw_args.RawArgs.CleanArgs) !ValidatedCommand.CleanCommand {

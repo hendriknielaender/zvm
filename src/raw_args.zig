@@ -19,7 +19,6 @@ pub const RawArgs = union(enum) {
     use: UseArgs,
     list: ListArgs,
     list_remote: ListRemoteArgs,
-    current: CurrentArgs,
     clean: CleanArgs,
     env: EnvArgs,
     completions: CompletionsArgs,
@@ -87,9 +86,6 @@ pub const RawArgs = union(enum) {
     pub const ListRemoteArgs = struct {
         is_zls: bool = false,
     };
-
-    /// Raw current command arguments
-    pub const CurrentArgs = struct {};
 
     /// Raw clean command arguments
     pub const CleanArgs = struct {
@@ -162,9 +158,6 @@ pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawAr
     }
     if (std.mem.eql(u8, command_name, "list-remote")) {
         return .{ .list_remote = try parse_list_remote_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "current")) {
-        return .{ .current = try parse_current_args(args) };
     }
     if (std.mem.eql(u8, command_name, "clean")) {
         return .{ .clean = try parse_clean_args(args) };
@@ -324,13 +317,6 @@ fn parse_list_remote_args(args: []const []const u8) !RawArgs.ListRemoteArgs {
     return list_remote_args;
 }
 
-fn parse_current_args(args: []const []const u8) !RawArgs.CurrentArgs {
-    if (args.len > 0) {
-        return error.UnexpectedArguments;
-    }
-    return RawArgs.CurrentArgs{};
-}
-
 fn parse_clean_args(args: []const []const u8) !RawArgs.CleanArgs {
     var clean_args = RawArgs.CleanArgs{};
 
@@ -445,7 +431,7 @@ comptime {
     std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) <= 64);
     std.debug.assert(@sizeOf(RawArgs.CompletionsArgs) > 0);
 
-    std.debug.assert(@typeInfo(RawArgs).@"union".fields.len == 12);
+    std.debug.assert(@typeInfo(RawArgs).@"union".fields.len == 11);
     std.debug.assert(max_version_string_length == limits.limits.version_string_length_maximum);
     std.debug.assert(max_shell_name_length == 32);
     std.debug.assert(max_version_string_length >= 16);
