@@ -27,7 +27,6 @@ const commands = struct {
     pub const list = @import("commands/list.zig");
     pub const list_remote = @import("commands/list_remote.zig");
     pub const list_mirrors = @import("commands/list_mirrors.zig");
-    pub const current = @import("commands/current.zig");
     pub const install = @import("commands/install.zig");
     pub const remove = @import("commands/remove.zig");
     pub const use = @import("commands/use.zig");
@@ -433,7 +432,6 @@ fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
         .help => 0, // No progress needed
         .version => 0, // No progress needed
         .clean => |opts| if (opts.remove_all) 10 else 5, // Variable based on scope
-        .current => 1, // Read version files
         .env => 1, // Generate environment setup
         .completions => 1, // Generate completion script
     };
@@ -450,7 +448,6 @@ fn execute_command(
         .list => |opts| try commands.list.execute(ctx, opts, progress_node),
         .list_remote => |opts| try commands.list_remote.execute(ctx, opts, progress_node),
         .list_mirrors => |opts| try commands.list_mirrors.execute(ctx, opts, progress_node),
-        .current => |opts| try commands.current.execute(ctx, opts, progress_node),
         .install => |opts| try commands.install.execute(ctx, opts, progress_node),
         .remove => |opts| try commands.remove.execute(ctx, opts, progress_node),
         .use => |opts| try commands.use.execute(ctx, opts, progress_node),

@@ -33,7 +33,6 @@ pub fn execute(
         \\    list                    List installed Zig versions
         \\    list-remote             List available Zig versions
         \\    list-mirrors            List available download mirrors
-        \\    current                 Show current Zig version
         \\    clean                   Remove unused Zig versions
         \\    env                     Print shell setup instructions
         \\    completions [shell]     Generate shell completion script

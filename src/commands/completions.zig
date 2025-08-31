@@ -43,7 +43,6 @@ fn print_zsh_completions() !void {
         \\  'install:Install a version of Zig or ZLS'
         \\  'use:Switch to a specific Zig or ZLS version'
         \\  'remove:Remove an installed Zig or ZLS version'
-        \\  'current:Show current Zig and ZLS versions'
         \\  'env:Show environment setup instructions'
         \\  'clean:Clean up old download artifacts'
         \\  'completions:Generate shell completion script'
@@ -105,7 +104,7 @@ fn print_bash_completions() !void {
         \\    local cur prev words cword
         \\    _init_completion || return
         \\
-        \\    local commands="list list-remote install use remove current env clean completions version help"
+        \\    local commands="list list-remote install use remove env clean completions version help"
         \\
         \\    if [[ $cword -eq 1 ]]; then
         \\        COMPREPLY=( $( compgen -W "$commands" -- "$cur" ) )
