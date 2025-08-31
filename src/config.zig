@@ -12,6 +12,7 @@ preferred_mirror: ?usize,
 
 home_buffer: [512]u8,
 zvm_home_buffer: [512]u8,
+env_buffer: [512]u8,
 
 const Self = @This();
 
@@ -27,6 +28,8 @@ pub fn init() Self {
         .home_buffer = undefined,
         // SAFETY: zvm_home_buffer is initialized by get_zvm_home_path() before use
         .zvm_home_buffer = undefined,
+        // SAFETY: env_buffer is used for temporary environment variable storage
+        .env_buffer = undefined,
     };
 
     config.load_from_env();
@@ -45,16 +48,14 @@ fn load_from_env(self: *Self) void {
 }
 
 fn get_home_path(self: *Self) ![]const u8 {
-    if (builtin.os.tag == .windows) {
-        const home = std.posix.getenv("USERPROFILE") orelse return error.HomeNotFound;
+    const env_var = if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
+
+    if (self.get_env_var_to_buffer(env_var, &self.env_buffer)) |home| {
         if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
         @memcpy(self.home_buffer[0..home.len], home);
         return self.home_buffer[0..home.len];
     } else {
-        const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
-        if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
-        @memcpy(self.home_buffer[0..home.len], home);
-        return self.home_buffer[0..home.len];
+        return error.HomeNotFound;
     }
 }
 
@@ -70,7 +71,7 @@ fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
             return stream.getWritten();
         }
     } else {
-        if (std.posix.getenv("XDG_DATA_HOME")) |xdg_data| {
+        if (self.get_env_var_to_buffer("XDG_DATA_HOME", &self.env_buffer)) |xdg_data| {
             var stream = std.io.fixedBufferStream(&self.zvm_home_buffer);
             try stream.writer().print("{s}/.zm", .{xdg_data});
             return stream.getWritten();
@@ -83,8 +84,27 @@ fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
 }
 
 fn get_env_var(self: *Self, name: []const u8) ?[]const u8 {
+    return self.get_env_var_to_buffer(name, &self.env_buffer);
+}
+
+fn get_env_var_to_buffer(self: *Self, name: []const u8, buffer: []u8) ?[]const u8 {
     _ = self;
-    return std.posix.getenv(name);
+    if (builtin.os.tag == .windows) {
+        // For Windows, convert to UTF-16 and use getenvW
+        var name_w: [256:0]u16 = undefined;
+        const name_len = std.unicode.utf8ToUtf16Le(name_w[0..], name) catch return null;
+        name_w[name_len] = 0;
+
+        if (std.process.getenvW(name_w[0..name_len :0].ptr)) |value_w| {
+            const value_len = std.unicode.utf16LeToUtf8(buffer, value_w) catch return null;
+            return buffer[0..value_len];
+        } else {
+            return null;
+        }
+    } else {
+        // Use POSIX API for Unix-like systems
+        return std.posix.getenv(name);
+    }
 }
 
 pub fn validate(self: Self) !void {

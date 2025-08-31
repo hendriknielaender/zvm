@@ -19,8 +19,29 @@ pub const zig_mirrors = [_][2][]const u8{
 
 pub var preferred_mirror: ?usize = null;
 
+fn get_env_var_cross_platform(name: []const u8, buffer: []u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        // For Windows, convert to UTF-16 and use getenvW
+        var name_w: [256:0]u16 = undefined;
+        const name_len = std.unicode.utf8ToUtf16Le(name_w[0..], name) catch return null;
+        name_w[name_len] = 0;
+
+        if (std.process.getenvW(name_w[0..name_len :0].ptr)) |value_w| {
+            const value_len = std.unicode.utf16LeToUtf8(buffer, value_w) catch return null;
+            return buffer[0..value_len];
+        } else {
+            return null;
+        }
+    } else {
+        // Use POSIX API for Unix-like systems
+        return std.posix.getenv(name);
+    }
+}
+
 pub fn init_config() void {
-    if (std.posix.getenv("ZVM_MIRROR")) |mirror_str| {
+    var buffer: [256]u8 = undefined;
+
+    if (get_env_var_cross_platform("ZVM_MIRROR", &buffer)) |mirror_str| {
         if (std.fmt.parseInt(usize, mirror_str, 10)) |mirror_index| {
             if (mirror_index < zig_mirrors.len) {
                 preferred_mirror = mirror_index;
