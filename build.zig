@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const Build = std.Build;
 
 const min_zig_string = "0.15.1";
-const semver = std.SemanticVersion{ .major = 0, .minor = 14, .patch = 0 };
-const semver_string = "0.14.0";
+const semver = std.SemanticVersion{ .major = 0, .minor = 15, .patch = 0 };
+const semver_string = "0.15.0";
 
 // comptime detect the zig version
 comptime {
