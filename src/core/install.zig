@@ -26,6 +26,7 @@ fn download_file_with_verification(
     size: ?usize,
     progress_node: std.Progress.Node,
 ) !std.fs.File {
+    defer progress_node.end();
     var store_path_buffer = try ctx.acquire_path_buffer();
     defer store_path_buffer.reset();
     const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
@@ -49,7 +50,6 @@ fn download_file_with_verification(
 
             if (verify_hash(result, expected_hash)) {
                 try file.seekTo(0);
-                progress_node.end();
                 // Re-open the file for reading (like the old code did)
                 return try store.openFile(file_name, .{});
             }
@@ -160,7 +160,6 @@ fn install_zig(
 
     if (util_tool.does_path_exist(extract_path)) {
         try alias.set_version(ctx, version, false);
-        root_node.end();
         return;
     }
 
@@ -176,8 +175,6 @@ fn install_zig(
     try extract_and_install(ctx, extract_path, tarball_file, &items_done, root_node);
 
     try alias.set_version(ctx, version, false);
-
-    root_node.end();
 }
 
 fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
@@ -401,12 +398,10 @@ fn download_with_mirrors(
             const download_node = root_node.start(node_name, version_data.size);
 
             const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
-                download_node.end();
                 log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
                 // Continue to try official source and other mirrors.
                 return try download_with_fallbacks(ctx, version_data, file_name, root_node, items_done);
             };
-            download_node.end();
             items_done.* += 1;
             return result;
         } else {
@@ -443,13 +438,10 @@ fn download_with_fallbacks(
     const download_node = root_node.start(node_name, version_data.size);
 
     const result = download_file_with_verification(ctx, parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
-        download_node.end();
         log.warn("Failed to download from official source: {s}", .{@errorName(err)});
 
         return try download_from_mirrors(ctx, version_data, file_name, root_node);
     };
-
-    download_node.end();
     items_done.* += 1;
     return result;
 }
@@ -486,12 +478,9 @@ fn download_from_mirrors(
         const download_node = root_node.start(node_name, version_data.size);
 
         const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
-            download_node.end();
             log.warn("Failed to download from mirror {s}: {s}", .{ mirror_url, @errorName(err) });
             continue;
         };
-
-        download_node.end();
         return result;
     }
 
@@ -613,7 +602,6 @@ fn download_zls(
 
     const download_node = root_node.start("downloading zls", version_data.size);
     const tarball_file = try download_file_with_verification(ctx, parsed_uri, file_name, null, version_data.size, download_node);
-    download_node.end();
 
     return tarball_file;
 }
