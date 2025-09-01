@@ -46,9 +46,6 @@ pub const HttpClient = struct {
         var client = std.http.Client{ .allocator = arena.allocator() };
         defer client.deinit();
 
-        // Use pre-allocated buffers
-        var response_offset: usize = 0;
-
         var request = try client.request(.GET, uri, .{
             .headers = headers,
         });
@@ -57,112 +54,34 @@ pub const HttpClient = struct {
         try request.sendBodiless();
         var response = try request.receiveHead(&.{});
 
-        // Check if response is compressed
-        var is_gzip = false;
-        var it = response.head.iterateHeaders();
-        while (it.next()) |header| {
-            if (std.ascii.eqlIgnoreCase(header.name, "content-encoding")) {
-                if (std.mem.eql(u8, header.value, "gzip")) {
-                    is_gzip = true;
-                    break;
-                }
-            }
+        // Check status code
+        if (response.head.status != .ok) {
+            log.err("HTTP request failed with status: {}", .{response.head.status});
+            return error.HttpRequestFailed;
         }
 
-        // Create a transfer buffer for HTTP reader (used for chunked encoding)
-        var transfer_buffer: [limits.limits.http_transfer_buffer_size]u8 = undefined;
-        const body_reader = response.reader(&transfer_buffer);
+        var reader_buffer: [4096]u8 = undefined;
+        const body_reader = response.reader(&reader_buffer);
 
-        // Read response into pre-allocated buffer
-        if (is_gzip) {
-            // If response is gzipped, we need to decompress it
-            // First, read the compressed data
-            var compressed_offset: usize = 0;
-            while (true) {
-                const available = operation.response_buffer[compressed_offset..];
-                if (available.len == 0) break;
-
-                const bytes_read = body_reader.readSliceShort(available) catch |err| {
-                    if (err == error.ReadFailed) {
-                        // Check if there's an underlying body error
-                        if (response.bodyErr()) |body_err| return body_err;
-                        // ReadFailed without body error means end of stream or connection closed
-                        break;
-                    }
-                    return err;
-                };
-                if (bytes_read == 0) break;
-
-                compressed_offset += bytes_read;
-            }
-
-            // Check if we actually have gzip data (starts with 0x1f 0x8b)
-            if (compressed_offset >= 2) {
-                if (operation.response_buffer[0] != 0x1f or operation.response_buffer[1] != 0x8b) {
-                    // Not actually gzipped, just return the data as-is
-                    response_offset = compressed_offset;
-                } else {
-                    // GitHub API returns gzipped data
-                    // We'll use another HTTP operation's buffer for temporary decompression
-                    const temp_operation = try ctx.acquire_http_operation();
-                    defer temp_operation.release();
-                    const temp_buffer = &temp_operation.response_buffer;
-
-                    // Use the proper buffer size for flate decompression
-                    var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-                    var fixed_reader = std.Io.Reader.fixed(operation.response_buffer[0..compressed_offset]);
-                    var decompress: std.compress.flate.Decompress = .init(&fixed_reader, .gzip, &decompress_buffer);
-
-                    // Read decompressed data into temporary buffer
-                    var temp_offset: usize = 0;
-                    while (temp_offset < temp_buffer.len) {
-                        const slice = decompress.reader.readSliceShort(temp_buffer[temp_offset..]) catch |err| {
-                            if (err == error.ReadFailed) {
-                                // ReadFailed at the end of decompression is normal for some gzip streams
-                                if (temp_offset > 0) {
-                                    break;
-                                }
-                            }
-                            return err;
-                        };
-                        if (slice == 0) break;
-                        temp_offset += slice;
-                    }
-
-                    // Copy decompressed data back to response buffer
-                    const copy_len = @min(temp_offset, operation.response_buffer.len);
-                    @memcpy(operation.response_buffer[0..copy_len], temp_buffer[0..copy_len]);
-                    response_offset = copy_len;
+        var response_offset: usize = 0;
+        while (response_offset < operation.response_buffer.len) {
+            const available = operation.response_buffer[response_offset..];
+            const bytes_read = body_reader.readSliceShort(available) catch |err| {
+                if (err == error.EndOfStream) {
+                    break;
                 }
-            } else {
-                // Too small to be gzipped
-                response_offset = compressed_offset;
-            }
-        } else {
-            // No compression, read normally
-            while (true) {
-                const available = operation.response_buffer[response_offset..];
-                if (available.len == 0) {
-                    log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
-                        limits.limits.http_response_size_maximum,
-                        uri,
-                    });
-                    return error.ResponseTooLarge;
-                }
+                return err;
+            };
+            if (bytes_read == 0) break;
+            response_offset += bytes_read;
+        }
 
-                const bytes_read = body_reader.readSliceShort(available) catch |err| {
-                    if (err == error.ReadFailed) {
-                        // Check if there's an underlying body error
-                        if (response.bodyErr()) |body_err| return body_err;
-                        // ReadFailed without body error means end of stream or connection closed
-                        break;
-                    }
-                    return err;
-                };
-                if (bytes_read == 0) break;
-
-                response_offset += bytes_read;
-            }
+        if (response_offset >= operation.response_buffer.len) {
+            log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
+                limits.limits.http_response_size_maximum,
+                uri,
+            });
+            return error.ResponseTooLarge;
         }
 
         return operation.response_buffer[0..response_offset];
@@ -193,10 +112,7 @@ pub const HttpClient = struct {
         defer request.deinit();
 
         try request.sendBodiless();
-
-        // Receive the response head (with redirect buffer for GitHub)
-        var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
-        var response = try request.receiveHead(&redirect_buffer);
+        var response = try request.receiveHead(&.{});
 
         // Check status code
         if (response.head.status != .ok) {
@@ -210,30 +126,28 @@ pub const HttpClient = struct {
             progress_node.setEstimatedTotalItems(@intCast(content_length));
         }
 
-        // Set up decompression if needed
-        var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
-        var transfer_buffer: [limits.limits.http_transfer_buffer_size]u8 = undefined;
-        // SAFETY: decompress is initialized before use by readerDecompressing call below
-        var decompress: std.http.Decompress = undefined;
-        const body_reader = response.readerDecompressing(&transfer_buffer, &decompress, &decompress_buffer);
+        var reader_buffer: [4096]u8 = undefined;
+        const body_reader = response.reader(&reader_buffer);
 
-        // Create a writer for the destination file with buffering
-        var write_buffer: [limits.limits.file_write_buffer_size]u8 = undefined;
-        var file_writer = std.fs.File.Writer.init(dest_file, &write_buffer);
-        const writer = &file_writer.interface;
+        // Stream data from reader to file
+        var buffer: [8192]u8 = undefined;
+        var total_bytes: u64 = 0;
 
-        // Stream the entire body to the file
-        const total_bytes = body_reader.streamRemaining(writer) catch |err| {
-            if (err == error.ReadFailed) {
-                if (response.bodyErr()) |body_err| return body_err;
+        while (true) {
+            const bytes_read = body_reader.readSliceShort(&buffer) catch |err| {
+                if (err == error.EndOfStream) {
+                    break;
+                }
+                return err;
+            };
+            if (bytes_read == 0) break;
+
+            try dest_file.writeAll(buffer[0..bytes_read]);
+            total_bytes += bytes_read;
+
+            if (content_length > 0) {
+                progress_node.setCompletedItems(@intCast(total_bytes));
             }
-            return err;
-        };
-        try writer.flush();
-
-        // Update final progress
-        if (content_length > 0) {
-            progress_node.setCompletedItems(@intCast(total_bytes));
         }
     }
 
