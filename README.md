@@ -14,12 +14,10 @@
 
 **zvm** is a blazingly fast and intuitive command-line version manager for the [Zig programming language](https://ziglang.org/). Effortlessly install, manage, and switch between multiple Zig versions with automatic project-based version detection.
 
----
-
 ## 📦 Installation
 
 #### macOS/Linux (Homebrew)
-```bash
+```shell
 brew tap hendriknielaender/zvm
 brew install zvm
 ```
