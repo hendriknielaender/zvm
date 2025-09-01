@@ -86,18 +86,24 @@ fi
 GITHUB=${GITHUB-"https://github.com"}
 github_repo="$GITHUB/hendriknielaender/zvm"
 
+# Handle version argument (for rollback/specific version install)
 if [[ $# = 0 ]]; then
+    version="latest"
     if [[ $target == *"windows"* ]]; then
         zvm_uri=$github_repo/releases/latest/download/$target-zvm.zip
     else
         zvm_uri=$github_repo/releases/latest/download/$target-zvm.tar.gz
     fi
 else
+    version="$1"
+    # Strip 'zvm-' prefix if provided (allows both 'v0.15.0' and 'zvm-v0.15.0')
+    version="${version#zvm-}"
     if [[ $target == *"windows"* ]]; then
-        zvm_uri=$github_repo/releases/download/$1/$target-zvm.zip
+        zvm_uri=$github_repo/releases/download/$version/$target-zvm.zip
     else
-        zvm_uri=$github_repo/releases/download/$1/$target-zvm.tar.gz
+        zvm_uri=$github_repo/releases/download/$version/$target-zvm.tar.gz
     fi
+    info "Installing zvm $version (rollback/specific version)"
 fi
 
 # macos/linux cross-compat mktemp
@@ -120,10 +126,22 @@ chmod +x "$tmpdir/zvm"
 
 # Check if user can write to install directory
 if [[ ! -w $install_dir ]]; then
-    info "Saving zvm to $install_dir. You will be prompted for your password."
+    if [[ $version = "latest" ]]; then
+        info "Saving zvm to $install_dir. You will be prompted for your password."
+    else
+        info "Installing zvm $version to $install_dir. You will be prompted for your password."
+    fi
     sudo mv "$tmpdir/zvm" "$install_dir/zvm"
-    success "zvm installed to $install_dir/zvm" 
+    if [[ $version = "latest" ]]; then
+        success "zvm installed to $install_dir/zvm"
+    else
+        success "zvm $version installed to $install_dir/zvm"
+    fi
 else 
     mv "$tmpdir/zvm" "$install_dir/zvm"
-    success "zvm installed to $install_dir/zvm"
+    if [[ $version = "latest" ]]; then
+        success "zvm installed to $install_dir/zvm"
+    else
+        success "zvm $version installed to $install_dir/zvm"
+    fi
 fi

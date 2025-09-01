@@ -27,7 +27,19 @@ Pre-built binaries for Windows, MacOS, and Linux are available [for each release
 curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash
 ```
 
-The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
+**Install specific version or rollback:**
+```sh
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.15.0"
+
+# Rollback to previous version
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.14.0"
+
+# Also works with 'zvm-' prefix
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.15.0"
+```
+
+The installer will download the appropriate binary for your platform and install it to `/usr/local/bin`.
 
 ### Homebrew (macOS/Linux)
 
