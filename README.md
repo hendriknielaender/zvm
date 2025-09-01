@@ -3,11 +3,14 @@
   <br><br>
   ⚡ Zig Version Manager (<code>zvm</code>)
 </h1>
-<div align="center">⚡ Fast and simple zig version manager</div>
+<div align="center">⚡ Fast and simple zig version manager
+<br></br>
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/hendriknielaender/zvm/actions/workflows/zig.yml/badge.svg)](https://github.com/hendriknielaender/zvm/actions/workflows/zig.yml)
 [![Latest Release](https://img.shields.io/github/v/release/hendriknielaender/zvm)](https://github.com/hendriknielaender/zvm/releases)
+
+</div>
 
 **zvm** is a blazingly fast and intuitive command-line version manager for the [Zig programming language](https://ziglang.org/). Effortlessly install, manage, and switch between multiple Zig versions with automatic project-based version detection.
 
