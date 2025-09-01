@@ -39,12 +39,24 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
         };
     }
 
+    // Check if user has set a default version with 'zvm use'
+    if (try find_default_version(ctx)) |default_version| {
+        if (!is_ci_environment()) {
+            log.info("No build.zig.zon found. Using default version: {s}", .{default_version});
+        }
+        return SmartVersionResult{
+            .version = default_version,
+            .source = .current,
+            .allocator = ctx.get_allocator(),
+        };
+    }
+
     if (!is_ci_environment()) {
         log.info("No build.zig.zon found. Defaulting to master version.", .{});
         log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
     }
 
-    // Default to master when no build.zig.zon found - this is user-friendly
+    // Default to master when no build.zig.zon found and no default set
     return SmartVersionResult{
         .version = "master",
         .source = .current,
@@ -258,6 +270,36 @@ pub fn is_ci_environment() bool {
     }
 
     return false;
+}
+
+fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
+    // Look for a default version config file
+    var config_path_buffer = try ctx.acquire_path_buffer();
+    defer config_path_buffer.reset();
+    
+    const home_dir = ctx.get_home_dir();
+    var stream = std.io.fixedBufferStream(config_path_buffer.slice());
+    
+    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+        try stream.writer().print("{s}/.zm/default_version", .{xdg_data});
+    } else {
+        try stream.writer().print("{s}/.local/share/.zm/default_version", .{home_dir});
+    }
+    
+    const config_path = try config_path_buffer.set(stream.getWritten());
+    
+    const file = std.fs.cwd().openFile(config_path, .{}) catch return null;
+    defer file.close();
+    
+    var version_buffer: [32]u8 = undefined;
+    const bytes_read = file.readAll(&version_buffer) catch return null;
+    if (bytes_read == 0) return null;
+    
+    // Trim whitespace
+    const content = std.mem.trim(u8, version_buffer[0..bytes_read], " \t\n\r");
+    if (content.len == 0) return null;
+    
+    return try ctx.get_allocator().dupe(u8, content);
 }
 
 fn log_version_suggestion() void {

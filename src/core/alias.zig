@@ -66,7 +66,10 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     } else {
         // For Zig, point to zvm binary for smart version detection
         try update_current_to_zvm(ctx, symlink_path);
-
+        
+        // Save the default version for when no build.zig.zon exists
+        try save_default_version(ctx, version);
+        
         // Print success message for smart mode
         var stdout_buffer: [io_buffer_size]u8 = undefined;
         var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
@@ -74,6 +77,41 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try stdout.print("Now using smart Zig version detection (default: {s})\n", .{version});
         try stdout.flush();
     }
+}
+
+fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
+    var zm_path_buffer = try ctx.acquire_path_buffer();
+    defer zm_path_buffer.reset();
+    
+    const home_dir = ctx.get_home_dir();
+    var stream = std.io.fixedBufferStream(zm_path_buffer.slice());
+    
+    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+        try stream.writer().print("{s}/.zm", .{xdg_data});
+    } else {
+        try stream.writer().print("{s}/.local/share/.zm", .{home_dir});
+    }
+    
+    const zm_dir = try zm_path_buffer.set(stream.getWritten());
+    
+    // Ensure .zm directory exists
+    std.fs.makeDirAbsolute(zm_dir) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err,
+    };
+    
+    // Use a separate buffer for the config file path
+    var config_path_buffer = try ctx.acquire_path_buffer();
+    defer config_path_buffer.reset();
+    
+    var config_stream = std.io.fixedBufferStream(config_path_buffer.slice());
+    try config_stream.writer().print("{s}/default_version", .{zm_dir});
+    const config_path = try config_path_buffer.set(config_stream.getWritten());
+    
+    const file = try std.fs.cwd().createFile(config_path, .{});
+    defer file.close();
+    
+    try file.writeAll(version);
 }
 
 fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !void {
