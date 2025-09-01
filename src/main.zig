@@ -25,6 +25,8 @@ const commands = struct {
     pub const completions = @import("commands/completions.zig");
 };
 
+const detect_version = @import("core/detect_version.zig");
+
 // SAFETY: global_static_buffer is initialized before first use in main()
 var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
 // SAFETY: global_context is initialized in main() before being accessed
@@ -151,6 +153,80 @@ pub fn main() !void {
 }
 
 fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+    const temp_context_instance = try Context.CliContext.init(
+        &global_context,
+        &global_static_buffer,
+        &[_][]const u8{"zvm"},
+    );
+
+    const version_result = detect_version.detect_version(temp_context_instance, remaining_arguments) catch |err| {
+        log.err("Failed to detect version: {s}", .{@errorName(err)});
+        return handle_alias_fallback(program_name, remaining_arguments);
+    };
+    defer version_result.deinit();
+
+    const version_available = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
+    if (!version_available) {
+        if (!util_tool.eql_str(version_result.version, "current")) {
+            log.info("Installing Zig version {s}...", .{version_result.version});
+            detect_version.auto_install_version(temp_context_instance, version_result.version) catch |err| {
+                log.err("Failed to auto-install version {s}: {s}", .{ version_result.version, @errorName(err) });
+                return handle_alias_fallback(program_name, remaining_arguments);
+            };
+        }
+    }
+
+    var adjusted_args_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+    var adjusted_args_count: usize = 0;
+
+    detect_version.adjust_arguments_to_buffer(version_result.version, remaining_arguments, &adjusted_args_buffer, &adjusted_args_count) catch |err| {
+        log.err("Failed to adjust arguments: {s}", .{@errorName(err)});
+        return handle_alias_fallback(program_name, remaining_arguments);
+    };
+
+    const adjusted_args = adjusted_args_buffer[0..adjusted_args_count];
+
+    // SAFETY: All undefined fields are initialized by subsequent function calls before use
+    var alias_buffers: AliasBuffers = .{
+        .home = undefined,
+        .zvm_home = undefined,
+        .tool_path = undefined,
+        .exec_arguments_ptrs = undefined,
+        .exec_arguments_storage = undefined,
+        .exec_arguments_count = 0,
+    };
+
+    const home_slice = try get_home_path(&alias_buffers);
+    const zvm_home = try get_zvm_home_path(&alias_buffers, home_slice);
+    const tool_path = try build_smart_tool_path(&alias_buffers, program_name, zvm_home, version_result.version);
+    try build_exec_arguments(&alias_buffers, tool_path, adjusted_args);
+
+    if (builtin.os.tag == .windows) {
+        var argv_list: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+        var i: usize = 0;
+        while (alias_buffers.exec_arguments_ptrs[i]) |arg| : (i += 1) {
+            argv_list[i] = std.mem.sliceTo(arg, 0);
+        }
+        const argv_slice = argv_list[0..i];
+
+        var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
+        process.spawn() catch |err| {
+            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+            return err;
+        };
+        const term = try process.wait();
+        std.process.exit(term.Exited);
+    } else {
+        const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
+        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
+
+        const result = std.posix.execveZ(argv[0].?, argv, envp);
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
+        return result;
+    }
+}
+
+fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const []const u8) !void {
     // SAFETY: All undefined fields are initialized by subsequent function calls before use
     var alias_buffers: AliasBuffers = .{
         .home = undefined,
@@ -262,6 +338,19 @@ fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_h
 
     var stream = std.io.fixedBufferStream(&alias_buffers.tool_path);
     try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
+    return stream.getWritten();
+}
+
+fn build_smart_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8, version: []const u8) ![]const u8 {
+    const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
+
+    var stream = std.io.fixedBufferStream(&alias_buffers.tool_path);
+    if (util_tool.eql_str(version, "current")) {
+        try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
+    } else {
+        const tool_prefix = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
+        try stream.writer().print("{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_prefix, version, tool_name });
+    }
     return stream.getWritten();
 }
 
