@@ -17,9 +17,19 @@ zvm is a command-line tool that allows you to easily install, manage, and switch
 - XDG Base Directory Specification support on Linux/macOS.
 
 
-## Install
+## 📦 Installation
 
-To install zvm with Homebrew, aka. `brew`, run the following commands:
+Pre-built binaries for Windows, MacOS, and Linux are available [for each release](https://github.com/hendriknielaender/zvm/releases/latest).
+
+### Quick Install (Linux/macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash
+```
+
+The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
+
+### Homebrew (macOS/Linux)
 
 ```bash
 brew tap hendriknielaender/zvm
@@ -41,14 +51,17 @@ export PATH="/home/user/.local/share/zvm/bin:$PATH"
 #### PowerShell
 
 ```ps1
-irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.ps1 | iex
 ```
 
 #### Command Prompt
 
 ```cmd
-powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.ps1 | iex"
 ```
+
+> [!WARNING]
+> The Linux/macOS installation script does not work on Windows. Please use the PowerShell script above or download Windows binaries directly from the [releases page](https://github.com/hendriknielaender/zvm/releases/latest).
 
 ## Shell Completions
 
