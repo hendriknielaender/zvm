@@ -59,13 +59,64 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
-    try update_current(version_path, symlink_path);
-
     if (is_zls) {
+        // For ZLS, use traditional behavior (point directly to zls binary)
+        try update_current(version_path, symlink_path);
         try verify_zls_version(ctx, version);
     } else {
-        try verify_zig_version(ctx, version);
+        // For Zig, point to zvm binary for smart version detection
+        try update_current_to_zvm(ctx, symlink_path);
+        
+        // Print success message for smart mode
+        var stdout_buffer: [io_buffer_size]u8 = undefined;
+        var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
+        const stdout = &stdout_writer.interface;
+        try stdout.print("Now using smart Zig version detection (default: {s})\n", .{version});
+        try stdout.flush();
     }
+}
+
+fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !void {
+    assert(symlink_path.len > 0);
+
+    // Get path to zvm binary (this executable)
+    var zvm_path_buffer = try ctx.acquire_path_buffer();
+    defer zvm_path_buffer.reset();
+
+    const zvm_path = std.fs.selfExePathAlloc(ctx.get_allocator()) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => fallback: {
+            // Fallback: try to find zvm in common locations
+            var fbs = std.io.fixedBufferStream(zvm_path_buffer.slice());
+            const home_dir = ctx.get_home_dir();
+            try fbs.writer().print("{s}/.local/bin/zvm", .{home_dir});
+            const fallback_path = try zvm_path_buffer.set(fbs.getWritten());
+
+            // Check if fallback exists
+            std.fs.accessAbsolute(fallback_path, .{}) catch {
+                // If fallback doesn't exist, use current directory
+                fbs = std.io.fixedBufferStream(zvm_path_buffer.slice());
+                try fbs.writer().print("./zvm", .{});
+                break :fallback try ctx.get_allocator().dupe(u8, try zvm_path_buffer.set(fbs.getWritten()));
+            };
+
+            break :fallback try ctx.get_allocator().dupe(u8, fallback_path);
+        },
+    };
+    defer if (zvm_path.ptr != zvm_path_buffer.slice().ptr) ctx.get_allocator().free(zvm_path);
+
+    if (builtin.os.tag == .windows) {
+        if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
+        // On Windows, copy the zvm executable to the zig location
+        try std.fs.copyFileAbsolute(zvm_path, symlink_path, .{});
+        return;
+    }
+
+    // Remove existing symlink if it exists
+    if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
+
+    // Create symlink to zvm binary
+    try std.posix.symlink(zvm_path, symlink_path);
 }
 
 fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {

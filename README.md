@@ -4,20 +4,38 @@
   ⚡ Zig Version Manager (<code>zvm</code>)
 </h1>
 <div align="center">⚡ Fast and simple zig version manager</div>
-<br><br>
-zvm is a command-line tool that allows you to easily install, manage, and switch between multiple versions of Zig.
 
-## Features
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/hendriknielaender/zvm/actions/workflows/zig.yml/badge.svg)](https://github.com/hendriknielaender/zvm/actions/workflows/zig.yml)
+[![Latest Release](https://img.shields.io/github/v/release/hendriknielaender/zvm)](https://github.com/hendriknielaender/zvm/releases)
 
-- List available Zig/zls versions (both remote and local).
-- Install specific Zig or zls versions.
-- Switch between installed Zig or zls versions.
-- Remove installed Zig or zls versions.
-- Display the current zvm version and helpful usage information.
-- XDG Base Directory Specification support on Linux/macOS.
+**zvm** is a blazingly fast and intuitive command-line version manager for the [Zig programming language](https://ziglang.org/). Effortlessly install, manage, and switch between multiple Zig versions with automatic project-based version detection.
 
+---
 
-## 📦 Installation
+## ✨ Key Features
+
+- 🚀 **Lightning Fast**: Built with Zig for maximum performance
+- 🔍 **Smart Version Detection**: Automatically detects Zig version from `build.zig.zon` files  
+- 📦 **Dual Tool Support**: Manages both Zig compiler and ZLS (Zig Language Server)
+- 🌐 **Cross-Platform**: Works seamlessly on Linux, macOS, and Windows
+- 🎯 **XDG Compliant**: Follows XDG Base Directory Specification on Unix systems
+- ⚡ **Zero Configuration**: Works out of the box with sensible defaults
+- 🔧 **Shell Integration**: Auto-completion for Bash and Zsh
+- 📊 **JSON Output**: Machine-readable output for automation
+- 🪞 **Mirror Support**: Multiple download mirrors for reliability
+
+---
+
+## 🚀 Quick Start
+
+### 📦 Installation
+
+#### macOS/Linux (Homebrew)
+```bash
+brew tap hendriknielaender/zvm
+brew install zvm
+```
 
 Pre-built binaries for Windows, MacOS, and Linux are available [for each release](https://github.com/hendriknielaender/zvm/releases/latest).
 
@@ -41,168 +59,249 @@ curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.
 
 The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
 
-### Homebrew (macOS/Linux)
-
-```bash
-brew tap hendriknielaender/zvm
-brew install zvm
+#### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
 ```
 
-Run `zvm env` to get the exact PATH configuration for your system:
+#### Manual Installation
+Download the latest binary from our [releases page](https://github.com/hendriknielaender/zvm/releases).
+
+### Setup Your Shell
+
+After installation, configure your shell environment:
 
 ```bash
-$ zvm env
+# Get shell-specific configuration
+zvm env
+
+# Example output:
 # Add this to your ~/.bashrc, ~/.profile, or ~/.zshrc:
 export PATH="/home/user/.local/share/zvm/bin:$PATH"
 ```
 
-**⚠️ BREAKING CHANGE (zvm 0.14.0)**: zvm now follows the XDG Base Directory Specification on Linux/macOS. Legacy `~/.zm` installations must be migrated manually.
+---
 
-### Windows
+## 📖 Usage Guide
 
-#### PowerShell
+### Core Commands
 
-```ps1
-irm https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.ps1 | iex
+| Command | Description | Example |
+|---------|-------------|---------|
+| `install` | Install a Zig version | `zvm install 0.13.0` |
+| `use` | Switch to a version | `zvm use 0.13.0` |
+| `list` | List installed versions | `zvm list --system` |
+| `list-remote` | List available versions | `zvm list-remote` |
+| `remove` | Remove a version | `zvm remove 0.12.0` |
+| `clean` | Clean up cache | `zvm clean` |
+
+### 🎯 Auto-version detection
+
+Automatically detects the required Zig version from your project's `build.zig.zon` file.
+
+Create a `build.zig.zon` in your project root:
+```zig
+.{
+    .name = "my-project",
+    .version = "0.1.0",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{},
+}
 ```
 
-#### Command Prompt
+Now simply run `zig build` or any Zig command - zvm will:
+1. 🔍 Detect the required version from `build.zig.zon`
+2. 📦 Automatically install it if not present  
+3. 🎯 Use the correct version for your project
 
-```cmd
-powershell -c "irm https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.ps1 | iex"
-```
-
-> [!WARNING]
-> The Linux/macOS installation script does not work on Windows. Please use the PowerShell script above or download Windows binaries directly from the [releases page](https://github.com/hendriknielaender/zvm/releases/latest).
-
-## Shell Completions
-
-`zvm` provides built-in shell completion scripts for both Zsh and Bash. This enhances the command-line experience by allowing tab-completion of subcommands, flags, etc.
-
-### Zsh
-
- **Generate** the Zsh completion script:
-   ```bash
-   zvm completions zsh > _zvm
-   ```
- **Move** `_zvm` into a directory that Zsh checks for autoloaded completion scripts. For example:
-   ```bash
-   mkdir -p ~/.zsh/completions
-   mv _zvm ~/.zsh/completions
-   ```
- **Add** this to your `~/.zshrc`:
-   ```bash
-   fpath+=(~/.zsh/completions)
-   autoload -U compinit && compinit
-   ```
- **Reload** your shell:
-   ```bash
-   source ~/.zshrc
-   ```
-
-### Bash
-
-**Generate** the Bash completion script:
-   ```bash
-   zvm completions bash > zvm.bash
-   ```
-**Source** it in your `~/.bashrc` (or `~/.bash_profile`):
-   ```bash
-   echo "source $(pwd)/zvm.bash" >> ~/.bashrc
-   source ~/.bashrc
-   ```
-
-## Usage
-
-**General Syntax:**
 ```bash
-zvm <command> [arguments]
+# zvm automatically detects and uses the right version
+zig build
+zig run src/main.zig
+# Or specify version explicitly
+zig 0.13.0 build
 ```
 
-**Available Commands:**
-- `zvm ls` or `zvm list`  
-  Lists all available versions of Zig or zls remotely by default.  
-  Use `--system` to list only locally installed versions.
-  ```bash
-  zvm ls
-  zvm ls --system
-  zvm ls zls --system
-  ```
+### Installation Examples
 
-- `zvm i` or `zvm install`  
-  Installs the specified version of Zig or zls. Zig is the default if no tool is specified.
-  ```bash
-  zvm install <version>         # Installs Zig for the specified version (default)
-  zvm install <version> --debug # Installs with debug output
-  zvm install --mirror=0        # Installs Zig with a specified mirror url
-  zvm install zig <version>     # Installs only Zig for the specified version (explicit)
-  zvm install zls <version>     # Installs only zls for the specified version
-  ```
-
-- `zvm use`  
-  Switches to using the specified installed version of Zig or zls. Zig is the default if no tool is specified.
-  ```bash
-  zvm use <version>         # Use this version of Zig (default)
-  zvm use zig <version>     # Use this version of Zig (explicit)
-  zvm use zls <version>     # Use this version of zls only
-  ```
-
-- `zvm remove`  
-  Removes the specified installed version of Zig or ZLS. Zig is the default if no tool is specified.
-  ```bash
-  zvm remove <version>      # Removes this version of Zig (default)
-  zvm remove zig <version>  # Removes only the specified Zig version (explicit)
-  zvm remove zls <version>  # Removes only the specified zls version
-  ```
-- `zvm clean`
-  Remove old download artifacts.
-
-- `zvm --version`  
-  Displays the current version of zvm.
-
-- `zvm --help`  
-  Displays detailed usage information.
-
-**Examples:**
 ```bash
-# List all available remote Zig versions
-zvm ls
+# Install latest stable Zig
+zvm install 0.13.0
 
-# List all installed local Zig versions
-zvm ls --system
+# Install with debug output
+zvm install 0.13.0 --debug
 
-# List all installed local zls versions
-zvm ls zls --system
+# Install master/development build
+zvm install master
 
-# List of available Zig mirrors
-zvm ls --mirror
+# Install ZLS (Language Server)
+zvm install zls 0.13.0
 
-# Install Zig version 0.14.1 (zig is default)
-zvm install 0.14.1
+# Use specific mirror for downloads
+zvm install 0.13.0 --mirror=0
+```
 
-# Install Zig version 0.14.1 with debug output
-zvm install 0.14.1 --debug
+### Version Management
 
-# Install zls version 0.14.0
-zvm install zls 0.14.0
+```bash
+# Switch to specific version
+zvm use 0.13.0
 
-# Use Zig version 0.14.1 (zig is default)
-zvm use 0.14.1
+# List installed versions
+zvm list --system
 
-# Remove Zig version 0.14.1 (zig is default)
-zvm remove 0.14.1
+# List all available versions
+zvm list-remote
 
-# Remove old download artifacts.
+# Remove old version
+zvm remove 0.12.0
+
+# Clean up download cache
 zvm clean
 ```
 
-### Compatibility Notes
-Zig is in active development and the APIs can change frequently, making it challenging to support every dev build. This project currently aims to be compatible with stable, non-development builds to provide a consistent experience for the users.
+### Advanced Usage
 
-***Supported Version***: As of now, zvm is tested and supported on Zig version ***0.15.1***.
+```bash
+# JSON output for automation
+zvm --json list
 
-### Contributing
-Contributions, issues, and feature requests are welcome!
+# Quiet mode (errors only)
+zvm --quiet install master
 
-### Clarification
-Please note that our project is **not** affiliated with [ZVM](https://github.com/tristanisham/zvm) maintained by @tristanisham. Both projects operate independently, and any similarities are coincidental.
+# Force colored output
+zvm --color list
+
+# List available download mirrors
+zvm list-mirrors
+```
+
+---
+
+## 🔧 Configuration
+
+### Global Options
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Output in JSON format |
+| `--quiet`, `-q` | Suppress non-error output |
+| `--no-color` | Disable colored output |
+| `--color` | Force colored output |
+| `--help`, `-h` | Show help |
+| `--version` | Show version |
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `XDG_DATA_HOME` | Data directory location | `~/.local/share` |
+| `ZVM_DEBUG` | Enable debug logging | `false` |
+
+---
+
+## 🌟 Shell Completions
+
+Enhance your CLI experience with tab completion!
+
+### Bash
+```bash
+# Generate and install completion
+zvm completions bash > /etc/bash_completion.d/zvm
+source ~/.bashrc
+```
+
+### Zsh
+```bash
+# Generate completion script
+zvm completions zsh > ~/.zsh/completions/_zvm
+
+# Add to ~/.zshrc
+fpath+=(~/.zsh/completions)
+autoload -U compinit && compinit
+```
+
+### Fish
+```bash
+# Generate completion for Fish
+zvm completions fish > ~/.config/fish/completions/zvm.fish
+```
+
+---
+
+## 🏗️ Building from Source
+
+### Prerequisites
+- Zig 0.15.1 or later
+
+### Build Steps
+```bash
+git clone https://github.com/hendriknielaender/zvm.git
+cd zvm
+zig build -Doptimize=ReleaseSafe
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**PATH not updated after installation**
+```bash
+# Re-run shell configuration
+zvm env
+source ~/.bashrc  # or ~/.zshrc
+```
+
+**Version detection not working**
+- Ensure `build.zig.zon` contains `minimum_zig_version` field
+- Check file is in project root or parent directories
+
+---
+
+## 🔄 Migration Guide
+
+### From v0.13.x to v0.15.x
+
+**⚠️ BREAKING CHANGE**: zvm now follows XDG Base Directory Specification on Linux/macOS.
+
+**Migration Steps:**
+```bash
+# 1. Backup current installation
+cp -r ~/.zm ~/.zm.backup
+
+# 2. Install new version
+brew upgrade zvm
+
+# 3. Migrate existing versions (manual)
+mkdir -p ~/.local/share/zvm
+mv ~/.zm/* ~/.local/share/zvm/
+
+# 4. Update PATH configuration
+zvm env >> ~/.bashrc
+```
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Development Setup
+```bash
+git clone https://github.com/hendriknielaender/zvm.git
+cd zvm
+zig build test
+```
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+### ⚠️ Disclaimer
+
+This project is **not** affiliated with the [ZVM project](https://github.com/tristanisham/zvm) maintained by @tristanisham. Both projects operate independently, and any similarities are coincidental.
