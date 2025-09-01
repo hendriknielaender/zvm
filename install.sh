@@ -109,7 +109,7 @@ fi
 # macos/linux cross-compat mktemp
 # https://unix.stackexchange.com/questions/30091/fix-or-alternative-for-mktemp-in-os-x
 tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'zvm')
-install_dir=/usr/local/bin
+install_dir=${HOME}/.local/bin
 
 if [[ $target == *"windows"* ]]; then
     curl --fail --location --progress-bar --output "$tmpdir/zvm.zip" "$zvm_uri" ||
@@ -123,6 +123,9 @@ else
     mv "$tmpdir"/*zvm "$tmpdir/zvm"
 fi
 chmod +x "$tmpdir/zvm"
+
+# Create install directory if it doesn't exist
+mkdir -p "$install_dir"
 
 # Check if user can write to install directory
 if [[ ! -w $install_dir ]]; then
@@ -144,4 +147,17 @@ else
     else
         success "zvm $version installed to $install_dir/zvm"
     fi
+fi
+
+# Check if install directory is in PATH
+if [[ ":$PATH:" != *":$install_dir:"* ]]; then
+    echo ""
+    info "To use zvm, add $install_dir to your PATH:"
+    echo "  export PATH=\"$install_dir:\$PATH\""
+    echo ""
+    echo "For bash: Add to ~/.bashrc or ~/.bash_profile"
+    echo "For zsh: Add to ~/.zshrc"
+    echo "For fish: Add to ~/.config/fish/config.fish"
+    echo ""
+    echo "Then reload your shell or run: source ~/.bashrc"
 fi

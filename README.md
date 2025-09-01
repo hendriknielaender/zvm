@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.
 curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.15.0"
 ```
 
-The installer will download the appropriate binary for your platform and install it to `/usr/local/bin`.
+The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
 
 ### Homebrew (macOS/Linux)
 
