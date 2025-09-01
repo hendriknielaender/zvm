@@ -174,7 +174,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
                 log.err("Try manually installing with: zvm install {s}", .{version_result.version});
                 return handle_alias_fallback(program_name, remaining_arguments);
             };
-            
+
             // Re-check if installation succeeded
             const version_available_after = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
             if (!version_available_after) {
