@@ -168,11 +168,20 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
     const version_available = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
     if (!version_available) {
         if (!util_tool.eql_str(version_result.version, "current")) {
-            log.info("Installing Zig version {s}...", .{version_result.version});
+            log.info("Zig version {s} not found. Attempting to install...", .{version_result.version});
             detect_version.auto_install_version(temp_context_instance, version_result.version) catch |err| {
-                log.err("Failed to auto-install version {s}: {s}", .{ version_result.version, @errorName(err) });
+                log.err("Failed to install version {s}: {s}", .{ version_result.version, @errorName(err) });
+                log.err("Try manually installing with: zvm install {s}", .{version_result.version});
                 return handle_alias_fallback(program_name, remaining_arguments);
             };
+            
+            // Re-check if installation succeeded
+            const version_available_after = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
+            if (!version_available_after) {
+                log.err("Version {s} is still not available after installation attempt", .{version_result.version});
+                log.err("This version may not exist. Try: zvm list-remote", .{});
+                return handle_alias_fallback(program_name, remaining_arguments);
+            }
         }
     }
 

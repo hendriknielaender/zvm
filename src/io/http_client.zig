@@ -65,7 +65,7 @@ pub const HttpClient = struct {
 
         // Get a reader for the response body
         var transfer_buffer: [4096]u8 = undefined;
-        const body_reader = try response.reader(&transfer_buffer);
+        const body_reader = response.reader(&transfer_buffer);
         
         // Read all content using readAllAlloc on the reader
         const response_bytes = try body_reader.readAlloc(arena.allocator(), operation.response_buffer.len);
@@ -136,7 +136,7 @@ pub const HttpClient = struct {
         }
 
         var reader_buffer: [4096]u8 = undefined;
-        const body_reader = try response.reader(&reader_buffer);
+        const body_reader = response.reader(&reader_buffer);
 
         // Stream data from reader to file
         var buffer: [8192]u8 = undefined;
