@@ -29,13 +29,35 @@
 
 ## 🚀 Quick Start
 
-### Installation
+### 📦 Installation
 
 #### macOS/Linux (Homebrew)
 ```bash
 brew tap hendriknielaender/zvm
 brew install zvm
 ```
+
+Pre-built binaries for Windows, MacOS, and Linux are available [for each release](https://github.com/hendriknielaender/zvm/releases/latest).
+
+### Quick Install (Linux/macOS)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash
+```
+
+**Install specific version or rollback:**
+```sh
+# Install specific version
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.15.0"
+
+# Rollback to previous version
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.14.0"
+
+# Also works with 'zvm-' prefix
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.15.0"
+```
+
+The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
 
 #### Windows (PowerShell)
 ```powershell
@@ -73,7 +95,7 @@ export PATH="/home/user/.local/share/zvm/bin:$PATH"
 | `remove` | Remove a version | `zvm remove 0.12.0` |
 | `clean` | Clean up cache | `zvm clean` |
 
-### 🎯 Auto-version Detection
+### 🎯 Auto-version detection
 
 Automatically detects the required Zig version from your project's `build.zig.zon` file.
 
@@ -96,7 +118,6 @@ Now simply run `zig build` or any Zig command - zvm will:
 # zvm automatically detects and uses the right version
 zig build
 zig run src/main.zig
-
 # Or specify version explicitly
 zig 0.13.0 build
 ```
@@ -220,15 +241,6 @@ cd zvm
 zig build -Doptimize=ReleaseSafe
 ```
 
-### Development Build
-```bash
-# Debug build with tests
-zig build test
-
-# Run with arguments
-zig build run -- install 0.13.0
-```
-
 ---
 
 ## 🐛 Troubleshooting
@@ -283,7 +295,6 @@ cd zvm
 zig build test
 ```
 ---
-
 
 ## 📄 License
 
