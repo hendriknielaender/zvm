@@ -245,30 +245,6 @@ source ~/.bashrc  # or ~/.zshrc
 
 ---
 
-## 🔄 Migration Guide
-
-### From v0.13.x to v0.15.x
-
-**⚠️ BREAKING CHANGE**: zvm now follows XDG Base Directory Specification on Linux/macOS.
-
-**Migration Steps:**
-```bash
-# 1. Backup current installation
-cp -r ~/.zm ~/.zm.backup
-
-# 2. Install new version
-brew upgrade zvm
-
-# 3. Migrate existing versions (manual)
-mkdir -p ~/.local/share/zvm
-mv ~/.zm/* ~/.local/share/zvm/
-
-# 4. Update PATH configuration
-zvm env >> ~/.bashrc
-```
-
----
-
 ## 🤝 Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
