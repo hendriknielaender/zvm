@@ -16,23 +16,7 @@
 
 ---
 
-## ✨ Key Features
-
-- 🚀 **Lightning Fast**: Built with Zig for maximum performance
-- 🔍 **Smart Version Detection**: Automatically detects Zig version from `build.zig.zon` files  
-- 📦 **Dual Tool Support**: Manages both Zig compiler and ZLS (Zig Language Server)
-- 🌐 **Cross-Platform**: Works seamlessly on Linux, macOS, and Windows
-- 🎯 **XDG Compliant**: Follows XDG Base Directory Specification on Unix systems
-- ⚡ **Zero Configuration**: Works out of the box with sensible defaults
-- 🔧 **Shell Integration**: Auto-completion for Bash and Zsh
-- 📊 **JSON Output**: Machine-readable output for automation
-- 🪞 **Mirror Support**: Multiple download mirrors for reliability
-
----
-
-## 🚀 Quick Start
-
-### 📦 Installation
+## 📦 Installation
 
 #### macOS/Linux (Homebrew)
 ```bash
