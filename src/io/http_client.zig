@@ -52,7 +52,7 @@ pub const HttpClient = struct {
         defer request.deinit();
 
         try request.sendBodiless();
-        
+
         // Use empty buffer for redirects since we don't handle them
         var redirect_buffer: [0]u8 = .{};
         var response = try request.receiveHead(&redirect_buffer);
@@ -65,12 +65,12 @@ pub const HttpClient = struct {
 
         // Get a reader for the response body
         var transfer_buffer: [4096]u8 = undefined;
-        const body_reader = try response.reader(&transfer_buffer);
-        
+        const body_reader = response.reader(&transfer_buffer);
+
         // Read all content using readAllAlloc on the reader
         const response_bytes = try body_reader.readAlloc(arena.allocator(), operation.response_buffer.len);
         defer arena.allocator().free(response_bytes);
-        
+
         if (response_bytes.len > operation.response_buffer.len) {
             log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
                 operation.response_buffer.len,
@@ -78,7 +78,7 @@ pub const HttpClient = struct {
             });
             return error.ResponseTooLarge;
         }
-        
+
         @memcpy(operation.response_buffer[0..response_bytes.len], response_bytes);
         const response_offset = response_bytes.len;
 
@@ -118,8 +118,8 @@ pub const HttpClient = struct {
         defer request.deinit();
 
         try request.sendBodiless();
-        
-        // Use empty buffer for redirects since we don't handle them  
+
+        // Use empty buffer for redirects since we don't handle them
         var redirect_buffer: [0]u8 = .{};
         var response = try request.receiveHead(&redirect_buffer);
 
@@ -136,7 +136,7 @@ pub const HttpClient = struct {
         }
 
         var reader_buffer: [4096]u8 = undefined;
-        const body_reader = try response.reader(&reader_buffer);
+        const body_reader = response.reader(&reader_buffer);
 
         // Stream data from reader to file
         var buffer: [8192]u8 = undefined;

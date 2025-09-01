@@ -66,7 +66,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     } else {
         // For Zig, point to zvm binary for smart version detection
         try update_current_to_zvm(ctx, symlink_path);
-        
+
         // Print success message for smart mode
         var stdout_buffer: [io_buffer_size]u8 = undefined;
         var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);

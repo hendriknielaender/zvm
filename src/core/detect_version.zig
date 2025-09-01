@@ -1,8 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const util_tool = @import("../util/tool.zig");
 const Context = @import("../Context.zig");
-const util_output = @import("../util/output.zig");
 
 const log = std.log.scoped(.detect_version);
 
@@ -42,11 +40,13 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
     }
 
     if (!is_ci_environment()) {
-        log_version_suggestion();
+        log.info("No build.zig.zon found. Defaulting to master version.", .{});
+        log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
     }
 
+    // Default to master when no build.zig.zon found - this is user-friendly
     return SmartVersionResult{
-        .version = "current",
+        .version = "master",
         .source = .current,
         .allocator = ctx.get_allocator(),
     };
@@ -190,7 +190,20 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     const version_path = try build_version_path(ctx, version);
     defer ctx.get_allocator().free(version_path);
 
-    return util_tool.does_path_exist(version_path);
+    // Check if the directory exists first
+    if (!util_tool.does_path_exist(version_path)) {
+        return false;
+    }
+
+    // Check if the actual zig executable exists
+    var zig_path_buffer = try ctx.acquire_path_buffer();
+    defer zig_path_buffer.reset();
+
+    var stream = std.io.fixedBufferStream(zig_path_buffer.slice());
+    try stream.writer().print("{s}/zig", .{version_path});
+    const zig_path = try zig_path_buffer.set(stream.getWritten());
+
+    return util_tool.does_path_exist(zig_path);
 }
 
 pub fn auto_install_version(ctx: *Context.CliContext, version: []const u8) !void {
@@ -227,7 +240,7 @@ pub fn is_ci_environment() bool {
     const ci_vars = [_][]const u8{
         "CI",
         "GITHUB_ACTIONS",
-        "JENKINS_URL", 
+        "JENKINS_URL",
         "TRAVIS",
         "CIRCLECI",
         "GITLAB_CI",
@@ -251,13 +264,40 @@ fn log_version_suggestion() void {
     log.info("No build.zig.zon found. Consider creating one with 'minimum_zig_version' field, or specify version on command line (e.g., 'zig 0.13.0 build')", .{});
 }
 
+fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
+    // Check if current/zig symlink points to zvm binary (which would cause infinite loop)
+    var current_zig_path_buffer = try ctx.acquire_path_buffer();
+    defer current_zig_path_buffer.reset();
+
+    var stream = std.io.fixedBufferStream(current_zig_path_buffer.slice());
+    const home_dir = ctx.get_home_dir();
+
+    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
+        try stream.writer().print("{s}/.zm/current/zig", .{xdg_data});
+    } else {
+        try stream.writer().print("{s}/.local/share/.zm/current/zig", .{home_dir});
+    }
+
+    const current_zig_path = try current_zig_path_buffer.set(stream.getWritten());
+
+    // Check if symlink exists and where it points
+    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const link_target = std.fs.readLinkAbsolute(current_zig_path, &link_buffer) catch |err| switch (err) {
+        error.FileNotFound => return true, // No default set
+        else => return false, // Any other error means it's probably not a symlink to zvm
+    };
+
+    // Check if it points to zvm binary (indicates smart detection mode without default)
+    return std.mem.endsWith(u8, link_target, "/zvm") or std.mem.endsWith(u8, link_target, "\\zvm");
+}
+
 // Tests
 const testing = std.testing;
 
 test "is_version_string - valid versions" {
     const valid_versions = [_][]const u8{
         "0.11.0",
-        "0.12.1", 
+        "0.12.1",
         "1.0.0",
         "master",
         "latest",
@@ -274,7 +314,7 @@ test "is_version_string - valid versions" {
 test "is_version_string - invalid versions" {
     const invalid_versions = [_][]const u8{
         "build-exe",
-        "run", 
+        "run",
         "test",
         "version",
         "help",
@@ -404,7 +444,7 @@ const MockContext = struct {
 
     fn get_json_buffer(self: *MockContext) []u8 {
         _ = self;
-        const buffer: []u8 = testing.allocator.alloc(u8, 4096) catch unreachable;
+        const buffer: []u8 = testing.allocator.alloc(u8, 4096) catch @panic("Failed to allocate test buffer");
         return buffer;
     }
 
