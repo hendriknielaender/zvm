@@ -93,7 +93,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     defer version_path_buffer.reset();
     // version_path_buffer is a pointer, not optional - no need for null check
 
-    var fbs = std.io.fixedBufferStream(version_path_buffer.slice());
+    var fbs = std.Io.fixedBufferStream(version_path_buffer.slice());
     try fbs.writer().print("{s}/{s}", .{ base_path, true_version });
     const version_path = try version_path_buffer.set(fbs.getWritten());
 

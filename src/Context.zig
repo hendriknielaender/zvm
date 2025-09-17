@@ -218,7 +218,7 @@ pub const CliContext = struct {
 
         // buffer is a pointer, not optional - no need for null check
 
-        var fixed_buffer_stream = std.io.fixedBufferStream(buffer.slice());
+        var fixed_buffer_stream = std.Io.fixedBufferStream(buffer.slice());
         const home_dir = self.get_home_dir();
         assert(home_dir.len > 0);
 

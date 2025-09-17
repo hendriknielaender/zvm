@@ -325,17 +325,17 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
         if (get_windows_env_var(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
-            var stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
             try stream.writer().print("{s}\\.zm", .{home_slice});
             return stream.getWritten();
         }
     } else {
         if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-            var stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
             try stream.writer().print("{s}/.zm", .{xdg_data});
             return stream.getWritten();
         } else {
-            var stream = std.io.fixedBufferStream(&alias_buffers.zvm_home);
+            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
             try stream.writer().print("{s}/.local/share/.zm", .{home_slice});
             return stream.getWritten();
         }
@@ -345,7 +345,7 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
 fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = std.io.fixedBufferStream(&alias_buffers.tool_path);
+    var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
     try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
     return stream.getWritten();
 }
@@ -353,7 +353,7 @@ fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_h
 fn build_smart_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8, version: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = std.io.fixedBufferStream(&alias_buffers.tool_path);
+    var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
     if (util_tool.eql_str(version, "current")) {
         try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
     } else {

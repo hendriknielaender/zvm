@@ -210,7 +210,7 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.io.fixedBufferStream(&self.stdout_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         // Write JSON array with explicit error handling
@@ -243,7 +243,7 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.io.fixedBufferStream(&self.stdout_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll("{") catch return;
@@ -342,7 +342,7 @@ pub const OutputEmitter = struct {
     fn emit_json_message(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
 
-        var stream = std.io.fixedBufferStream(&self.stdout_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll("{\"level\":\"") catch return;
@@ -372,7 +372,7 @@ pub const OutputEmitter = struct {
 
     /// Write colored text to stdout
     fn write_colored_to_stdout(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.io.fixedBufferStream(&self.stdout_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll(color_code) catch return;
@@ -384,7 +384,7 @@ pub const OutputEmitter = struct {
 
     /// Write colored text to stderr
     fn write_colored_to_stderr(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.io.fixedBufferStream(&self.stderr_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
         const writer = stream.writer();
 
         writer.writeAll(color_code) catch return;
@@ -396,7 +396,7 @@ pub const OutputEmitter = struct {
 
     /// Write plain text to stdout
     fn write_plain_to_stdout(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.io.fixedBufferStream(&self.stdout_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;
@@ -406,7 +406,7 @@ pub const OutputEmitter = struct {
 
     /// Write plain text to stderr
     fn write_plain_to_stderr(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.io.fixedBufferStream(&self.stderr_buffer);
+        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;

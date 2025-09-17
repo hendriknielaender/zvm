@@ -34,7 +34,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
 
     var version_path_buffer = try ctx.acquire_path_buffer();
     defer version_path_buffer.reset();
-    var fbs = std.io.fixedBufferStream(version_path_buffer.slice());
+    var fbs = std.Io.fixedBufferStream(version_path_buffer.slice());
     try fbs.writer().print("{s}/{s}", .{ base_path, version });
     const version_path = try version_path_buffer.set(fbs.getWritten());
 
@@ -84,7 +84,7 @@ fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
     defer zm_path_buffer.reset();
 
     const home_dir = ctx.get_home_dir();
-    var stream = std.io.fixedBufferStream(zm_path_buffer.slice());
+    var stream = std.Io.fixedBufferStream(zm_path_buffer.slice());
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try stream.writer().print("{s}/.zm", .{xdg_data});
@@ -104,7 +104,7 @@ fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
     var config_path_buffer = try ctx.acquire_path_buffer();
     defer config_path_buffer.reset();
 
-    var config_stream = std.io.fixedBufferStream(config_path_buffer.slice());
+    var config_stream = std.Io.fixedBufferStream(config_path_buffer.slice());
     try config_stream.writer().print("{s}/default_version", .{zm_dir});
     const config_path = try config_path_buffer.set(config_stream.getWritten());
 
@@ -125,7 +125,7 @@ fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !vo
         error.OutOfMemory => return err,
         else => fallback: {
             // Fallback: try to find zvm in common locations
-            var fbs = std.io.fixedBufferStream(zvm_path_buffer.slice());
+            var fbs = std.Io.fixedBufferStream(zvm_path_buffer.slice());
             const home_dir = ctx.get_home_dir();
             try fbs.writer().print("{s}/.local/bin/zvm", .{home_dir});
             const fallback_path = try zvm_path_buffer.set(fbs.getWritten());
@@ -133,7 +133,7 @@ fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !vo
             // Check if fallback exists
             std.fs.accessAbsolute(fallback_path, .{}) catch {
                 // If fallback doesn't exist, use current directory
-                fbs = std.io.fixedBufferStream(zvm_path_buffer.slice());
+                fbs = std.Io.fixedBufferStream(zvm_path_buffer.slice());
                 try fbs.writer().print("./zvm", .{});
                 break :fallback try ctx.get_allocator().dupe(u8, try zvm_path_buffer.set(fbs.getWritten()));
             };
