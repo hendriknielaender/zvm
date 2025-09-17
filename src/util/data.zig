@@ -20,7 +20,7 @@ pub const zvm_logo =
 /// Get zvm path segment - uses path buffer from context.
 pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     // Follow XDG Base Directory specification
     const home_dir = ctx.get_home_dir();
@@ -37,7 +37,7 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 /// Get zvm/current/zig path.
 pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -53,7 +53,7 @@ pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/current/zls path.
 pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -74,7 +74,7 @@ pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/version/zig path.
 pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -90,7 +90,7 @@ pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/version/zls path.
 pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -122,7 +122,7 @@ pub fn get_current_version(
     @memcpy(base_path_copy[0..base_path_len], base_path);
 
     // Build full path.
-    var fbs = std.io.fixedBufferStream(path_buffer.slice());
+    var fbs = std.Io.fixedBufferStream(path_buffer.slice());
     try fbs.writer().print("{s}/{s}", .{ base_path_copy[0..base_path_len], exe_name });
     const current_path = fbs.getWritten();
 

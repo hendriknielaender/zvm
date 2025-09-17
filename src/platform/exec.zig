@@ -14,7 +14,7 @@ pub const ExecBuffers = struct {
 pub fn build_tool_path(buffers: *ExecBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (std.mem.eql(u8, program_name, "zig")) "zig" else "zls";
 
-    var stream = std.io.fixedBufferStream(&buffers.tool_path);
+    var stream = std.Io.fixedBufferStream(&buffers.tool_path);
     try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
     return stream.getWritten();
 }

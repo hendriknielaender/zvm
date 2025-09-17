@@ -92,7 +92,7 @@ fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
         var path_buf = try ctx.acquire_path_buffer();
         defer path_buf.reset();
 
-        var stream = std.io.fixedBufferStream(path_buf.slice());
+        var stream = std.Io.fixedBufferStream(path_buf.slice());
         try stream.writer().print("{s}/build.zig.zon", .{search_dir});
         const build_zon_path = try path_buf.set(stream.getWritten());
 
@@ -211,7 +211,7 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     var zig_path_buffer = try ctx.acquire_path_buffer();
     defer zig_path_buffer.reset();
 
-    var stream = std.io.fixedBufferStream(zig_path_buffer.slice());
+    var stream = std.Io.fixedBufferStream(zig_path_buffer.slice());
     try stream.writer().print("{s}/zig", .{version_path});
     const zig_path = try zig_path_buffer.set(stream.getWritten());
 
@@ -235,7 +235,7 @@ fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8
     var buffer = try ctx.acquire_path_buffer();
     defer buffer.reset();
 
-    var stream = std.io.fixedBufferStream(buffer.slice());
+    var stream = std.Io.fixedBufferStream(buffer.slice());
     const home_dir = ctx.get_home_dir();
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -278,7 +278,7 @@ fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
     defer config_path_buffer.reset();
 
     const home_dir = ctx.get_home_dir();
-    var stream = std.io.fixedBufferStream(config_path_buffer.slice());
+    var stream = std.Io.fixedBufferStream(config_path_buffer.slice());
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
         try stream.writer().print("{s}/.zm/default_version", .{xdg_data});
@@ -311,7 +311,7 @@ fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
     var current_zig_path_buffer = try ctx.acquire_path_buffer();
     defer current_zig_path_buffer.reset();
 
-    var stream = std.io.fixedBufferStream(current_zig_path_buffer.slice());
+    var stream = std.Io.fixedBufferStream(current_zig_path_buffer.slice());
     const home_dir = ctx.get_home_dir();
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {

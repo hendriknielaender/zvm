@@ -65,13 +65,13 @@ pub fn copy_dir_static(
 
         // Build source sub path.
         source_path_buffer.reset();
-        var fbs_src = std.io.fixedBufferStream(source_path_buffer.slice());
+        var fbs_src = std.Io.fixedBufferStream(source_path_buffer.slice());
         try fbs_src.writer().print("{s}/{s}", .{ source_dir, entry_name });
         const source_sub_path = try source_path_buffer.set(fbs_src.getWritten());
 
         // Build dest sub path.
         dest_path_buffer.reset();
-        var fbs_dest = std.io.fixedBufferStream(dest_path_buffer.slice());
+        var fbs_dest = std.Io.fixedBufferStream(dest_path_buffer.slice());
         try fbs_dest.writer().print("{s}/{s}", .{ dest_dir, entry_name });
         const dest_sub_path = try dest_path_buffer.set(fbs_dest.getWritten());
 

@@ -20,7 +20,7 @@ pub fn execute(
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
 
-    var fbs = std.io.fixedBufferStream(path_buffer.slice());
+    var fbs = std.Io.fixedBufferStream(path_buffer.slice());
     const home_dir = ctx.get_home_dir();
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {

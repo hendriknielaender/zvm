@@ -149,7 +149,7 @@ fn install_zig(
     const extract_path = blk: {
         const extract_path_buffer = try ctx.acquire_path_buffer();
         defer extract_path_buffer.reset();
-        var fbs = std.io.fixedBufferStream(extract_path_buffer.slice());
+        var fbs = std.Io.fixedBufferStream(extract_path_buffer.slice());
         try fbs.writer().print("{s}/{s}", .{ version_path, version });
         const path = try extract_path_buffer.set(fbs.getWritten());
         @memcpy(extract_path_storage[0..path.len], path);
@@ -274,7 +274,7 @@ fn build_signature_filename(ctx: *context.CliContext, file_name: []const u8) ![]
 
     var sig_name_buffer = try ctx.acquire_path_buffer();
 
-    var sig_name_fbs = std.io.fixedBufferStream(sig_name_buffer.slice());
+    var sig_name_fbs = std.Io.fixedBufferStream(sig_name_buffer.slice());
     try sig_name_fbs.writer().print("{s}.minisig", .{file_name});
     return try sig_name_buffer.set(sig_name_fbs.getWritten());
 }
@@ -305,13 +305,13 @@ fn verify_signature(
 
     var tarball_path_buffer = try ctx.acquire_path_buffer();
     defer tarball_path_buffer.reset();
-    var tarball_fbs = std.io.fixedBufferStream(tarball_path_buffer.slice());
+    var tarball_fbs = std.Io.fixedBufferStream(tarball_path_buffer.slice());
     try tarball_fbs.writer().print("{s}/{s}", .{ zvm_store_path, file_name });
     const tarball_path = try tarball_path_buffer.set(tarball_fbs.getWritten());
 
     var sig_path_buffer = try ctx.acquire_path_buffer();
     defer sig_path_buffer.reset();
-    var sig_path_fbs = std.io.fixedBufferStream(sig_path_buffer.slice());
+    var sig_path_fbs = std.Io.fixedBufferStream(sig_path_buffer.slice());
     try sig_path_fbs.writer().print("{s}/{s}", .{ zvm_store_path, signature_file_name });
     const sig_path = try sig_path_buffer.set(sig_path_fbs.getWritten());
 
@@ -391,7 +391,7 @@ fn download_with_mirrors(
 
             var node_name_buffer = try ctx.acquire_path_buffer();
             defer node_name_buffer.reset();
-            var fbs = std.io.fixedBufferStream(node_name_buffer.slice());
+            var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
             try fbs.writer().print("download zig (mirror {d}): {s}", .{ mirror_index, mirror_url });
             const node_name = node_name_buffer.used_slice();
 
@@ -431,7 +431,7 @@ fn download_with_fallbacks(
 
     var node_name_buffer = try ctx.acquire_path_buffer();
     defer node_name_buffer.reset();
-    var fbs = std.io.fixedBufferStream(node_name_buffer.slice());
+    var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
     try fbs.writer().print("download zig (official): {s}", .{version_data.tarball});
     const node_name = node_name_buffer.used_slice();
 
@@ -471,7 +471,7 @@ fn download_from_mirrors(
 
         var node_name_buffer = try ctx.acquire_path_buffer();
         defer node_name_buffer.reset();
-        var fbs = std.io.fixedBufferStream(node_name_buffer.slice());
+        var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
         try fbs.writer().print("download zig (mirror {d}): {s}", .{ i, mirror_url });
         const node_name = node_name_buffer.used_slice();
 
@@ -494,7 +494,7 @@ fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8
     assert(file_name.len > 0);
     assert(file_name.len < limits.limits.path_length_maximum);
 
-    var fbs = std.io.fixedBufferStream(buffer.slice());
+    var fbs = std.Io.fixedBufferStream(buffer.slice());
 
     if (mirror_url[mirror_url.len - 1] == '/') {
         try fbs.writer().print("{s}{s}", .{ mirror_url, file_name });
