@@ -135,11 +135,12 @@ pub const HttpClient = struct {
         const body_reader = response.reader(&reader_buffer);
 
         // Stream data from reader to file
-        var buffer: [8192]u8 = undefined;
+        var buffer: [4096]u8 = undefined;
         var total_bytes: u64 = 0;
 
         while (true) {
-            const bytes_read = body_reader.readSliceShort(&buffer) catch |err| {
+            var slices = [_][]u8{buffer[0..]};
+            const bytes_read = body_reader.readVec(&slices) catch |err| {
                 if (err == error.EndOfStream) {
                     break;
                 }
