@@ -3,6 +3,9 @@ const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
 const log = std.log.scoped(.http);
 
+// Check if we have gzip decompression available
+const has_gzip = @hasDecl(std.compress, "gzip");
+
 /// HTTP client that uses pre-allocated operations from the pool.
 ///
 /// Following the static allocation principle, we pre-allocate buffers for:
@@ -46,43 +49,36 @@ pub const HttpClient = struct {
         var client = std.http.Client{ .allocator = arena.allocator() };
         defer client.deinit();
 
-        var request = try client.request(.GET, uri, .{
+        var buffer_writer = std.Io.fixedBufferStream(&operation.response_buffer);
+        const old_writer = buffer_writer.writer();
+
+        // Adapt the old writer to the new API
+        var write_buffer: [4096]u8 = undefined;
+        var adapter = old_writer.adaptToNewApi(&write_buffer);
+        const writer = &adapter.new_interface;
+
+        // Use the simple fetch API that handles redirects, compression, etc. automatically
+        var redirect_buffer: [8192]u8 = undefined;
+        const result = try client.fetch(.{
+            .location = .{ .uri = uri },
+            .method = .GET,
             .headers = headers,
+            .redirect_buffer = &redirect_buffer,
+            .response_writer = writer,
         });
-        defer request.deinit();
 
-        try request.sendBodiless();
-
-        // Use empty buffer for redirects since we don't handle them
-        var redirect_buffer: [0]u8 = .{};
-        var response = try request.receiveHead(&redirect_buffer);
-
-        // Check status code
-        if (response.head.status != .ok) {
-            log.err("HTTP request failed with status: {}", .{response.head.status});
+        if (result.status != .ok) {
+            log.err("HTTP request failed with status: {}", .{result.status});
             return error.HttpRequestFailed;
         }
 
-        // Get a reader for the response body
-        var transfer_buffer: [4096]u8 = undefined;
-        const body_reader = response.reader(&transfer_buffer);
-
-        // Read all content using readAllAlloc on the reader
-        const response_bytes = try body_reader.readAlloc(arena.allocator(), operation.response_buffer.len);
-        defer arena.allocator().free(response_bytes);
-
-        if (response_bytes.len > operation.response_buffer.len) {
-            log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
-                operation.response_buffer.len,
-                uri,
-            });
-            return error.ResponseTooLarge;
+        const bytes_read = buffer_writer.pos;
+        if (bytes_read == 0) {
+            log.err("HTTP response is empty for URL: {any}", .{uri});
+            return error.EmptyResponse;
         }
 
-        @memcpy(operation.response_buffer[0..response_bytes.len], response_bytes);
-        const response_offset = response_bytes.len;
-
-        if (response_offset >= operation.response_buffer.len) {
+        if (bytes_read >= operation.response_buffer.len) {
             log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
                 limits.limits.http_response_size_maximum,
                 uri,
@@ -90,7 +86,7 @@ pub const HttpClient = struct {
             return error.ResponseTooLarge;
         }
 
-        return operation.response_buffer[0..response_offset];
+        return operation.response_buffer[0..bytes_read];
     }
 
     /// Download a file using a pre-allocated HTTP operation
