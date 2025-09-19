@@ -4,6 +4,13 @@ const Context = @import("../Context.zig");
 
 const log = std.log.scoped(.detect_version);
 
+const BuildZigZon = struct {
+    name: []const u8,
+    version: []const u8,
+    minimum_zig_version: ?[]const u8 = null,
+    dependencies: struct {},
+};
+
 pub const VersionSource = enum {
     command_line,
     build_zig_zon,
@@ -40,7 +47,12 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
     }
 
     // Check if user has set a default version with 'zvm use'
-    if (try find_default_version(ctx)) |default_version| {
+    const default_version_result = find_default_version(ctx) catch |err| {
+        log.debug("Error when finding default version: {}, falling back to master", .{err});
+        return error.FailedToDetectVersion;
+    };
+
+    if (default_version_result) |default_version| {
         if (!is_ci_environment()) {
             log.info("No build.zig.zon found. Using default version: {s}", .{default_version});
         }
@@ -49,19 +61,19 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
             .source = .current,
             .allocator = ctx.get_allocator(),
         };
-    }
+    } else {
+        if (!is_ci_environment()) {
+            log.info("No build.zig.zon found. Defaulting to master version.", .{});
+            log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
+        }
 
-    if (!is_ci_environment()) {
-        log.info("No build.zig.zon found. Defaulting to master version.", .{});
-        log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
+        // Default to master when no build.zig.zon found and no default set
+        return SmartVersionResult{
+            .version = "master",
+            .source = .current,
+            .allocator = ctx.get_allocator(),
+        };
     }
-
-    // Default to master when no build.zig.zon found and no default set
-    return SmartVersionResult{
-        .version = "master",
-        .source = .current,
-        .allocator = ctx.get_allocator(),
-    };
 }
 
 pub fn is_version_string(arg: []const u8) bool {
@@ -112,56 +124,83 @@ fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 
     const file = std.fs.cwd().openFile(path, .{}) catch return null;
     defer file.close();
 
-    const json_buffer = ctx.get_json_buffer();
-    const bytes_read = file.readAll(json_buffer) catch return null;
-    const content = json_buffer[0..bytes_read];
+    // Use a local buffer instead of the JSON buffer to avoid potential corruption
+    var buffer: [8192]u8 = undefined;
+    const bytes_read = file.readAll(&buffer) catch return null;
 
+    // Ensure we have space for null termination
+    if (bytes_read >= buffer.len - 1) return null;
+    if (bytes_read == 0) return null;
+
+    // Null-terminate the content properly
+    buffer[bytes_read] = 0;
+    const content = buffer[0..bytes_read :0];
+
+    // Use the JSON allocator for ZON parsing
     const allocator = ctx.get_json_allocator();
-    const parsed = std.json.parseFromSlice(std.json.Value, allocator, content, .{}) catch {
-        return try parse_build_zig_zon_manual(ctx, content);
-    };
-    defer parsed.deinit();
 
-    if (parsed.value.object.get("minimum_zig_version")) |version_value| {
-        if (version_value == .string) {
-            const version = try ctx.get_allocator().dupe(u8, version_value.string);
-            return version;
+    // Parse ZON using Zig's built-in ZON parser
+    const parsed = std.zon.parse.fromSlice(BuildZigZon, allocator, content, null, .{}) catch return null;
+
+    if (parsed.minimum_zig_version) |version| {
+        // Validate version string
+        if (version.len == 0 or version.len > 64) return null;
+        if (!is_version_string(version)) return null;
+
+        // Return a dupe using the static allocator
+        return ctx.get_allocator().dupe(u8, version) catch return null;
+    }
+
+    return null;
+}
+
+fn extract_minimum_zig_version(content: [:0]const u8, ctx: *Context.CliContext) !?[]const u8 {
+    // Look for the minimum_zig_version field using simple string search
+    const key = "minimum_zig_version";
+    const key_len = key.len;
+
+    var i: usize = 0;
+    while (i < content.len) : (i += 1) {
+        // Find the key
+        if (i + key_len <= content.len and
+            std.mem.eql(u8, content[i .. i + key_len], key))
+        {
+
+            // Skip whitespace after the key
+            var j = i + key_len;
+            while (j < content.len and std.ascii.isWhitespace(content[j])) : (j += 1) {}
+
+            // Expect '='
+            if (j >= content.len or content[j] != '=') continue;
+            j += 1;
+
+            // Skip whitespace after '='
+            while (j < content.len and std.ascii.isWhitespace(content[j])) : (j += 1) {}
+
+            // Expect opening quote
+            if (j >= content.len or content[j] != '"') continue;
+            j += 1;
+
+            // Find closing quote
+            const start = j;
+            while (j < content.len and content[j] != '"') : (j += 1) {}
+            if (j >= content.len) continue; // No closing quote
+
+            const version_str = content[start..j];
+
+            // Validate version string
+            if (version_str.len == 0 or version_str.len > 64) continue;
+            if (!is_version_string(version_str)) continue;
+
+            // Duplicate the version string using the allocator
+            return ctx.get_allocator().dupe(u8, version_str) catch null;
         }
     }
 
     return null;
 }
 
-pub fn parse_build_zig_zon_manual(ctx: *Context.CliContext, content: []const u8) !?[]const u8 {
-    const needle = "minimum_zig_version";
-    var pos: usize = 0;
-
-    while (std.mem.indexOfPos(u8, content, pos, needle)) |found_pos| {
-        pos = found_pos + needle.len;
-
-        var i = pos;
-        while (i < content.len and std.ascii.isWhitespace(content[i])) i += 1;
-        if (i >= content.len or content[i] != '=') continue;
-        i += 1;
-
-        while (i < content.len and std.ascii.isWhitespace(content[i])) i += 1;
-        if (i >= content.len or content[i] != '"') continue;
-        i += 1;
-
-        const start = i;
-        while (i < content.len and content[i] != '"') i += 1;
-        if (i >= content.len) continue;
-
-        const version_str = content[start..i];
-        if (version_str.len > 0) {
-            return try ctx.get_allocator().dupe(u8, version_str);
-        }
-    }
-
-    return null;
-}
-
-pub fn adjust_arguments(version: []const u8, original_args: []const []const u8, adjusted_args: *std.ArrayList([]const u8)) !void {
+pub fn adjust_arguments(version: []const u8, original_args: []const []const u8, adjusted_args: *std.array_list.Managed([]const u8)) !void {
     if (util_tool.eql_str(version, "current")) {
         try adjusted_args.appendSlice(original_args);
         return;
@@ -245,7 +284,9 @@ fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8
     }
 
     const path = try buffer.set(stream.getWritten());
-    return try ctx.get_allocator().dupe(u8, path);
+
+    // Always duplicate the path using the allocator
+    return ctx.get_allocator().dupe(u8, path) catch error.OutOfMemory;
 }
 
 pub fn is_ci_environment() bool {
@@ -299,7 +340,8 @@ fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
     const content = std.mem.trim(u8, version_buffer[0..bytes_read], " \t\n\r");
     if (content.len == 0) return null;
 
-    return try ctx.get_allocator().dupe(u8, content);
+    // Duplicate the version string using the allocator
+    return ctx.get_allocator().dupe(u8, content) catch error.OutOfMemory;
 }
 
 fn log_version_suggestion() void {
@@ -382,7 +424,7 @@ test "CI environment detection" {
 }
 
 test "adjust_arguments - with version prefix" {
-    var adjusted_args = std.ArrayList([]const u8).init(testing.allocator);
+    var adjusted_args = std.array_list.Managed([]const u8).init(testing.allocator);
     defer adjusted_args.deinit();
 
     const original_args = [_][]const u8{ "0.13.0", "build-exe", "main.zig" };
@@ -396,7 +438,7 @@ test "adjust_arguments - with version prefix" {
 }
 
 test "adjust_arguments - without version prefix" {
-    var adjusted_args = std.ArrayList([]const u8).init(testing.allocator);
+    var adjusted_args = std.array_list.Managed([]const u8).init(testing.allocator);
     defer adjusted_args.deinit();
 
     const original_args = [_][]const u8{ "build-exe", "main.zig" };
@@ -410,7 +452,7 @@ test "adjust_arguments - without version prefix" {
 }
 
 test "adjust_arguments - current version passthrough" {
-    var adjusted_args = std.ArrayList([]const u8).init(testing.allocator);
+    var adjusted_args = std.array_list.Managed([]const u8).init(testing.allocator);
     defer adjusted_args.deinit();
 
     const original_args = [_][]const u8{ "build-exe", "main.zig" };
@@ -421,45 +463,6 @@ test "adjust_arguments - current version passthrough" {
     try testing.expectEqual(@as(usize, 2), adjusted_args.items.len);
     try testing.expectEqualStrings("build-exe", adjusted_args.items[0]);
     try testing.expectEqualStrings("main.zig", adjusted_args.items[1]);
-}
-
-test "parse_build_zig_zon_manual - valid format" {
-    const zon_content =
-        \\.{
-        \\    .name = "myproject",
-        \\    .version = "0.1.0", 
-        \\    .minimum_zig_version = "0.13.0",
-        \\    .dependencies = .{},
-        \\}
-    ;
-
-    var mock_ctx = MockContext.init();
-    defer mock_ctx.deinit();
-
-    const result = try parse_build_zig_zon_manual(&mock_ctx, zon_content);
-
-    if (result) |version| {
-        defer mock_ctx.allocator.free(version);
-        try testing.expectEqualStrings("0.13.0", version);
-    } else {
-        try testing.expect(false); // Should have found version
-    }
-}
-
-test "parse_build_zig_zon_manual - missing version" {
-    const zon_content =
-        \\.{
-        \\    .name = "myproject",
-        \\    .version = "0.1.0",
-        \\    .dependencies = .{},
-        \\}
-    ;
-
-    var mock_ctx = MockContext.init();
-    defer mock_ctx.deinit();
-
-    const result = try parse_build_zig_zon_manual(&mock_ctx, zon_content);
-    try testing.expectEqual(@as(?[]const u8, null), result);
 }
 
 // Mock context for testing
@@ -524,3 +527,223 @@ const MockPathBuffer = struct {
         testing.allocator.destroy(self);
     }
 };
+
+test "parse_build_zig_zon - valid minimum_zig_version" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a temporary build.zig.zon file with minimum_zig_version
+    const test_content =
+        \\{
+        \\    .name = "test-project",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "0.13.0",
+        \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+    defer {
+        if (result) |version| {
+            mock_ctx.allocator.free(version);
+        }
+    }
+
+    // Verify the result
+    try testing.expect(result != null);
+    try testing.expectEqualStrings("0.13.0", result.?);
+}
+
+test "parse_build_zig_zon - no minimum_zig_version" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a build.zig.zon file without minimum_zig_version
+    const test_content =
+        \\{
+        \\    .name = "test-project",
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+
+    // Verify the result is null
+    try testing.expect(result == null);
+}
+
+test "parse_build_zig_zon - invalid version format" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a build.zig.zon file with invalid version format
+    const test_content =
+        \\{
+        \\    .name = "test-project",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "invalid-version",
+        \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+
+    // Verify the result is null (invalid version should be rejected)
+    try testing.expect(result == null);
+}
+
+test "parse_build_zig_zon - master version" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a build.zig.zon file with master version
+    const test_content =
+        \\{
+        \\    .name = "test-project",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "master",
+        \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+    defer {
+        if (result) |version| {
+            mock_ctx.allocator.free(version);
+        }
+    }
+
+    // Verify the result
+    try testing.expect(result != null);
+    try testing.expectEqualStrings("master", result.?);
+}
+
+test "parse_build_zig_zon - non-existent file" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Test with a non-existent file
+    const result = try parse_build_zig_zon(&mock_ctx, "/non/existent/build.zig.zon");
+
+    // Verify the result is null
+    try testing.expect(result == null);
+}
+
+test "parse_build_zig_zon - empty file" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create an empty file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+
+    // Verify the result is null
+    try testing.expect(result == null);
+}
+
+test "parse_build_zig_zon - complex version with dev suffix" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a build.zig.zon file with complex version
+    const test_content =
+        \\{
+        \\    .name = "test-project",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "0.14.0-dev.3028+cdc9d65b0",
+        \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+    defer {
+        if (result) |version| {
+            mock_ctx.allocator.free(version);
+        }
+    }
+
+    // Verify the result
+    try testing.expect(result != null);
+    try testing.expectEqualStrings("0.14.0-dev.3028+cdc9d65b0", result.?);
+}

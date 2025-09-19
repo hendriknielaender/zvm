@@ -253,6 +253,11 @@ pub const CliContext = struct {
         return self.json_fba.allocator();
     }
 
+    /// Get a ZON allocator
+    pub fn get_zon_allocator(self: *CliContext) std.mem.Allocator {
+        return self.static_mem.allocator();
+    }
+
     /// Get the process buffer.
     pub fn get_process_buffer(self: *CliContext) *object_pools.ProcessBuffer {
         return self.pools.get_process_buffer();

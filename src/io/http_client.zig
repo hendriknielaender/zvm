@@ -97,9 +97,8 @@ pub const HttpClient = struct {
         dest_file: std.fs.File,
         progress_node: std.Progress.Node,
     ) !void {
-        // Acquire an HTTP operation from the pool
-        const operation = try ctx.acquire_http_operation();
-        defer operation.release();
+        _ = ctx;
+        _ = progress_node;
 
         // Same as fetch() - we need a proper allocator for certificate handling
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -108,53 +107,27 @@ pub const HttpClient = struct {
         var client = std.http.Client{ .allocator = arena.allocator() };
         defer client.deinit();
 
-        var request = try client.request(.GET, uri, .{
+        // Create a writer that writes directly to the file
+        var writer_buffer: [8192]u8 = undefined;
+        var writer = dest_file.writer(&writer_buffer);
+
+        // Use the simple fetch API that handles redirects, compression, etc. automatically
+        var redirect_buffer: [8192]u8 = undefined;
+        const result = try client.fetch(.{
+            .location = .{ .uri = uri },
+            .method = .GET,
             .headers = headers,
+            .redirect_buffer = &redirect_buffer,
+            .response_writer = &writer.interface,
         });
-        defer request.deinit();
 
-        try request.sendBodiless();
-
-        // Use empty buffer for redirects since we don't handle them
-        var redirect_buffer: [0]u8 = .{};
-        var response = try request.receiveHead(&redirect_buffer);
-
-        // Check status code
-        if (response.head.status != .ok) {
-            log.err("HTTP request failed with status: {}", .{response.head.status});
+        if (result.status != .ok) {
+            log.err("HTTP request failed with status: {}", .{result.status});
             return error.HttpRequestFailed;
         }
 
-        // Get content length for progress
-        const content_length = if (response.head.content_length) |cl| cl else 0;
-        if (content_length > 0) {
-            progress_node.setEstimatedTotalItems(@intCast(content_length));
-        }
-
-        var reader_buffer: [4096]u8 = undefined;
-        const body_reader = response.reader(&reader_buffer);
-
-        // Stream data from reader to file
-        var buffer: [4096]u8 = undefined;
-        var total_bytes: u64 = 0;
-
-        while (true) {
-            var slices = [_][]u8{buffer[0..]};
-            const bytes_read = body_reader.readVec(&slices) catch |err| {
-                if (err == error.EndOfStream) {
-                    break;
-                }
-                return err;
-            };
-            if (bytes_read == 0) break;
-
-            try dest_file.writeAll(buffer[0..bytes_read]);
-            total_bytes += bytes_read;
-
-            if (content_length > 0) {
-                progress_node.setCompletedItems(@intCast(total_bytes));
-            }
-        }
+        // Flush the writer to ensure all data is written to the file
+        try writer.interface.flush();
     }
 
     /// Fetch JSON and parse it using pre-allocated buffer
