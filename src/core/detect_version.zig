@@ -5,7 +5,6 @@ const Context = @import("../Context.zig");
 const log = std.log.scoped(.detect_version);
 
 const BuildZigZon = struct {
-    name: []const u8,
     version: []const u8,
     minimum_zig_version: ?[]const u8 = null,
     dependencies: struct {},
@@ -136,13 +135,8 @@ fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 
     buffer[bytes_read] = 0;
     const content = buffer[0..bytes_read :0];
 
-    // Use the JSON allocator for ZON parsing
-    const allocator = ctx.get_json_allocator();
-
-    // Parse ZON using Zig's built-in ZON parser
-    const parsed = std.zon.parse.fromSlice(BuildZigZon, allocator, content, null, .{}) catch return null;
-
-    if (parsed.minimum_zig_version) |version| {
+    // Use manual extraction to handle enum literals in name field
+    if (try extract_minimum_zig_version(content, ctx)) |version| {
         // Validate version string
         if (version.len == 0 or version.len > 64) return null;
         if (!is_version_string(version)) return null;
