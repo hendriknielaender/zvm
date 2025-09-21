@@ -318,9 +318,9 @@ fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
         const bytes_read = file.readAll(&content_buf) catch break;
         if (bytes_read == 0) break;
 
-        if (extractMinimumZigVersionFromJson(content_buf[0..bytes_read])) |version| {
+        if (extract_minimum_zig_version_from_json(content_buf[0..bytes_read])) |version| {
             // Validate version using semantic version parsing
-            if (validateSemanticVersion(version)) {
+            if (validate_semantic_version(version)) {
                 // Store version in static buffer to avoid allocation issues
                 var version_buf: [64]u8 = undefined;
                 if (version.len <= version_buf.len) {
@@ -348,7 +348,7 @@ fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
     return "current";
 }
 
-pub fn validateSemanticVersion(version: []const u8) bool {
+pub fn validate_semantic_version(version: []const u8) bool {
     // Pair assertion: Validate input bounds
     assert(version.len > 0);
     assert(version.len < 64); // Reasonable version length limit
@@ -361,7 +361,7 @@ pub fn validateSemanticVersion(version: []const u8) bool {
     return true;
 }
 
-pub fn extractMinimumZigVersionFromJson(content: []const u8) ?[]const u8 {
+pub fn extract_minimum_zig_version_from_json(content: []const u8) ?[]const u8 {
     // Pair assertion: Validate input bounds
     assert(content.len > 0); // Don't process empty content
     assert(content.len <= 8192); // Reasonable upper bound for JSON
@@ -391,7 +391,7 @@ fn ensure_version_available(version: []const u8) !bool {
     if (std.mem.eql(u8, version, "current")) return true;
 
     // Get home directory
-    const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
+    const home = util_tool.getenv_cross_platform("HOME") orelse return error.HomeNotFound;
 
     // Build version path with separate buffers
     var version_path_buf: [1024]u8 = undefined;

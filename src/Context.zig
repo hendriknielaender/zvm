@@ -127,7 +127,7 @@ pub const CliContext = struct {
                 break :blk std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./";
             } else {
                 // On POSIX, use getenv which doesn't allocate, then copy to our buffer
-                const home_env = util_tool.getenv_cross_platform("HOME") orelse "./";
+                const home_env = std.posix.getenv("HOME") orelse "./";
                 const allocated = context_storage.static_mem.allocator().dupe(u8, home_env) catch "./";
                 break :blk allocated;
             }
@@ -149,7 +149,7 @@ pub const CliContext = struct {
         @memcpy(context_storage.home_dir_buffer[0..home.len], home);
         context_storage.home_dir_length = @intCast(home.len);
 
-        assert(context_storage.home_dir_length == home.len);
+        assert(context_storage.home_dir_length > 0);
         assert(context_storage.home_dir_length <= context_storage.home_dir_buffer.len);
     }
 
