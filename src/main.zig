@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const parser = @import("cli/parser.zig");
 const Context = @import("Context.zig");
 const memory_limits = @import("memory/limits.zig");
@@ -10,6 +11,20 @@ const Config = @import("config.zig");
 const metadata = @import("metadata.zig");
 
 const log = std.log.scoped(.zvm);
+
+// Compile-time assertions for design assumptions
+comptime {
+    // Validate memory limits are reasonable
+    assert(memory_limits.limits.arguments_maximum > 0);
+    assert(memory_limits.limits.arguments_maximum <= 1024);
+
+    // Validate buffer sizes are sufficient
+    assert(memory_limits.limits.home_dir_length_maximum >= 256);
+    assert(memory_limits.limits.path_length_maximum >= 512);
+
+    // Validate semantic version parsing works
+    _ = std.SemanticVersion.parse("0.13.0") catch @compileError("Semantic version parsing failed");
+}
 
 const commands = struct {
     pub const help = @import("commands/help.zig");
@@ -26,9 +41,12 @@ const commands = struct {
 };
 
 const detect_version = @import("core/detect_version.zig");
+const install = @import("core/install.zig");
 
 // SAFETY: global_static_buffer is initialized before first use in main()
 var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
+// SAFETY: alias_static_buffer is used for alias handling to avoid conflicts with main context
+var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
 // SAFETY: global_context is initialized in main() before being accessed
 var global_context: Context.CliContext = undefined;
 // SAFETY: global_config is initialized in main() with Config.init() before being used
@@ -152,46 +170,88 @@ pub fn main() !void {
     }
 }
 
+const AutoInstallError = error{
+    AlreadyCurrent,
+    ContextInitFailed,
+    InstallationFailed,
+};
+
+pub fn auto_install_version(version: []const u8) AutoInstallError!void {
+    // Pair assertion: Validate input bounds
+    assert(version.len > 0);
+    assert(version.len < 64); // Reasonable version length limit
+
+    if (std.mem.eql(u8, version, "current")) return error.AlreadyCurrent;
+
+    // Create a minimal context for installation
+    var install_context: Context.CliContext = undefined;
+    var install_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
+
+    // Pair assertion: Validate static buffer size
+    assert(install_static_buffer.len > 0);
+    assert(install_static_buffer.len <= 1024 * 1024); // 1MB max
+
+    // Minimal arguments for context initialization
+    const install_args = &[_][]const u8{ "zvm", "install", version };
+
+    // Initialize context
+    const ctx = Context.CliContext.init(&install_context, &install_static_buffer, install_args) catch return error.ContextInitFailed;
+
+    // Pair assertion: Validate context initialization
+    assert(ctx == &install_context);
+
+    // Create a minimal progress node
+    const progress_node = std.Progress.start(.{
+        .root_name = "auto-install",
+        .estimated_total_items = 5,
+    });
+
+    // Call install directly
+    install.install(ctx, version, false, progress_node) catch return error.InstallationFailed;
+}
+
 fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
-    const temp_context_instance = try Context.CliContext.init(
-        &global_context,
-        &global_static_buffer,
-        &[_][]const u8{"zvm"},
-    );
-
-    const version_result = detect_version.detect_version(temp_context_instance, remaining_arguments) catch |err| {
-        log.err("Failed to detect version: {s}", .{@errorName(err)});
-        return handle_alias_fallback(program_name, remaining_arguments);
+    // Simple version detection without full context
+    const version_result = detect_version_for_alias(remaining_arguments) catch |err| switch (err) {
+        error.OutOfMemory => {
+            // OutOfMemory should kill process
+            @panic("Out of memory in version detection");
+        },
+        else => {
+            log.err("Failed to detect version: {s}", .{@errorName(err)});
+            return handle_alias_fallback(program_name, remaining_arguments);
+        },
     };
-    defer version_result.deinit();
 
-    const version_available = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
-    if (!version_available) {
-        if (!util_tool.eql_str(version_result.version, "current")) {
-            log.info("Zig version {s} not found. Attempting to install...", .{version_result.version});
-            detect_version.auto_install_version(temp_context_instance, version_result.version) catch |err| {
-                log.err("Failed to install version {s}: {s}", .{ version_result.version, @errorName(err) });
-                log.err("Try manually installing with: zvm install {s}", .{version_result.version});
-                return handle_alias_fallback(program_name, remaining_arguments);
-            };
-
-            // Re-check if installation succeeded
-            const version_available_after = detect_version.ensure_version_available(temp_context_instance, version_result.version) catch false;
-            if (!version_available_after) {
-                log.err("Version {s} is still not available after installation attempt", .{version_result.version});
-                log.err("This version may not exist. Try: zvm list-remote", .{});
-                return handle_alias_fallback(program_name, remaining_arguments);
-            }
+    // Check if the detected version is available
+    const version_available = ensure_version_available(version_result) catch false;
+    if (!version_available and !std.mem.eql(u8, version_result, "current")) {
+        // Try to auto-install the missing version
+        if (auto_install_version_gracefully(version_result)) {
+            // Installation successful, proceed with the version
+        } else {
+            // Installation failed, fall back to current version
+            return handle_alias_fallback(program_name, remaining_arguments);
         }
     }
 
+    // If we're using current version or version is available, proceed with smart tool path
+    if (std.mem.eql(u8, version_result, "current")) {
+        return handle_alias_fallback(program_name, remaining_arguments);
+    }
+
+    // Build adjusted arguments (remove version if it was the first argument)
     var adjusted_args_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
     var adjusted_args_count: usize = 0;
 
-    detect_version.adjust_arguments_to_buffer(version_result.version, remaining_arguments, &adjusted_args_buffer, &adjusted_args_count) catch |err| {
-        log.err("Failed to adjust arguments: {s}", .{@errorName(err)});
-        return handle_alias_fallback(program_name, remaining_arguments);
-    };
+    const skip_first = remaining_arguments.len > 0 and is_version_string(remaining_arguments[0]);
+    const start_idx = if (skip_first) @as(usize, 1) else @as(usize, 0);
+
+    for (remaining_arguments[start_idx..]) |arg| {
+        if (adjusted_args_count >= adjusted_args_buffer.len) return error.TooManyArguments;
+        adjusted_args_buffer[adjusted_args_count] = arg;
+        adjusted_args_count += 1;
+    }
 
     const adjusted_args = adjusted_args_buffer[0..adjusted_args_count];
 
@@ -207,7 +267,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
 
     const home_slice = try get_home_path(&alias_buffers);
     const zvm_home = try get_zvm_home_path(&alias_buffers, home_slice);
-    const tool_path = try build_smart_tool_path(&alias_buffers, program_name, zvm_home, version_result.version);
+    const tool_path = try build_smart_tool_path(&alias_buffers, program_name, zvm_home, version_result);
     try build_exec_arguments(&alias_buffers, tool_path, adjusted_args);
 
     if (builtin.os.tag == .windows) {
@@ -233,6 +293,159 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
         return result;
     }
+}
+fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
+    _ = args; // Mark as used
+
+    // Try to find build.zig.zon and extract minimum_zig_version
+    var current_dir_buf: [1024]u8 = undefined;
+    const current_dir = std.process.getCwd(&current_dir_buf) catch return "current";
+
+    var search_dir: []const u8 = current_dir;
+    while (true) {
+        var path_buf: [2048]u8 = undefined;
+        const path = std.fmt.bufPrint(&path_buf, "{s}/build.zig.zon", .{search_dir}) catch break;
+
+        const file = std.fs.cwd().openFile(path, .{}) catch {
+            const parent = std.fs.path.dirname(search_dir) orelse break;
+            if (std.mem.eql(u8, parent, search_dir)) break;
+            search_dir = parent;
+            continue;
+        };
+        defer file.close();
+
+        var content_buf: [8192]u8 = undefined;
+        const bytes_read = file.readAll(&content_buf) catch break;
+        if (bytes_read == 0) break;
+
+        if (extractMinimumZigVersionFromJson(content_buf[0..bytes_read])) |version| {
+            // Validate version using semantic version parsing
+            if (validateSemanticVersion(version)) {
+                // Store version in static buffer to avoid allocation issues
+                var version_buf: [64]u8 = undefined;
+                if (version.len <= version_buf.len) {
+                    // Pair assertion: Validate copy bounds
+                    assert(version.len > 0);
+                    assert(version.len <= version_buf.len);
+
+                    const copy_len = version.len;
+                    @memcpy(version_buf[0..copy_len], version[0..copy_len]);
+                    version_buf[copy_len] = 0;
+
+                    // Pair assertion: Verify null termination
+                    assert(version_buf[copy_len] == 0);
+                    return version_buf[0..copy_len];
+                }
+            }
+            return "current";
+        }
+
+        const parent = std.fs.path.dirname(search_dir) orelse break;
+        if (std.mem.eql(u8, parent, search_dir)) break;
+        search_dir = parent;
+    }
+
+    return "current";
+}
+
+pub fn validateSemanticVersion(version: []const u8) bool {
+    // Pair assertion: Validate input bounds
+    assert(version.len > 0);
+    assert(version.len < 64); // Reasonable version length limit
+
+    if (std.mem.eql(u8, version, "master")) return true;
+    if (std.mem.eql(u8, version, "current")) return true;
+
+    // Use std.SemanticVersion for proper validation
+    _ = std.SemanticVersion.parse(version) catch return false;
+    return true;
+}
+
+pub fn extractMinimumZigVersionFromJson(content: []const u8) ?[]const u8 {
+    // Pair assertion: Validate input bounds
+    assert(content.len > 0); // Don't process empty content
+    assert(content.len <= 8192); // Reasonable upper bound for JSON
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), content, .{}) catch return null;
+    defer parsed.deinit();
+
+    // Pair assertion: Verify JSON structure
+    assert(parsed.value == .object); // Ensure we have an object
+
+    if (parsed.value.object.get("minimum_zig_version")) |version| {
+        if (version == .string) {
+            // Pair assertion: Validate version format
+            assert(version.string.len > 0);
+            assert(version.string.len < 32); // Reasonable version length
+            return version.string;
+        }
+    }
+
+    return null;
+}
+
+fn ensure_version_available(version: []const u8) !bool {
+    if (std.mem.eql(u8, version, "current")) return true;
+
+    // Get home directory
+    const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
+
+    // Build version path with separate buffers
+    var version_path_buf: [1024]u8 = undefined;
+    const version_path = std.fmt.bufPrint(&version_path_buf, "{s}/.local/share/.zm/version/zig/{s}", .{ home, version }) catch return false;
+
+    // Check if directory exists
+    var dir = std.fs.cwd().openDir(version_path, .{}) catch return false;
+    defer dir.close();
+
+    // Check if zig executable exists with separate buffer
+    var zig_path_buf: [1024]u8 = undefined;
+    const zig_path = std.fmt.bufPrint(&zig_path_buf, "{s}/zig", .{version_path}) catch return false;
+    dir.access(zig_path, .{}) catch return false;
+
+    return true;
+}
+
+fn is_version_string(str: []const u8) bool {
+    if (str.len == 0) return false;
+
+    // Check for specific version patterns like "0.13.0", "0.12.0", etc.
+    // Don't match command names like "version", "build", etc.
+    if (std.mem.eql(u8, str, "version")) return false;
+    if (std.mem.eql(u8, str, "build")) return false;
+    if (std.mem.eql(u8, str, "test")) return false;
+    if (std.mem.eql(u8, str, "run")) return false;
+    if (std.mem.eql(u8, str, "help")) return false;
+
+    // Check for semantic version pattern (X.Y.Z)
+    var dot_count: usize = 0;
+    var has_digit = false;
+    for (str) |c| {
+        if (c == '.') {
+            dot_count += 1;
+        } else if (std.ascii.isDigit(c)) {
+            has_digit = true;
+        } else if (c != '-' and c != 'm' and c != 'a' and c != 's' and c != 't' and c != 'e' and c != 'r') {
+            // Only allow specific characters for versions like "master"
+            return false;
+        }
+    }
+
+    // Must have at least one digit and either dots or be "master"
+    return has_digit and (dot_count > 0 or std.mem.eql(u8, str, "master"));
+}
+
+fn auto_install_version_gracefully(version: []const u8) bool {
+    // Pair assertion: Validate input bounds
+    assert(version.len > 0);
+    assert(version.len < 64); // Reasonable version length limit
+
+    // Use the existing auto_install_version function but handle errors gracefully
+    auto_install_version(version) catch return false;
+    return true;
 }
 
 fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const []const u8) !void {

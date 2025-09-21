@@ -22,7 +22,7 @@ pub const SmartVersionResult = struct {
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *const SmartVersionResult) void {
-        if (self.source == .build_zig_zon) {
+        if (self.source == .build_zig_zon or self.source == .current) {
             self.allocator.free(self.version);
         }
     }
@@ -119,7 +119,7 @@ fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
     return null;
 }
 
-fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 {
+pub fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 {
     const file = std.fs.cwd().openFile(path, .{}) catch return null;
     defer file.close();
 
@@ -136,19 +136,21 @@ fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 
     const content = buffer[0..bytes_read :0];
 
     // Use manual extraction to handle enum literals in name field
-    if (try extract_minimum_zig_version(content, ctx)) |version| {
+    if (try extract_minimum_zig_version(content)) |version| {
         // Validate version string
         if (version.len == 0 or version.len > 64) return null;
         if (!is_version_string(version)) return null;
 
-        // Return a dupe using the static allocator
-        return ctx.get_allocator().dupe(u8, version) catch return null;
+        // Use regular allocator for consistent memory management
+        const allocator = ctx.get_allocator();
+        const version_copy = allocator.dupe(u8, version) catch return null;
+        return version_copy;
     }
 
     return null;
 }
 
-fn extract_minimum_zig_version(content: [:0]const u8, ctx: *Context.CliContext) !?[]const u8 {
+fn extract_minimum_zig_version(content: [:0]const u8) !?[]const u8 {
     // Look for the minimum_zig_version field using simple string search
     const key = "minimum_zig_version";
     const key_len = key.len;
@@ -186,8 +188,7 @@ fn extract_minimum_zig_version(content: [:0]const u8, ctx: *Context.CliContext) 
             if (version_str.len == 0 or version_str.len > 64) continue;
             if (!is_version_string(version_str)) continue;
 
-            // Duplicate the version string using the allocator
-            return ctx.get_allocator().dupe(u8, version_str) catch null;
+            return version_str;
         }
     }
 
@@ -204,28 +205,6 @@ pub fn adjust_arguments(version: []const u8, original_args: []const []const u8, 
         try adjusted_args.appendSlice(original_args[1..]);
     } else {
         try adjusted_args.appendSlice(original_args);
-    }
-}
-
-pub fn adjust_arguments_to_buffer(version: []const u8, original_args: []const []const u8, buffer: [][]const u8, count: *usize) !void {
-    count.* = 0;
-
-    if (util_tool.eql_str(version, "current")) {
-        for (original_args) |arg| {
-            if (count.* >= buffer.len) return error.TooManyArguments;
-            buffer[count.*] = arg;
-            count.* += 1;
-        }
-        return;
-    }
-
-    const skip_first = original_args.len > 0 and is_version_string(original_args[0]);
-    const start_idx = if (skip_first) @as(usize, 1) else @as(usize, 0);
-
-    for (original_args[start_idx..]) |arg| {
-        if (count.* >= buffer.len) return error.TooManyArguments;
-        buffer[count.*] = arg;
-        count.* += 1;
     }
 }
 
@@ -307,7 +286,7 @@ pub fn is_ci_environment() bool {
     return false;
 }
 
-fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
+pub fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
     // Look for a default version config file
     var config_path_buffer = try ctx.acquire_path_buffer();
     defer config_path_buffer.reset();
@@ -334,8 +313,9 @@ fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
     const content = std.mem.trim(u8, version_buffer[0..bytes_read], " \t\n\r");
     if (content.len == 0) return null;
 
-    // Duplicate the version string using the allocator
-    return ctx.get_allocator().dupe(u8, content) catch error.OutOfMemory;
+    // Duplicate the version string using the regular allocator
+    const allocator = ctx.get_allocator();
+    return allocator.dupe(u8, content) catch null;
 }
 
 fn log_version_suggestion() void {
@@ -713,6 +693,65 @@ test "parse_build_zig_zon - complex version with dev suffix" {
         \\    .version = "0.1.0",
         \\    .minimum_zig_version = "0.14.0-dev.3028+cdc9d65b0",
         \\    .dependencies = .{}
+        \\}
+    ;
+
+    // Create temporary file
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const test_file = try tmp_dir.dir.createFile("build.zig.zon", .{});
+    defer test_file.close();
+
+    try test_file.writeAll(test_content);
+
+    // Get the full path to the test file
+    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
+
+    // Test the parsing function
+    const result = try parse_build_zig_zon(&mock_ctx, test_path);
+    defer {
+        if (result) |version| {
+            mock_ctx.allocator.free(version);
+        }
+    }
+
+    // Verify the result
+    try testing.expect(result != null);
+    try testing.expectEqualStrings("0.14.0-dev.3028+cdc9d65b0", result.?);
+}
+
+test "parse_build_zig_zon - real world complex file" {
+    var mock_ctx = MockContext.init();
+    defer mock_ctx.deinit();
+
+    // Create a build.zig.zon file with real-world complex content
+    const test_content =
+        \\.{
+        \\    .name = "complex-project",
+        \\    .version = "1.0.0",
+        \\    .minimum_zig_version = "0.14.0-dev.3028+cdc9d65b0",
+        \\    .dependencies = .{
+        \\        .zlog = .{
+        \\            .url = "https://github.com/mitchellh/zlog/archive/refs/tags/v0.5.0.tar.gz",
+        \\            .hash = "1220c8e8c4f7c5e3a9e8b0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2",
+        \\        },
+        \\        .zlm = .{
+        \\            .url = "https://github.com/truemedian/zlm/archive/refs/tags/v0.2.0.tar.gz",
+        \\            .hash = "1220a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1",
+        \\        },
+        \\        .known_folders = .{
+        \\            .url = "https://github.com/ziglibs/known-folders/archive/refs/tags/v0.10.0.tar.gz",
+        \\            .hash = "1220b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+        \\        },
+        \\    },
+        \\    .paths = .{
+        \\        "src",
+        \\        "build.zig",
+        \\        "README.md",
+        \\        "LICENSE",
+        \\    },
         \\}
     ;
 
