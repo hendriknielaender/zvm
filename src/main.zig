@@ -212,7 +212,7 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
 
 fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
     // Simple version detection without full context
-    const version_result = detect_version_simple(remaining_arguments) catch |err| switch (err) {
+    const version_result = detect_version_for_alias(remaining_arguments) catch |err| switch (err) {
         error.OutOfMemory => {
             // OutOfMemory should kill process
             @panic("Out of memory in version detection");
@@ -224,10 +224,10 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
     };
 
     // Check if the detected version is available
-    const version_available = ensure_version_available_simple(version_result) catch false;
+    const version_available = ensure_version_available(version_result) catch false;
     if (!version_available and !std.mem.eql(u8, version_result, "current")) {
         // Try to auto-install the missing version
-        if (auto_install_version_simple(version_result)) {
+        if (auto_install_version_gracefully(version_result)) {
             // Installation successful, proceed with the version
         } else {
             // Installation failed, fall back to current version
@@ -244,7 +244,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
     var adjusted_args_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
     var adjusted_args_count: usize = 0;
 
-    const skip_first = remaining_arguments.len > 0 and is_version_string_simple(remaining_arguments[0]);
+    const skip_first = remaining_arguments.len > 0 and is_version_string(remaining_arguments[0]);
     const start_idx = if (skip_first) @as(usize, 1) else @as(usize, 0);
 
     for (remaining_arguments[start_idx..]) |arg| {
@@ -294,7 +294,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         return result;
     }
 }
-fn detect_version_simple(args: []const []const u8) ![]const u8 {
+fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
     _ = args; // Mark as used
 
     // Try to find build.zig.zon and extract minimum_zig_version
@@ -387,7 +387,7 @@ pub fn extractMinimumZigVersionFromJson(content: []const u8) ?[]const u8 {
     return null;
 }
 
-fn ensure_version_available_simple(version: []const u8) !bool {
+fn ensure_version_available(version: []const u8) !bool {
     if (std.mem.eql(u8, version, "current")) return true;
 
     // Get home directory
@@ -409,7 +409,7 @@ fn ensure_version_available_simple(version: []const u8) !bool {
     return true;
 }
 
-fn is_version_string_simple(str: []const u8) bool {
+fn is_version_string(str: []const u8) bool {
     if (str.len == 0) return false;
 
     // Check for specific version patterns like "0.13.0", "0.12.0", etc.
@@ -438,7 +438,7 @@ fn is_version_string_simple(str: []const u8) bool {
     return has_digit and (dot_count > 0 or std.mem.eql(u8, str, "master"));
 }
 
-fn auto_install_version_simple(version: []const u8) bool {
+fn auto_install_version_gracefully(version: []const u8) bool {
     // Pair assertion: Validate input bounds
     assert(version.len > 0);
     assert(version.len < 64); // Reasonable version length limit
