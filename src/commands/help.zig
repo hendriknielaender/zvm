@@ -44,12 +44,19 @@ pub fn execute(
         \\    --all                   For clean command, remove all versions  
         \\    --shell <shell>         For env command, specify shell type
         \\
+        \\AUTO-VERSION DETECTION:
+        \\    When the 'zig' command is used, zvm automatically detects the required
+        \\    Zig version from your project's build.zig.zon file and switches to it.
+        \\    If the required version is not installed, zvm will automatically install it.
+        \\
         \\EXAMPLES:
         \\    zvm install 0.11.0           Install Zig version 0.11.0
         \\    zvm --json list              List installed versions in JSON format
         \\    zvm --quiet install master   Install master build silently
         \\    zvm use 0.11.0 --zls         Switch to ZLS version 0.11.0
         \\    zvm clean --all              Remove all unused versions
+        \\    zig build                    Auto-detect and use project's Zig version
+        \\    zig run src/main.zig         Auto-detect and use project's Zig version
         \\
     , .{});
 }

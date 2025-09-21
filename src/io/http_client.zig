@@ -129,29 +129,4 @@ pub const HttpClient = struct {
         // Flush the writer to ensure all data is written to the file
         try writer.interface.flush();
     }
-
-    /// Fetch JSON and parse it using pre-allocated buffer
-    pub fn fetch_json(
-        ctx: *context.CliContext,
-        uri: std.Uri,
-        headers: std.http.Client.Request.Headers,
-        comptime T: type,
-    ) !std.json.Parsed(T) {
-        const response = try fetch(ctx, uri, headers);
-
-        // Use the pre-allocated JSON parse buffer
-        const json_buffer = ctx.getJsonBuffer();
-
-        // Parse options that use our buffer
-        const options = std.json.ParseOptions{
-            .allocate = .alloc_if_needed,
-            .max_value_len = json_buffer.len,
-        };
-
-        // Create a fixed buffer allocator for JSON parsing
-        var fba = std.heap.FixedBufferAllocator.init(json_buffer);
-        const json_allocator = fba.allocator();
-
-        return try std.json.parseFromSlice(T, json_allocator, response, options);
-    }
 };

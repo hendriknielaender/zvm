@@ -51,29 +51,3 @@ pub fn build_exec_arguments(buffers: *ExecBuffers, tool_path: []const u8, remain
     buffers.exec_arguments_ptrs[exec_arguments_count] = null;
     buffers.exec_arguments_count = exec_arguments_count;
 }
-
-pub fn exec_tool(buffers: *ExecBuffers, tool_path: []const u8) !void {
-    if (builtin.os.tag == .windows) {
-        var argv_list: [limits.limits.arguments_maximum][]const u8 = undefined;
-        var i: usize = 0;
-        while (buffers.exec_arguments_ptrs[i]) |arg| : (i += 1) {
-            argv_list[i] = std.mem.sliceTo(arg, 0);
-        }
-        const argv_slice = argv_list[0..i];
-
-        var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
-        process.spawn() catch |err| {
-            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
-            return err;
-        };
-        const term = try process.wait();
-        std.process.exit(term.Exited);
-    } else {
-        const argv: [*:null]?[*:0]const u8 = @ptrCast(&buffers.exec_arguments_ptrs[0]);
-        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
-
-        const result = std.posix.execveZ(argv[0].?, argv, envp);
-        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
-        return result;
-    }
-}
