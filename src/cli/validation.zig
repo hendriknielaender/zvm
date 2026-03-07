@@ -4,6 +4,7 @@ const limits = @import("../memory/limits.zig");
 const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const assert = std.debug.assert;
+const max_version_string_length = limits.limits.version_string_length_maximum;
 
 pub const VersionSpec = union(enum) {
     master,
@@ -30,7 +31,7 @@ pub const VersionSpec = union(enum) {
 
     pub fn parse(version_str: []const u8) !VersionSpec_Self {
         assert(version_str.len > 0);
-        assert(version_str.len <= limits.limits.version_string_length_maximum);
+        assert(version_str.len <= max_version_string_length);
         assert(version_str.len < 1024);
 
         if (std.mem.eql(u8, version_str, "master")) {
@@ -40,7 +41,10 @@ pub const VersionSpec = union(enum) {
             return error.LatestNotSupported;
         }
 
-        var parts = std.mem.splitScalar(u8, version_str, '.');
+        const core_end = std.mem.indexOfAny(u8, version_str, "-+") orelse version_str.len;
+        const core_version = version_str[0..core_end];
+
+        var parts = std.mem.splitScalar(u8, core_version, '.');
         const major_str = parts.next() orelse return error.InvalidVersionFormat;
         const minor_str = parts.next() orelse return error.InvalidVersionFormat;
         const patch_str = parts.next() orelse return error.InvalidVersionFormat;
@@ -59,6 +63,11 @@ pub const VersionSpec = union(enum) {
         if (major > 99) return error.MajorVersionTooLarge;
         if (minor > 99) return error.MinorVersionTooLarge;
         if (patch > 999) return error.PatchVersionTooLarge;
+
+        // Validate pre-release/build suffixes when present.
+        if (core_end < version_str.len) {
+            _ = std.SemanticVersion.parse(version_str) catch return error.InvalidVersionFormat;
+        }
 
         const result = VersionSpec_Self{
             .specific = .{
@@ -149,7 +158,15 @@ pub const ValidatedCommand = union(enum) {
     /// Validated install command
     pub const InstallCommand = struct {
         version: VersionSpec,
+        version_raw: [max_version_string_length]u8,
+        version_raw_length: u8,
         tool: ToolType,
+
+        pub fn get_version(self: *const InstallCommand) []const u8 {
+            assert(self.version_raw_length > 0);
+            assert(self.version_raw_length <= max_version_string_length);
+            return self.version_raw[0..self.version_raw_length];
+        }
 
         pub fn validate_business_rules(self: InstallCommand) !void {
             switch (self.tool) {
@@ -166,13 +183,29 @@ pub const ValidatedCommand = union(enum) {
     /// Validated remove command
     pub const RemoveCommand = struct {
         version: VersionSpec,
+        version_raw: [max_version_string_length]u8,
+        version_raw_length: u8,
         tool: ToolType,
+
+        pub fn get_version(self: *const RemoveCommand) []const u8 {
+            assert(self.version_raw_length > 0);
+            assert(self.version_raw_length <= max_version_string_length);
+            return self.version_raw[0..self.version_raw_length];
+        }
     };
 
     /// Validated use command
     pub const UseCommand = struct {
         version: VersionSpec,
+        version_raw: [max_version_string_length]u8,
+        version_raw_length: u8,
         tool: ToolType,
+
+        pub fn get_version(self: *const UseCommand) []const u8 {
+            assert(self.version_raw_length > 0);
+            assert(self.version_raw_length <= max_version_string_length);
+            return self.version_raw[0..self.version_raw_length];
+        }
 
         pub fn validate_business_rules(self: UseCommand) !void {
             switch (self.tool) {
@@ -242,10 +275,18 @@ fn validate_install(raw: raw_args.RawArgs.InstallArgs) !ValidatedCommand.Install
     const version_str = raw.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(.invalid_arguments, "invalid version format: '{s}' (expected: x.y.z or 'master')", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
+                .{version_str},
+            );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(.invalid_arguments, "too many version parts in '{s}' (expected: x.y.z format)", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "too many version parts in '{s}' (expected core: x.y.z)",
+                .{version_str},
+            );
         },
         error.InvalidMajorVersion => {
             util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
@@ -270,9 +311,14 @@ fn validate_install(raw: raw_args.RawArgs.InstallArgs) !ValidatedCommand.Install
         },
     };
 
+    var version_raw = std.mem.zeroes([max_version_string_length]u8);
+    @memcpy(version_raw[0..version_str.len], version_str);
+
     const tool = ToolType.from_bool(raw.is_zls);
     const install_cmd = ValidatedCommand.InstallCommand{
         .version = version_spec,
+        .version_raw = version_raw,
+        .version_raw_length = @intCast(version_str.len),
         .tool = tool,
     };
 
@@ -290,10 +336,18 @@ fn validate_remove(raw: raw_args.RawArgs.RemoveArgs) !ValidatedCommand.RemoveCom
     const version_str = raw.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(.invalid_arguments, "invalid version format: '{s}' (expected: x.y.z or 'master')", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
+                .{version_str},
+            );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(.invalid_arguments, "too many version parts in '{s}' (expected: x.y.z format)", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "too many version parts in '{s}' (expected core: x.y.z)",
+                .{version_str},
+            );
         },
         error.InvalidMajorVersion => {
             util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
@@ -318,8 +372,13 @@ fn validate_remove(raw: raw_args.RawArgs.RemoveArgs) !ValidatedCommand.RemoveCom
         },
     };
 
+    var version_raw = std.mem.zeroes([max_version_string_length]u8);
+    @memcpy(version_raw[0..version_str.len], version_str);
+
     return ValidatedCommand.RemoveCommand{
         .version = version_spec,
+        .version_raw = version_raw,
+        .version_raw_length = @intCast(version_str.len),
         .tool = ToolType.from_bool(raw.is_zls),
     };
 }
@@ -328,10 +387,18 @@ fn validate_use(raw: raw_args.RawArgs.UseArgs) !ValidatedCommand.UseCommand {
     const version_str = raw.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(.invalid_arguments, "invalid version format: '{s}' (expected: x.y.z or 'master')", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
+                .{version_str},
+            );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(.invalid_arguments, "too many version parts in '{s}' (expected: x.y.z format)", .{version_str});
+            util_output.fatal(
+                .invalid_arguments,
+                "too many version parts in '{s}' (expected core: x.y.z)",
+                .{version_str},
+            );
         },
         error.InvalidMajorVersion => {
             util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
@@ -356,9 +423,14 @@ fn validate_use(raw: raw_args.RawArgs.UseArgs) !ValidatedCommand.UseCommand {
         },
     };
 
+    var version_raw = std.mem.zeroes([max_version_string_length]u8);
+    @memcpy(version_raw[0..version_str.len], version_str);
+
     const tool = ToolType.from_bool(raw.is_zls);
     const use_cmd = ValidatedCommand.UseCommand{
         .version = version_spec,
+        .version_raw = version_raw,
+        .version_raw_length = @intCast(version_str.len),
         .tool = tool,
     };
 
@@ -458,15 +530,15 @@ fn detect_shell_from_environment() ?ShellType {
 }
 
 comptime {
-    assert(@sizeOf(ValidatedCommand) <= 64);
+    assert(@sizeOf(ValidatedCommand) <= 256);
     assert(@sizeOf(ValidatedCommand) >= 16);
     assert(@sizeOf(VersionSpec) <= 16);
     assert(@sizeOf(VersionSpec) >= 4);
-    assert(@sizeOf(ValidatedCommand.InstallCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.InstallCommand) <= 128);
     assert(@sizeOf(ValidatedCommand.InstallCommand) >= 16);
-    assert(@sizeOf(ValidatedCommand.RemoveCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.RemoveCommand) <= 128);
     assert(@sizeOf(ValidatedCommand.RemoveCommand) >= 16);
-    assert(@sizeOf(ValidatedCommand.UseCommand) <= 32);
+    assert(@sizeOf(ValidatedCommand.UseCommand) <= 128);
     assert(@sizeOf(ValidatedCommand.UseCommand) >= 16);
 
     assert(@typeInfo(ShellType).@"enum".fields.len == 4);

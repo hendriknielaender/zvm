@@ -10,7 +10,6 @@ const util_output = @import("../util/output.zig");
 const context = @import("../Context.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
-const detect_version = @import("detect_version.zig");
 
 const log = std.log.scoped(.alias);
 
@@ -67,11 +66,11 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try update_current(version_path, symlink_path);
         try verify_zls_version(ctx, version);
     } else {
-        // For Zig, point to zvm binary for smart version detection
-        try update_current_to_zvm(ctx, symlink_path);
-
-        // Save the default version for when no build.zig.zon exists
+        // Persist the requested version first so this path is deterministic.
         try save_default_version(ctx, version);
+
+        // For Zig, point to zvm binary for smart version detection
+        try update_current_to_zvm(ctx, symlink_path, version);
 
         // Print success message for smart mode
         var stdout_buffer: [io_buffer_size]u8 = undefined;
@@ -117,19 +116,14 @@ fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
     try file.writeAll(version);
 }
 
-fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !void {
+fn update_current_to_zvm(
+    ctx: *context.CliContext,
+    symlink_path: []const u8,
+    version: []const u8,
+) !void {
     assert(symlink_path.len > 0);
-
-    // Get the default version that was set
-    const default_version = detect_version.find_default_version(ctx) catch |err| {
-        log.err("Failed to find default version: {s}", .{@errorName(err)});
-        return err;
-    };
-
-    if (default_version == null) {
-        log.err("No default version set. Please run 'zvm use <version>' first.", .{});
-        return error.NoDefaultVersion;
-    }
+    assert(version.len > 0);
+    assert(version.len <= limits.limits.version_string_length_maximum);
 
     // Build path to the actual zig binary for the default version
     var zig_binary_path_buffer = try ctx.acquire_path_buffer();
@@ -139,9 +133,9 @@ fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !vo
     var fbs = std.Io.fixedBufferStream(zig_binary_path_buffer.slice());
 
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try fbs.writer().print("{s}/.zm/version/zig/{s}/zig", .{ xdg_data, default_version.? });
+        try fbs.writer().print("{s}/.zm/version/zig/{s}/zig", .{ xdg_data, version });
     } else {
-        try fbs.writer().print("{s}/.local/share/.zm/version/zig/{s}/zig", .{ home_dir, default_version.? });
+        try fbs.writer().print("{s}/.local/share/.zm/version/zig/{s}/zig", .{ home_dir, version });
     }
 
     const zig_binary_path = try zig_binary_path_buffer.set(fbs.getWritten());
@@ -149,7 +143,7 @@ fn update_current_to_zvm(ctx: *context.CliContext, symlink_path: []const u8) !vo
     // Verify the zig binary exists
     std.fs.accessAbsolute(zig_binary_path, .{}) catch |err| {
         log.err("Zig binary not found at {s}: {s}", .{ zig_binary_path, @errorName(err) });
-        log.err("Please ensure version {s} is properly installed", .{default_version.?});
+        log.err("Please ensure version {s} is properly installed", .{version});
         return err;
     };
 
