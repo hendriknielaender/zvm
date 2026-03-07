@@ -91,11 +91,35 @@ fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffe
     return buffer[0..result.len];
 }
 
+fn append_argument_to_static_storage(
+    arguments_buffer: *[memory_limits.limits.arguments_maximum][]const u8,
+    arguments_storage: *[memory_limits.limits.arguments_storage_size_maximum]u8,
+    arguments_count: u32,
+    arguments_storage_offset: *usize,
+    argument: []const u8,
+) !void {
+    assert(arguments_count < arguments_buffer.len);
+
+    const argument_start = arguments_storage_offset.*;
+    const argument_end = argument_start + argument.len;
+    if (argument_end > arguments_storage.len) {
+        return error.ArgumentStorageFull;
+    }
+
+    @memcpy(arguments_storage[argument_start..argument_end], argument);
+    arguments_buffer[arguments_count] = arguments_storage[argument_start..argument_end];
+    arguments_storage_offset.* = argument_end;
+
+    assert(arguments_storage_offset.* == argument_start + argument.len);
+}
+
 pub fn main() !void {
     var arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+    var arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
     var arguments_count: u32 = 0;
+    var arguments_storage_offset: usize = 0;
 
-    {
+    if (builtin.os.tag == .windows) {
         var arguments_iterator = try std.process.argsWithAllocator(std.heap.page_allocator);
         defer arguments_iterator.deinit();
 
@@ -108,7 +132,51 @@ pub fn main() !void {
                 return error.TooManyArguments;
             }
 
-            arguments_buffer[arguments_count] = argument;
+            append_argument_to_static_storage(
+                &arguments_buffer,
+                &arguments_storage,
+                arguments_count,
+                &arguments_storage_offset,
+                argument,
+            ) catch |err| switch (err) {
+                error.ArgumentStorageFull => {
+                    log.err(
+                        "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
+                        .{ arguments_storage_offset + argument.len, arguments_storage.len },
+                    );
+                    return err;
+                },
+                else => return err,
+            };
+        }
+    } else {
+        var arguments_iterator = std.process.args();
+
+        while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
+            if (arguments_count >= arguments_buffer.len) {
+                log.err("Too many arguments: got {d}, maximum is {d}", .{
+                    arguments_count + 1,
+                    arguments_buffer.len,
+                });
+                return error.TooManyArguments;
+            }
+
+            append_argument_to_static_storage(
+                &arguments_buffer,
+                &arguments_storage,
+                arguments_count,
+                &arguments_storage_offset,
+                argument,
+            ) catch |err| switch (err) {
+                error.ArgumentStorageFull => {
+                    log.err(
+                        "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
+                        .{ arguments_storage_offset + argument.len, arguments_storage.len },
+                    );
+                    return err;
+                },
+                else => return err,
+            };
         }
     }
 
@@ -211,17 +279,20 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
 }
 
 fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+    var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
+
     // Simple version detection without full context
-    const version_result = detect_version_for_alias(remaining_arguments) catch |err| switch (err) {
-        error.OutOfMemory => {
-            // OutOfMemory should kill process
-            @panic("Out of memory in version detection");
-        },
-        else => {
-            log.err("Failed to detect version: {s}", .{@errorName(err)});
-            return handle_alias_fallback(program_name, remaining_arguments);
-        },
-    };
+    const version_result =
+        detect_version_for_alias(remaining_arguments, &version_buffer) catch |err| switch (err) {
+            error.OutOfMemory => {
+                // OutOfMemory should kill process
+                @panic("Out of memory in version detection");
+            },
+            else => {
+                log.err("Failed to detect version: {s}", .{@errorName(err)});
+                return handle_alias_fallback(program_name, remaining_arguments);
+            },
+        };
 
     // Check if the detected version is available
     const version_available = ensure_version_available(version_result) catch false;
@@ -294,8 +365,12 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         return result;
     }
 }
-fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
-    _ = args; // Mark as used
+fn detect_version_for_alias(args: []const []const u8, version_buffer: []u8) ![]const u8 {
+    assert(version_buffer.len > 0);
+
+    if (args.len > 0 and is_version_string(args[0])) {
+        return args[0];
+    }
 
     // Try to find build.zig.zon and extract minimum_zig_version
     var current_dir_buf: [1024]u8 = undefined;
@@ -318,24 +393,15 @@ fn detect_version_for_alias(args: []const []const u8) ![]const u8 {
         const bytes_read = file.readAll(&content_buf) catch break;
         if (bytes_read == 0) break;
 
-        if (extract_minimum_zig_version_from_json(content_buf[0..bytes_read])) |version| {
+        if (extract_minimum_zig_version_from_zon(
+            content_buf[0..bytes_read],
+            version_buffer,
+        )) |version| {
             // Validate version using semantic version parsing
             if (validate_semantic_version(version)) {
-                // Store version in static buffer to avoid allocation issues
-                var version_buf: [64]u8 = undefined;
-                if (version.len <= version_buf.len) {
-                    // Pair assertion: Validate copy bounds
-                    assert(version.len > 0);
-                    assert(version.len <= version_buf.len);
-
-                    const copy_len = version.len;
-                    @memcpy(version_buf[0..copy_len], version[0..copy_len]);
-                    version_buf[copy_len] = 0;
-
-                    // Pair assertion: Verify null termination
-                    assert(version_buf[copy_len] == 0);
-                    return version_buf[0..copy_len];
-                }
+                assert(version.len > 0);
+                assert(version.len <= version_buffer.len);
+                return version;
             }
             return "current";
         }
@@ -361,30 +427,83 @@ pub fn validate_semantic_version(version: []const u8) bool {
     return true;
 }
 
-pub fn extract_minimum_zig_version_from_json(content: []const u8) ?[]const u8 {
+pub fn extract_minimum_zig_version_from_zon(content: []const u8, version_buffer: []u8) ?[]const u8 {
     // Pair assertion: Validate input bounds
     assert(content.len > 0); // Don't process empty content
-    assert(content.len <= 8192); // Reasonable upper bound for JSON
+    assert(content.len <= 8192); // Reasonable upper bound for ZON
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    const key = "minimum_zig_version";
+    var index: usize = 0;
 
-    const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), content, .{}) catch return null;
-    defer parsed.deinit();
-
-    // Pair assertion: Verify JSON structure
-    assert(parsed.value == .object); // Ensure we have an object
-
-    if (parsed.value.object.get("minimum_zig_version")) |version| {
-        if (version == .string) {
-            // Pair assertion: Validate version format
-            assert(version.string.len > 0);
-            assert(version.string.len < 32); // Reasonable version length
-            return version.string;
+    while (index < content.len) : (index += 1) {
+        if (index + key.len > content.len) {
+            break;
         }
+
+        if (!std.mem.eql(u8, content[index .. index + key.len], key)) {
+            continue;
+        }
+
+        var cursor = index + key.len;
+        while (cursor < content.len and std.ascii.isWhitespace(content[cursor])) : (cursor += 1) {}
+
+        if (cursor >= content.len or content[cursor] != '=') {
+            continue;
+        }
+        cursor += 1;
+
+        while (cursor < content.len and std.ascii.isWhitespace(content[cursor])) : (cursor += 1) {}
+
+        if (cursor >= content.len or content[cursor] != '"') {
+            continue;
+        }
+        cursor += 1;
+
+        const version_start = cursor;
+        while (cursor < content.len and content[cursor] != '"') : (cursor += 1) {}
+
+        if (cursor >= content.len) {
+            continue;
+        }
+
+        const version = content[version_start..cursor];
+        if (version.len == 0) {
+            continue;
+        }
+        if (version.len > version_buffer.len) {
+            continue;
+        }
+
+        @memcpy(version_buffer[0..version.len], version);
+        return version_buffer[0..version.len];
     }
 
     return null;
+}
+
+test "detect_version_for_alias prefers explicit version argument" {
+    var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
+    const arguments = &[_][]const u8{ "0.15.1", "build" };
+
+    const detected = try detect_version_for_alias(arguments, &version_buffer);
+    try std.testing.expectEqualStrings("0.15.1", detected);
+}
+
+test "extract_minimum_zig_version_from_zon parses zon source without allocation" {
+    const content =
+        \\.{
+        \\    .name = "sample",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "0.14.1",
+        \\    .dependencies = .{},
+        \\}
+    ;
+
+    var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
+    const detected = extract_minimum_zig_version_from_zon(content, &version_buffer) orelse
+        return error.ExpectedVersionInZon;
+
+    try std.testing.expectEqualStrings("0.14.1", detected);
 }
 
 fn ensure_version_available(version: []const u8) !bool {
