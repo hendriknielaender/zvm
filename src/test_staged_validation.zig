@@ -4,6 +4,7 @@ const testing = std.testing;
 // Import modules from same directory
 const raw_args = @import("cli/raw_args.zig");
 const validation = @import("cli/validation.zig");
+const limits = @import("memory/limits.zig");
 
 test "raw args parsing - install command" {
     const install_raw = try raw_args.parse_raw_args("install", &.{"0.11.0"});
@@ -96,6 +97,19 @@ test "version spec parsing - invalid format" {
 test "version spec parsing - too many parts" {
     const result = validation.VersionSpec.parse("1.2.3.4");
     try testing.expectError(error.TooManyVersionParts, result);
+}
+
+test "version spec parsing - semver prerelease with build metadata" {
+    const version = try validation.VersionSpec.parse("0.16.0-dev.237+496313a1b");
+
+    switch (version) {
+        .specific => |spec| {
+            try testing.expectEqual(@as(u32, 0), spec.major);
+            try testing.expectEqual(@as(u32, 16), spec.minor);
+            try testing.expectEqual(@as(u32, 0), spec.patch);
+        },
+        else => return error.UnexpectedVersionType,
+    }
 }
 
 test "version spec parsing - invalid numbers" {
@@ -192,16 +206,26 @@ test "staged validation - install ZLS with compatibility check" {
 }
 
 test "business rule validation - install command" {
+    var version_raw = std.mem.zeroes([limits.limits.version_string_length_maximum]u8);
+    @memcpy(version_raw[0..6], "0.11.0");
+
     const install_cmd = validation.ValidatedCommand.InstallCommand{
         .version = validation.VersionSpec{ .specific = .{ .major = 0, .minor = 11, .patch = 0 } },
+        .version_raw = version_raw,
+        .version_raw_length = 6,
         .tool = .zls,
     };
 
     // Should pass - ZLS 0.11.0 is compatible
     try install_cmd.validate_business_rules();
 
+    var incompatible_raw = std.mem.zeroes([limits.limits.version_string_length_maximum]u8);
+    @memcpy(incompatible_raw[0..6], "0.10.0");
+
     const incompatible_cmd = validation.ValidatedCommand.InstallCommand{
         .version = validation.VersionSpec{ .specific = .{ .major = 0, .minor = 10, .patch = 0 } },
+        .version_raw = incompatible_raw,
+        .version_raw_length = 6,
         .tool = .zls,
     };
 
@@ -258,6 +282,6 @@ test "list-remote command with tool selection" {
 test "memory bounds checking" {
     // Ensure struct sizes are within expected bounds
     try testing.expect(@sizeOf(raw_args.RawArgs) <= 512);
-    try testing.expect(@sizeOf(validation.ValidatedCommand) <= 64);
+    try testing.expect(@sizeOf(validation.ValidatedCommand) <= 256);
     try testing.expect(@sizeOf(validation.VersionSpec) <= 16);
 }

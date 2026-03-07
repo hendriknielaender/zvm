@@ -67,6 +67,9 @@ pub const HttpClient = struct {
             .response_writer = writer,
         });
 
+        // The adapter writer is buffered and must be flushed to commit trailing bytes.
+        try writer.flush();
+
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
             return error.HttpRequestFailed;

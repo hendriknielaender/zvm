@@ -3,6 +3,8 @@ const context = @import("../Context.zig");
 const util_color = @import("../util/color.zig");
 const util_data = @import("../util/data.zig");
 const validation = @import("../cli/validation.zig");
+const limits = @import("../memory/limits.zig");
+const detect_version = @import("../core/detect_version.zig");
 
 pub fn execute(
     ctx: *context.CliContext,
@@ -61,66 +63,102 @@ pub fn execute(
     }
 
     if (command.remove_all) {
-        var current_zig_buffer = try ctx.acquire_path_buffer();
-        defer current_zig_buffer.reset();
-
-        var current_zls_buffer = try ctx.acquire_path_buffer();
-        defer current_zls_buffer.reset();
-
-        const current_zig_path = try util_data.get_zvm_zig_version(current_zig_buffer);
-        const current_zls_path = try util_data.get_zvm_zls_version(current_zls_buffer);
-
-        var zig_version_entry = try ctx.acquire_version_entry();
-        defer zig_version_entry.reset();
-
-        var zls_version_entry = try ctx.acquire_version_entry();
-        defer zls_version_entry.reset();
-
-        const zig_file = std.fs.openFileAbsolute(current_zig_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => null,
-            else => return err,
-        };
-        const current_zig_version = if (zig_file) |f| blk: {
-            defer f.close();
-            const bytes_read = try f.read(zig_version_entry.name_buffer[0..]);
-            zig_version_entry.name_length = @intCast(bytes_read);
-            break :blk zig_version_entry.get_name();
-        } else null;
-
-        const zls_file = std.fs.openFileAbsolute(current_zls_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => null,
-            else => return err,
-        };
-        const current_zls_version = if (zls_file) |f| blk: {
-            defer f.close();
-            const bytes_read = try f.read(zls_version_entry.name_buffer[0..]);
-            zls_version_entry.name_length = @intCast(bytes_read);
-            break :blk zls_version_entry.get_name();
-        } else null;
-
-        const trimmed_zig_current = if (current_zig_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
-        const trimmed_zls_current = if (current_zls_version) |v| std.mem.trim(u8, v, " \t\n\r") else null;
-
-        iterator = store_dir.iterate();
         var versions_removed: usize = 0;
-
         try color.bold().yellow().print("\nCleaning unused versions...\n", .{});
 
-        while (try iterator.next()) |entry| {
-            if (entry.kind != .directory) continue;
+        var current_zig_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+        const current_zig_version = detect_version.find_default_version_in_buffer(
+            ctx,
+            &current_zig_version_buffer,
+        ) catch null;
 
-            const is_current_zig = if (trimmed_zig_current) |czv| std.mem.eql(u8, entry.name, czv) else false;
-            const is_current_zls = if (trimmed_zls_current) |czv| std.mem.eql(u8, entry.name, czv) else false;
+        var current_zls_version_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
+        var current_zls_version: ?[]const u8 = null;
+        {
+            var zls_current_buffer = try ctx.acquire_path_buffer();
+            defer zls_current_buffer.reset();
 
-            if (is_current_zig or is_current_zls) {
-                const marker = if (is_current_zig and is_current_zls) "zig,zls" else if (is_current_zig) "zig" else "zls";
-                try color.cyan().print("  Keeping {s} (current {s})\n", .{ entry.name, marker });
-                continue;
+            var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+            const detected_zls_version = util_data.get_current_version(
+                zls_current_buffer,
+                &output_buffer,
+                true,
+            ) catch |err| switch (err) {
+                error.EmptyVersion, error.FailedToReadVersion, error.FileNotFound => null,
+                else => return err,
+            };
+
+            if (detected_zls_version) |version| {
+                const trimmed = std.mem.trim(u8, version, " \t\n\r");
+                if (trimmed.len > 0 and trimmed.len <= current_zls_version_storage.len) {
+                    @memcpy(current_zls_version_storage[0..trimmed.len], trimmed);
+                    current_zls_version = current_zls_version_storage[0..trimmed.len];
+                }
             }
+        }
 
-            try color.red().print("  Removing {s}\n", .{entry.name});
-            try store_dir.deleteTree(entry.name);
-            versions_removed += 1;
+        var zig_versions_buffer = try ctx.acquire_path_buffer();
+        defer zig_versions_buffer.reset();
+        const zig_versions_path = try util_data.get_zvm_zig_version(zig_versions_buffer);
+
+        const zig_versions_dir = std.fs.openDirAbsolute(zig_versions_path, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => return err,
+        };
+        if (zig_versions_dir) |zig_dir_value| {
+            var zig_dir = zig_dir_value;
+            defer zig_dir.close();
+
+            var zig_iterator = zig_dir.iterate();
+            while (try zig_iterator.next()) |entry| {
+                if (entry.kind != .directory) continue;
+
+                const is_current = if (current_zig_version) |version|
+                    std.mem.eql(u8, entry.name, version)
+                else
+                    false;
+
+                if (is_current) {
+                    try color.cyan().print("  Keeping zig/{s} (current)\n", .{entry.name});
+                    continue;
+                }
+
+                try color.red().print("  Removing zig/{s}\n", .{entry.name});
+                try zig_dir.deleteTree(entry.name);
+                versions_removed += 1;
+            }
+        }
+
+        var zls_versions_buffer = try ctx.acquire_path_buffer();
+        defer zls_versions_buffer.reset();
+        const zls_versions_path = try util_data.get_zvm_zls_version(zls_versions_buffer);
+
+        const zls_versions_dir = std.fs.openDirAbsolute(zls_versions_path, .{ .iterate = true }) catch |err| switch (err) {
+            error.FileNotFound => null,
+            else => return err,
+        };
+        if (zls_versions_dir) |zls_dir_value| {
+            var zls_dir = zls_dir_value;
+            defer zls_dir.close();
+
+            var zls_iterator = zls_dir.iterate();
+            while (try zls_iterator.next()) |entry| {
+                if (entry.kind != .directory) continue;
+
+                const is_current = if (current_zls_version) |version|
+                    std.mem.eql(u8, entry.name, version)
+                else
+                    false;
+
+                if (is_current) {
+                    try color.cyan().print("  Keeping zls/{s} (current)\n", .{entry.name});
+                    continue;
+                }
+
+                try color.red().print("  Removing zls/{s}\n", .{entry.name});
+                try zls_dir.deleteTree(entry.name);
+                versions_removed += 1;
+            }
         }
 
         if (versions_removed > 0) {
