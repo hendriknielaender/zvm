@@ -135,6 +135,7 @@ pub const StaticMemory = struct {
 
         const old_end_index = self.fba.end_index;
         self.fba.reset();
+        self.static_allocator = StaticAllocator.init(self.fba.allocator());
 
         assert(self.fba.end_index == 0);
         if (old_end_index > 0) assert(self.fba.end_index < old_end_index);

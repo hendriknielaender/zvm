@@ -4,6 +4,7 @@
 //! We can get version list and version data
 const std = @import("std");
 const config = @import("../metadata.zig");
+const limits = @import("../memory/limits.zig");
 const util_tool = @import("../util/tool.zig");
 const object_pools = @import("../memory/object_pools.zig");
 
@@ -209,8 +210,9 @@ pub const Zls = struct {
         platform_str: []const u8,
         allocator: Allocator,
     ) !?VersionData {
-        const file_name = try std.fmt.allocPrint(
-            allocator,
+        var file_name_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+        const file_name = try std.fmt.bufPrint(
+            &file_name_buffer,
             "zls-{s}.{s}",
             .{ platform_str, config.archive_ext },
         );

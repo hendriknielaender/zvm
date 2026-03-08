@@ -573,7 +573,8 @@ fn fetch_zls_version_data(
     defer zls_meta.deinit();
 
     const version_data = try zls_meta.get_version_data(version, platform_str, ctx.get_json_allocator()) orelse {
-        log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with 'zvm ls --zls'", .{
+        log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with " ++
+            "'zvm list-remote --zls'", .{
             version,
             platform_str,
         });

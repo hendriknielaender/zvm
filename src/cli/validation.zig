@@ -112,6 +112,39 @@ pub const ToolType = enum {
     }
 };
 
+pub const HelpTopic = enum {
+    general,
+    install,
+    remove,
+    use,
+    list,
+    list_remote,
+    list_mirrors,
+    clean,
+    env,
+    completions,
+    version,
+    help,
+
+    pub fn parse(topic_str: []const u8) !HelpTopic {
+        assert(topic_str.len > 0);
+
+        if (std.mem.eql(u8, topic_str, "install") or std.mem.eql(u8, topic_str, "i")) return .install;
+        if (std.mem.eql(u8, topic_str, "remove") or std.mem.eql(u8, topic_str, "rm")) return .remove;
+        if (std.mem.eql(u8, topic_str, "use") or std.mem.eql(u8, topic_str, "u")) return .use;
+        if (std.mem.eql(u8, topic_str, "list") or std.mem.eql(u8, topic_str, "ls")) return .list;
+        if (std.mem.eql(u8, topic_str, "list-remote")) return .list_remote;
+        if (std.mem.eql(u8, topic_str, "list-mirrors")) return .list_mirrors;
+        if (std.mem.eql(u8, topic_str, "clean")) return .clean;
+        if (std.mem.eql(u8, topic_str, "env")) return .env;
+        if (std.mem.eql(u8, topic_str, "completions")) return .completions;
+        if (std.mem.eql(u8, topic_str, "version")) return .version;
+        if (std.mem.eql(u8, topic_str, "help")) return .help;
+
+        return error.UnknownHelpTopic;
+    }
+};
+
 /// Shell type with validation
 pub const ShellType = enum {
     bash,
@@ -218,7 +251,9 @@ pub const ValidatedCommand = union(enum) {
     pub const VersionCommand = struct {};
 
     /// Validated help command
-    pub const HelpCommand = struct {};
+    pub const HelpCommand = struct {
+        topic: HelpTopic = .general,
+    };
 };
 
 /// Transform raw arguments into validated command with semantic validation
@@ -435,8 +470,18 @@ fn validate_version(raw: raw_args.RawArgs.VersionArgs) !ValidatedCommand.Version
 }
 
 fn validate_help(raw: raw_args.RawArgs.HelpArgs) !ValidatedCommand.HelpCommand {
-    _ = raw;
-    return ValidatedCommand.HelpCommand{};
+    const topic = if (raw.get_topic()) |topic_str|
+        HelpTopic.parse(topic_str) catch |err| switch (err) {
+            error.UnknownHelpTopic => {
+                util_output.fatal(.invalid_arguments, "unknown help topic: '{s}'", .{topic_str});
+            },
+        }
+    else
+        .general;
+
+    return ValidatedCommand.HelpCommand{
+        .topic = topic,
+    };
 }
 
 fn detect_shell_from_environment() ?ShellType {

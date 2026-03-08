@@ -66,6 +66,7 @@ pub const HttpClient = struct {
             .redirect_buffer = &redirect_buffer,
             .response_writer = writer,
         });
+        try writer.flush();
 
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
@@ -130,3 +131,19 @@ pub const HttpClient = struct {
         try writer.interface.flush();
     }
 };
+
+test "adapted fixed buffer writer flushes into the backing stream" {
+    var response_buffer: [64]u8 = undefined;
+    var stream = std.Io.fixedBufferStream(&response_buffer);
+    const old_writer = stream.writer();
+
+    var write_buffer: [8]u8 = undefined;
+    var adapter = old_writer.adaptToNewApi(&write_buffer);
+    const writer = &adapter.new_interface;
+
+    try writer.writeAll("hello");
+    try writer.flush();
+
+    try std.testing.expectEqual(@as(usize, 5), stream.pos);
+    try std.testing.expectEqualStrings("hello", response_buffer[0..stream.pos]);
+}

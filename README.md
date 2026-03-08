@@ -75,7 +75,7 @@ export PATH="/home/user/.local/share/zvm/bin:$PATH"
 |---------|-------------|---------|
 | `install` | Install a Zig version | `zvm install 0.13.0` |
 | `use` | Switch to a version | `zvm use 0.13.0` |
-| `list` | List installed versions | `zvm list --system` |
+| `list` | List installed versions | `zvm list` |
 | `list-remote` | List available versions | `zvm list-remote` |
 | `remove` | Remove a version | `zvm remove 0.12.0` |
 | `clean` | Clean up cache | `zvm clean` |
@@ -113,17 +113,17 @@ zig 0.13.0 build
 # Install latest stable Zig
 zvm install 0.13.0
 
-# Install with debug output
-zvm install 0.13.0 --debug
+# Install quietly (errors only)
+zvm --quiet install 0.13.0
 
 # Install master/development build
 zvm install master
 
 # Install ZLS (Language Server)
-zvm install zls 0.13.0
+zvm install --zls 0.13.0
 
-# Use specific mirror for downloads
-zvm install 0.13.0 --mirror=0
+# Inspect available ZLS releases before installing
+zvm list-remote --zls
 ```
 
 ### Version Management
@@ -133,7 +133,7 @@ zvm install 0.13.0 --mirror=0
 zvm use 0.13.0
 
 # List installed versions
-zvm list --system
+zvm list
 
 # List all available versions
 zvm list-remote
@@ -159,6 +159,19 @@ zvm --color list
 
 # List available download mirrors
 zvm list-mirrors
+
+# Show command-specific help
+zvm help list
+zvm list --help
+
+# Use attached long-option values
+zvm env --shell=zsh
+
+# Combine short global options
+zvm -qV
+
+# End option parsing explicitly
+zvm -- list
 ```
 
 ---
@@ -174,7 +187,7 @@ zvm list-mirrors
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
 | `--help`, `-h` | Show help |
-| `--version` | Show version |
+| `--version`, `-V` | Show version |
 
 ### Environment Variables
 
