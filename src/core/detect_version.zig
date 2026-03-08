@@ -1,6 +1,7 @@
 const std = @import("std");
 const util_tool = @import("../util/tool.zig");
 const Context = @import("../Context.zig");
+const assert = std.debug.assert;
 
 const log = std.log.scoped(.detect_version);
 
@@ -58,7 +59,7 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
         return SmartVersionResult{
             .version = default_version,
             .source = .current,
-            .allocator = ctx.get_allocator(),
+            .allocator = std.heap.page_allocator,
         };
     } else {
         if (!is_ci_environment()) {
@@ -66,11 +67,13 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
             log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
         }
 
+        const master_copy = try std.heap.page_allocator.dupe(u8, "master");
+
         // Default to master when no build.zig.zon found and no default set
         return SmartVersionResult{
-            .version = "master",
+            .version = master_copy,
             .source = .current,
-            .allocator = ctx.get_allocator(),
+            .allocator = std.heap.page_allocator,
         };
     }
 }
@@ -287,6 +290,19 @@ pub fn is_ci_environment() bool {
 }
 
 pub fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
+    var version_buffer: [32]u8 = undefined;
+    const content = try find_default_version_in_buffer(ctx, &version_buffer) orelse return null;
+
+    // Use page allocator to avoid coupling this utility to CliContext allocator state.
+    return std.heap.page_allocator.dupe(u8, content) catch null;
+}
+
+pub fn find_default_version_in_buffer(
+    ctx: *Context.CliContext,
+    version_buffer: []u8,
+) !?[]const u8 {
+    assert(version_buffer.len > 0);
+
     // Look for a default version config file
     var config_path_buffer = try ctx.acquire_path_buffer();
     defer config_path_buffer.reset();
@@ -305,17 +321,13 @@ pub fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
     const file = std.fs.cwd().openFile(config_path, .{}) catch return null;
     defer file.close();
 
-    var version_buffer: [32]u8 = undefined;
-    const bytes_read = file.readAll(&version_buffer) catch return null;
+    const bytes_read = file.readAll(version_buffer) catch return null;
     if (bytes_read == 0) return null;
 
     // Trim whitespace
     const content = std.mem.trim(u8, version_buffer[0..bytes_read], " \t\n\r");
     if (content.len == 0) return null;
-
-    // Duplicate the version string using the regular allocator
-    const allocator = ctx.get_allocator();
-    return allocator.dupe(u8, content) catch null;
+    return content;
 }
 
 fn log_version_suggestion() void {

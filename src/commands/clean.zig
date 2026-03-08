@@ -5,6 +5,7 @@ const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
+const detect_version = @import("../core/detect_version.zig");
 
 const StoreCleanup = struct {
     files_removed: usize = 0,
@@ -81,7 +82,10 @@ fn clean_installed_versions(
     var current_zig_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
     var current_zls_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
 
-    const current_zig_version = try read_current_version(ctx, .zig, &current_zig_storage);
+    const current_zig_version = detect_version.find_default_version_in_buffer(
+        ctx,
+        &current_zig_storage,
+    ) catch null;
     const current_zls_version = try read_current_version(ctx, .zls, &current_zls_storage);
 
     try color.bold().yellow().print("\nCleaning unused versions...\n", .{});

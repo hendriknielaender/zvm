@@ -11,8 +11,7 @@ pub fn execute(
 ) !void {
     _ = progress_node;
 
-    var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
-    const version_str = try command.version.to_string(&version_buffer);
+    const version_str = command.get_version();
     try alias.set_version(ctx, version_str, command.tool == .zls);
 }
 
@@ -31,14 +30,20 @@ test "use command converts version to string correctly" {
 }
 
 test "use command validates tool types" {
+    const empty_version = std.mem.zeroes([limits.limits.version_string_length_maximum]u8);
+
     const zig_command = validation.ValidatedCommand.UseCommand{
         .version = validation.VersionSpec.master,
+        .version_raw = empty_version,
+        .version_raw_length = 1,
         .tool = .zig,
     };
     try testing.expectEqual(validation.ToolType.zig, zig_command.tool);
 
     const zls_command = validation.ValidatedCommand.UseCommand{
         .version = validation.VersionSpec.master,
+        .version_raw = empty_version,
+        .version_raw_length = 1,
         .tool = .zls,
     };
     try testing.expectEqual(validation.ToolType.zls, zls_command.tool);

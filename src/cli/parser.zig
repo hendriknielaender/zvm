@@ -375,7 +375,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
 
 comptime {
     assert(@sizeOf(ParsedCommandLine) <= 1024);
-    assert(@sizeOf(validation.ValidatedCommand) <= 64);
+    assert(@sizeOf(validation.ValidatedCommand) <= 256);
 }
 
 test "global options stop at the command boundary" {

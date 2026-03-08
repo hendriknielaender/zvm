@@ -6,6 +6,7 @@ const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
+const detect_version = @import("detect_version.zig");
 const assert = std.debug.assert;
 
 /// Try remove specified version.
@@ -48,26 +49,51 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
     // Try remove current path.
     if (util_tool.does_path_exist(current_path)) {
-        // Get current version.
-        var version_buffer = try ctx.acquire_path_buffer();
-        defer version_buffer.reset();
-        // version_buffer is a pointer, not optional - no need for null check
+        var should_remove_current = false;
 
-        var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-        // Validate buffer size
-        assert(output_buffer.len >= 256);
-        assert(output_buffer.len >= limits.limits.version_string_length_maximum);
+        // In smart Zig mode, current/zig points to zvm and default_version identifies active Zig.
+        if (!is_zls) {
+            var default_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            const default_version = detect_version.find_default_version_in_buffer(
+                ctx,
+                &default_version_buffer,
+            ) catch null;
 
-        const current_version = try util_data.get_current_version(
-            version_buffer,
-            &output_buffer,
-            is_zls,
-        );
+            if (default_version) |default_version_value| {
+                if (util_tool.eql_str(default_version_value, true_version)) {
+                    should_remove_current = true;
+                }
+            }
+        }
 
-        assert(current_version.len > 0);
-        assert(current_version.len <= output_buffer.len);
+        // Fallback to probing the active executable version.
+        if (!should_remove_current) {
+            var version_buffer = try ctx.acquire_path_buffer();
+            defer version_buffer.reset();
 
-        if (util_tool.eql_str(current_version, true_version)) {
+            var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+            assert(output_buffer.len >= 256);
+            assert(output_buffer.len >= limits.limits.version_string_length_maximum);
+
+            const current_version = util_data.get_current_version(
+                version_buffer,
+                &output_buffer,
+                is_zls,
+            ) catch |err| switch (err) {
+                error.EmptyVersion, error.FailedToReadVersion, error.FileNotFound => null,
+                else => return err,
+            };
+
+            if (current_version) |current_version_value| {
+                assert(current_version_value.len > 0);
+                assert(current_version_value.len <= output_buffer.len);
+                if (util_tool.eql_str(current_version_value, true_version)) {
+                    should_remove_current = true;
+                }
+            }
+        }
+
+        if (should_remove_current) {
             if (builtin.os.tag == .windows) {
                 try std.fs.deleteTreeAbsolute(current_path);
             } else {
