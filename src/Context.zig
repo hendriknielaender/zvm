@@ -303,6 +303,7 @@ pub const CliContext = struct {
     pub fn reset(self: *CliContext) void {
         self.pools.reset();
         self.static_mem.reset();
+        self.json_fba = std.heap.FixedBufferAllocator.init(self.pools.get_json_buffer());
         self.arguments_count = 0;
         self.home_dir_length = 0;
         instance = null;

@@ -1,7 +1,6 @@
 const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
-const util_data = @import("../util/data.zig");
 const validation = @import("../cli/validation.zig");
 const options = @import("options");
 
@@ -23,7 +22,6 @@ pub fn execute(
         };
         util_output.json_object(&fields);
     } else {
-        util_output.info("{s}", .{util_data.zvm_logo});
         util_output.info("zvm {s}", .{options.version});
     }
 }

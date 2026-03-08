@@ -61,104 +61,36 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
+    try update_current(version_path, symlink_path);
+
     if (is_zls) {
-        // For ZLS, use traditional behavior (point directly to zls binary)
-        try update_current(version_path, symlink_path);
         try verify_zls_version(ctx, version);
     } else {
-        // Persist the requested version first so this path is deterministic.
+        // Persist the fallback version after the current link is valid.
         try save_default_version(ctx, version);
-
-        // For Zig, point to zvm binary for smart version detection
-        try update_current_to_zvm(ctx, symlink_path, version);
-
-        // Print success message for smart mode
-        var stdout_buffer: [io_buffer_size]u8 = undefined;
-        var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
-        const stdout = &stdout_writer.interface;
-        try stdout.print("Now using smart Zig version detection (default: {s})\n", .{version});
-        try stdout.flush();
+        try verify_zig_version(ctx, version);
     }
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
-    var zm_path_buffer = try ctx.acquire_path_buffer();
-    defer zm_path_buffer.reset();
+    var default_version_path_buffer = try ctx.acquire_path_buffer();
+    defer default_version_path_buffer.reset();
 
-    const home_dir = ctx.get_home_dir();
-    var stream = std.Io.fixedBufferStream(zm_path_buffer.slice());
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm", .{home_dir});
-    }
-
-    const zm_dir = try zm_path_buffer.set(stream.getWritten());
-
-    // Ensure .zm directory exists
-    std.fs.makeDirAbsolute(zm_dir) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err,
+    const default_version_path = try util_data.get_zvm_path_segment(
+        default_version_path_buffer,
+        "default_version",
+    );
+    const zvm_dir = std.fs.path.dirname(default_version_path) orelse {
+        log.err("Invalid default version path: {s}", .{default_version_path});
+        return error.InvalidDefaultVersionPath;
     };
 
-    // Use a separate buffer for the config file path
-    var config_path_buffer = try ctx.acquire_path_buffer();
-    defer config_path_buffer.reset();
+    try util_tool.try_create_path(zvm_dir);
 
-    var config_stream = std.Io.fixedBufferStream(config_path_buffer.slice());
-    try config_stream.writer().print("{s}/default_version", .{zm_dir});
-    const config_path = try config_path_buffer.set(config_stream.getWritten());
-
-    const file = try std.fs.cwd().createFile(config_path, .{});
+    const file = try std.fs.cwd().createFile(default_version_path, .{});
     defer file.close();
 
     try file.writeAll(version);
-}
-
-fn update_current_to_zvm(
-    ctx: *context.CliContext,
-    symlink_path: []const u8,
-    version: []const u8,
-) !void {
-    assert(symlink_path.len > 0);
-    assert(version.len > 0);
-    assert(version.len <= limits.limits.version_string_length_maximum);
-
-    // Build path to the actual zig binary for the default version
-    var zig_binary_path_buffer = try ctx.acquire_path_buffer();
-    defer zig_binary_path_buffer.reset();
-
-    const home_dir = ctx.get_home_dir();
-    var fbs = std.Io.fixedBufferStream(zig_binary_path_buffer.slice());
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try fbs.writer().print("{s}/.zm/version/zig/{s}/zig", .{ xdg_data, version });
-    } else {
-        try fbs.writer().print("{s}/.local/share/.zm/version/zig/{s}/zig", .{ home_dir, version });
-    }
-
-    const zig_binary_path = try zig_binary_path_buffer.set(fbs.getWritten());
-
-    // Verify the zig binary exists
-    std.fs.accessAbsolute(zig_binary_path, .{}) catch |err| {
-        log.err("Zig binary not found at {s}: {s}", .{ zig_binary_path, @errorName(err) });
-        log.err("Please ensure version {s} is properly installed", .{version});
-        return err;
-    };
-
-    if (builtin.os.tag == .windows) {
-        if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
-        // On Windows, copy the zig executable to the current location
-        try std.fs.copyFileAbsolute(zig_binary_path, symlink_path, .{});
-        return;
-    }
-
-    // Remove existing symlink if it exists
-    if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
-
-    // Create symlink to the actual zig binary
-    try std.posix.symlink(zig_binary_path, symlink_path);
 }
 
 fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
@@ -176,11 +108,32 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
         return;
     }
 
-    // Remove existing symlink if it exists.
-    if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteFileAbsolute(symlink_path);
+    const symlink_dirname = std.fs.path.dirname(symlink_path) orelse {
+        log.err("Invalid current path: {s}", .{symlink_path});
+        return error.InvalidCurrentPath;
+    };
+    const symlink_basename = std.fs.path.basename(symlink_path);
 
-    // Create symlink to the version directory.
-    try std.posix.symlink(zig_path, symlink_path);
+    var current_dir = try std.fs.openDirAbsolute(symlink_dirname, .{});
+    defer current_dir.close();
+
+    var temp_name_buffer: [64]u8 = undefined;
+    while (true) {
+        const temp_name = try std.fmt.bufPrint(
+            &temp_name_buffer,
+            "{s}.tmp.{x}",
+            .{ symlink_basename, std.crypto.random.int(u64) },
+        );
+
+        current_dir.symLink(zig_path, temp_name, .{ .is_directory = true }) catch |err| switch (err) {
+            error.PathAlreadyExists => continue,
+            else => return err,
+        };
+        errdefer current_dir.deleteFile(temp_name) catch {};
+
+        try current_dir.rename(temp_name, symlink_basename);
+        break;
+    }
 }
 
 /// Verify the current Zig version.

@@ -219,6 +219,8 @@ pub fn main() !void {
         &global_static_buffer,
         arguments,
     );
+    // Freeze startup allocation before command execution begins.
+    context_instance.static_mem.lock();
 
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
@@ -267,6 +269,8 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
 
     // Pair assertion: Validate context initialization
     assert(ctx == &install_context);
+    // Freeze startup allocation before runtime work begins.
+    ctx.static_mem.lock();
 
     // Create a minimal progress node
     const progress_node = std.Progress.start(.{
@@ -678,7 +682,7 @@ fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_h
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
     var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
-    try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
+    try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
     return stream.getWritten();
 }
 
@@ -687,7 +691,7 @@ fn build_smart_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8,
 
     var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
     if (util_tool.eql_str(version, "current")) {
-        try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
+        try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
     } else {
         const tool_prefix = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
         try stream.writer().print("{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_prefix, version, tool_name });
@@ -762,4 +766,21 @@ fn execute_command(
         .env => |opts| try commands.env.execute(ctx, opts, progress_node),
         .completions => |opts| try commands.completions.execute(ctx, opts, progress_node),
     }
+}
+
+test "build_tool_path points at the current tool binary" {
+    var alias_buffers: AliasBuffers = .{
+        .home = undefined,
+        .zvm_home = undefined,
+        .tool_path = undefined,
+        .exec_arguments_ptrs = undefined,
+        .exec_arguments_storage = undefined,
+        .exec_arguments_count = 0,
+    };
+
+    const zig_path = try build_tool_path(&alias_buffers, "zig", "/tmp/.zm");
+    try std.testing.expectEqualStrings("/tmp/.zm/current/zig/zig", zig_path);
+
+    const zls_path = try build_tool_path(&alias_buffers, "zls", "/tmp/.zm");
+    try std.testing.expectEqualStrings("/tmp/.zm/current/zls/zls", zls_path);
 }
