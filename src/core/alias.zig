@@ -13,9 +13,6 @@ const limits = @import("../memory/limits.zig");
 
 const log = std.log.scoped(.alias);
 
-// Cleaner access to I/O buffer size
-const io_buffer_size = limits.limits.io_buffer_size_maximum;
-
 /// Try to set the Zig version.
 /// This will use a symlink on Unix-like systems.
 /// For Windows, this will copy the directory.
@@ -44,13 +41,11 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         if (err != error.FileNotFound)
             return err;
 
-        const err_msg = "{s} version {s} is not installed. Please install it before proceeding.\n";
-        var buffer: [io_buffer_size]u8 = undefined;
-        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
-        const stderr = &stderr_writer.interface;
-        try stderr.print(err_msg, .{ if (is_zls) "zls" else "Zig", version });
-        try stderr.flush();
-        std.process.exit(@intFromEnum(util_output.ExitCode.version_not_found));
+        util_output.fatal(
+            .version_not_found,
+            "{s} version {s} is not installed. Please install it before proceeding.",
+            .{ if (is_zls) "zls" else "Zig", version },
+        );
     };
 
     ensure_version_manifest(version_path, version) catch |err| switch (err) {
@@ -171,24 +166,17 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
         false,
     );
 
-    var stdout_buffer: [io_buffer_size]u8 = undefined;
-    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
     if (std.mem.eql(u8, expected_version, "master")) {
-        try stdout.print("Now using Zig version {s}\n", .{actual_version});
-        try stdout.flush();
-    } else if (!std.mem.eql(u8, expected_version, actual_version)) {
-        const err_msg = "Expected Zig version {s}, but currently using {s}. Please check.\n";
-        var stderr_buffer: [io_buffer_size]u8 = undefined;
-        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &stderr_buffer);
-        const stderr = &stderr_writer.interface;
-        try stderr.print(err_msg, .{ expected_version, actual_version });
-        try stderr.flush();
-    } else {
-        try stdout.print("Now using Zig version {s}\n", .{expected_version});
-        try stdout.flush();
+        emit_selected_version("zig", expected_version, actual_version);
+        return;
     }
+
+    if (!std.mem.eql(u8, expected_version, actual_version)) {
+        emit_selected_version_mismatch("zig", expected_version, actual_version);
+        return;
+    }
+
+    emit_selected_version("zig", expected_version, expected_version);
 }
 
 /// Verify the current zls version.
@@ -203,19 +191,48 @@ fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !v
         true,
     );
 
-    var stdout_buffer: [io_buffer_size]u8 = undefined;
-    var stdout_writer = std.fs.File.Writer.init(std.fs.File.stdout(), &stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
     if (!std.mem.eql(u8, expected_version, actual_version)) {
-        const err_msg = "Expected zls version {s}, but currently using {s}. Please check.\n";
-        var stderr_buffer: [io_buffer_size]u8 = undefined;
-        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &stderr_buffer);
-        const stderr = &stderr_writer.interface;
-        try stderr.print(err_msg, .{ expected_version, actual_version });
-        try stderr.flush();
-    } else {
-        try stdout.print("Now using zls version {s}\n", .{expected_version});
-        try stdout.flush();
+        emit_selected_version_mismatch("zls", expected_version, actual_version);
+        return;
     }
+
+    emit_selected_version("zls", expected_version, expected_version);
+}
+
+fn emit_selected_version(tool_name: []const u8, requested_version: []const u8, active_version: []const u8) void {
+    const emitter = util_output.get_global();
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "tool", .value = .{ .string = tool_name } },
+            .{ .key = "requested_version", .value = .{ .string = requested_version } },
+            .{ .key = "active_version", .value = .{ .string = active_version } },
+        };
+        util_output.json_object(&fields);
+        return;
+    }
+
+    util_output.success("Now using {s} version {s}", .{ tool_name, active_version });
+}
+
+fn emit_selected_version_mismatch(
+    tool_name: []const u8,
+    expected_version: []const u8,
+    actual_version: []const u8,
+) void {
+    const emitter = util_output.get_global();
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "tool", .value = .{ .string = tool_name } },
+            .{ .key = "expected_version", .value = .{ .string = expected_version } },
+            .{ .key = "active_version", .value = .{ .string = actual_version } },
+            .{ .key = "ok", .value = .{ .boolean = false } },
+        };
+        util_output.json_object(&fields);
+        return;
+    }
+
+    util_output.err(
+        "Expected {s} version {s}, but currently using {s}. Please check.",
+        .{ tool_name, expected_version, actual_version },
+    );
 }

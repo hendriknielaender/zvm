@@ -1,7 +1,7 @@
 const std = @import("std");
 const context = @import("../Context.zig");
-const util_color = @import("../util/color.zig");
 const util_data = @import("../util/data.zig");
+const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
@@ -12,6 +12,15 @@ const StoreCleanup = struct {
     bytes_freed: u64 = 0,
 };
 
+const VersionCleanup = struct {
+    zig_removed: usize = 0,
+    zls_removed: usize = 0,
+
+    fn total(self: VersionCleanup) usize {
+        return self.zig_removed + self.zls_removed;
+    }
+};
+
 pub fn execute(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.CleanCommand,
@@ -19,41 +28,57 @@ pub fn execute(
 ) !void {
     _ = progress_node;
 
-    var color = util_color.Color.RuntimeStyle.init();
-    try clean_download_store(ctx, &color);
+    const emitter = util_output.get_global();
+    const emit_human = emitter.config.mode == .human_readable;
 
-    if (!command.remove_all) return;
-    try clean_installed_versions(ctx, &color);
+    const store_cleanup = try clean_download_store(ctx, emit_human);
+    const version_cleanup = if (command.remove_all)
+        try clean_installed_versions(ctx, emit_human)
+    else
+        VersionCleanup{};
+
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "download_artifacts_removed", .value = .{ .number = @intCast(store_cleanup.files_removed) } },
+            .{ .key = "bytes_freed", .value = .{ .number = @intCast(store_cleanup.bytes_freed) } },
+            .{ .key = "zig_versions_removed", .value = .{ .number = @intCast(version_cleanup.zig_removed) } },
+            .{ .key = "zls_versions_removed", .value = .{ .number = @intCast(version_cleanup.zls_removed) } },
+        };
+        util_output.json_object(&fields);
+    }
 }
 
-fn clean_download_store(
-    ctx: *context.CliContext,
-    color: *util_color.Color.RuntimeStyle,
-) !void {
+fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanup {
     var store_buffer = try ctx.acquire_path_buffer();
     defer store_buffer.reset();
 
     const store_path = try util_data.get_zvm_store(store_buffer);
-    var store_dir = std.fs.openDirAbsolute(store_path, .{ .iterate = true }) catch |err| switch (err) {
-        error.FileNotFound => {
-            try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
-            return;
-        },
-        else => return err,
+    var store_dir = std.fs.openDirAbsolute(store_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) {
+            if (emit_human) {
+                util_output.info("No old download artifacts found to clean.", .{});
+            }
+            return StoreCleanup{};
+        }
+
+        return err;
     };
     defer store_dir.close();
 
     const cleanup = try remove_download_artifacts(&store_dir);
+    if (!emit_human) return cleanup;
+
     if (cleanup.files_removed == 0) {
-        try color.bold().cyan().print("No old download artifacts found to clean.\n", .{});
-        return;
+        util_output.info("No old download artifacts found to clean.", .{});
+        return cleanup;
     }
 
     const mb_freed = @as(f64, @floatFromInt(cleanup.bytes_freed)) / (1024.0 * 1024.0);
-    try color.bold().green().print(
-        "Cleaned up {d} old download artifact(s), freed {d:.2} MB.\n",
+    util_output.success(
+        "Cleaned up {d} old download artifact(s), freed {d:.2} MB.",
         .{ cleanup.files_removed, mb_freed },
     );
+    return cleanup;
 }
 
 fn remove_download_artifacts(store_dir: *std.fs.Dir) !StoreCleanup {
@@ -75,10 +100,7 @@ fn remove_download_artifacts(store_dir: *std.fs.Dir) !StoreCleanup {
     return cleanup;
 }
 
-fn clean_installed_versions(
-    ctx: *context.CliContext,
-    color: *util_color.Color.RuntimeStyle,
-) !void {
+fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !VersionCleanup {
     var current_zig_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
     var current_zls_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
 
@@ -88,18 +110,29 @@ fn clean_installed_versions(
     ) catch null;
     const current_zls_version = try read_current_version(ctx, .zls, &current_zls_storage);
 
-    try color.bold().yellow().print("\nCleaning unused versions...\n", .{});
-
-    var versions_removed: usize = 0;
-    versions_removed += try clean_versions_for_tool(ctx, color, .zig, current_zig_version);
-    versions_removed += try clean_versions_for_tool(ctx, color, .zls, current_zls_version);
-
-    if (versions_removed == 0) {
-        try color.bold().cyan().print("\nNo unused versions found.\n", .{});
-        return;
+    if (emit_human) {
+        util_output.print_text("\nCleaning unused versions...\n");
     }
 
-    try color.bold().green().print("\nRemoved {d} unused version(s).\n", .{versions_removed});
+    var cleanup = VersionCleanup{};
+    cleanup.zig_removed = try clean_versions_for_tool(ctx, emit_human, .zig, current_zig_version);
+    cleanup.zls_removed = try clean_versions_for_tool(ctx, emit_human, .zls, current_zls_version);
+
+    if (!emit_human) return cleanup;
+
+    if (cleanup.total() == 0) {
+        util_output.print_text("\nNo unused versions found.\n");
+        return cleanup;
+    }
+
+    util_output.print_text(
+        try std.fmt.bufPrint(
+            &current_zig_storage,
+            "\nRemoved {d} unused version(s).\n",
+            .{cleanup.total()},
+        ),
+    );
+    return cleanup;
 }
 
 fn read_current_version(
@@ -136,7 +169,7 @@ fn read_current_version(
 
 fn clean_versions_for_tool(
     ctx: *context.CliContext,
-    color: *util_color.Color.RuntimeStyle,
+    emit_human: bool,
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
@@ -147,9 +180,9 @@ fn clean_versions_for_tool(
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
         .zls => try util_data.get_zvm_zls_version(versions_path_buffer),
     };
-    var versions_dir = std.fs.openDirAbsolute(versions_path, .{ .iterate = true }) catch |err| switch (err) {
-        error.FileNotFound => return 0,
-        else => return err,
+    var versions_dir = std.fs.openDirAbsolute(versions_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return 0;
+        return err;
     };
     defer versions_dir.close();
 
@@ -161,15 +194,20 @@ fn clean_versions_for_tool(
 
         if (current_version) |current| {
             if (std.mem.eql(u8, entry.name, current)) {
-                try color.cyan().print("  Keeping {s} {s} (current)\n", .{
-                    tool.to_string(),
-                    entry.name,
-                });
+                if (emit_human) {
+                    util_output.info("  Keeping {s} {s} (current)", .{
+                        tool.to_string(),
+                        entry.name,
+                    });
+                }
                 continue;
             }
         }
 
-        try color.red().print("  Removing {s} {s}\n", .{ tool.to_string(), entry.name });
+        if (emit_human) {
+            util_output.info("  Removing {s} {s}", .{ tool.to_string(), entry.name });
+        }
+
         try versions_dir.deleteTree(entry.name);
         versions_removed += 1;
     }

@@ -9,8 +9,15 @@ const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
 const Config = @import("config.zig");
 const metadata = @import("metadata.zig");
+const build_options = @import("options");
 
 const log = std.log.scoped(.zvm);
+const build_log_level: std.log.Level = @enumFromInt(@intFromEnum(build_options.log_level));
+
+pub const std_options: std.Options = .{
+    .log_level = build_log_level,
+    .logFn = log_message,
+};
 
 // Compile-time assertions for design assumptions
 comptime {
@@ -63,6 +70,28 @@ const AliasBuffers = struct {
     process_scratch: [memory_limits.limits.process_scratch_size_maximum]u8,
     exec_arguments_count: u32 = 0,
 };
+
+fn log_message(
+    comptime message_level: std.log.Level,
+    comptime scope: @TypeOf(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (!util_output.is_global_initialized()) {
+        std.log.defaultLog(message_level, scope, format, args);
+        return;
+    }
+
+    const config = util_output.get_global_config() orelse {
+        std.log.defaultLog(message_level, scope, format, args);
+        return;
+    };
+
+    if (config.mode != .human_readable) return;
+    if (message_level == .err) return;
+
+    std.log.defaultLog(message_level, scope, format, args);
+}
 
 fn has_windows_env_var(comptime var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
@@ -203,20 +232,33 @@ pub fn main() !void {
     };
     _ = try util_output.update_global(final_output_config);
 
-    const context_instance = try Context.CliContext.init(
+    const context_instance = Context.CliContext.init(
         &global_context,
         &global_static_buffer,
         arguments,
-    );
+    ) catch |err| {
+        util_output.fatal(
+            util_output.ExitCode.from_error(err),
+            "Failed to initialize command context: {s}",
+            .{@errorName(err)},
+        );
+    };
     // Freeze startup allocation before command execution begins.
     context_instance.static_mem.lock();
 
     const root_node = std.Progress.start(.{
         .root_name = "zvm",
         .estimated_total_items = get_progress_item_count(parsed_command_line.command),
+        .disable_printing = final_output_config.mode != .human_readable,
     });
 
-    try execute_command(context_instance, parsed_command_line.command, root_node);
+    execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
+        util_output.fatal(
+            util_output.ExitCode.from_error(err),
+            "Command failed: {s}",
+            .{@errorName(err)},
+        );
+    };
 
     const has_debug = if (builtin.os.tag == .windows) blk: {
         break :blk has_windows_env_var("ZVM_DEBUG");
@@ -224,7 +266,7 @@ pub fn main() !void {
         break :blk util_tool.getenv_cross_platform("ZVM_DEBUG") != null;
     };
 
-    if (has_debug) {
+    if (has_debug and final_output_config.mode == .human_readable) {
         try context_instance.print_debug_info();
     }
 }

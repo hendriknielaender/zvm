@@ -34,7 +34,7 @@ const general_help_text =
     \\
     \\COMMAND OPTIONS:
     \\    --zls                   For install/remove/use/list-remote, manage ZLS instead
-    \\    --all                   For list/clean, include every version
+    \\    --all                   For list/clean, include Zig and ZLS versions
     \\    --shell <shell>         For env, specify shell type
     \\
     \\EXAMPLES:
@@ -43,7 +43,7 @@ const general_help_text =
     \\    zvm list --help
     \\    zvm help install
     \\    zvm env --shell=zsh
-    \\    zvm -qV
+    \\    zvm -V
     \\
 ;
 
@@ -105,10 +105,10 @@ const list_help_text =
     \\    zvm [GLOBAL_OPTIONS] ls [--all]
     \\
     \\DESCRIPTION:
-    \\    List installed versions. Use --all to include every known entry.
+    \\    List installed Zig versions. Use --all to include installed ZLS versions too.
     \\
     \\OPTIONS:
-    \\    --all                   Include every version entry
+    \\    --all                   Include installed ZLS versions too
     \\
     \\EXAMPLES:
     \\    zvm list
@@ -204,7 +204,7 @@ const version_help_text =
     \\EXAMPLES:
     \\    zvm version
     \\    zvm --version
-    \\    zvm -qV
+    \\    zvm -V
     \\
 ;
 
@@ -223,6 +223,40 @@ const help_help_text =
     \\
 ;
 
+fn topic_name(topic: validation.HelpTopic) []const u8 {
+    return switch (topic) {
+        .general => "general",
+        .install => "install",
+        .remove => "remove",
+        .use => "use",
+        .list => "list",
+        .list_remote => "list-remote",
+        .list_mirrors => "list-mirrors",
+        .clean => "clean",
+        .env => "env",
+        .completions => "completions",
+        .version => "version",
+        .help => "help",
+    };
+}
+
+fn topic_text(topic: validation.HelpTopic) []const u8 {
+    return switch (topic) {
+        .general => general_help_text,
+        .install => install_help_text,
+        .remove => remove_help_text,
+        .use => use_help_text,
+        .list => list_help_text,
+        .list_remote => list_remote_help_text,
+        .list_mirrors => list_mirrors_help_text,
+        .clean => clean_help_text,
+        .env => env_help_text,
+        .completions => completions_help_text,
+        .version => version_help_text,
+        .help => help_help_text,
+    };
+}
+
 pub fn execute(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.HelpCommand,
@@ -231,20 +265,19 @@ pub fn execute(
     _ = ctx;
     _ = progress_node;
 
-    switch (command.topic) {
-        .general => util_output.info(general_help_text, .{}),
-        .install => util_output.info(install_help_text, .{}),
-        .remove => util_output.info(remove_help_text, .{}),
-        .use => util_output.info(use_help_text, .{}),
-        .list => util_output.info(list_help_text, .{}),
-        .list_remote => util_output.info(list_remote_help_text, .{}),
-        .list_mirrors => util_output.info(list_mirrors_help_text, .{}),
-        .clean => util_output.info(clean_help_text, .{}),
-        .env => util_output.info(env_help_text, .{}),
-        .completions => util_output.info(completions_help_text, .{}),
-        .version => util_output.info(version_help_text, .{}),
-        .help => util_output.info(help_help_text, .{}),
+    const emitter = util_output.get_global();
+    const text = topic_text(command.topic);
+
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "topic", .value = .{ .string = topic_name(command.topic) } },
+            .{ .key = "text", .value = .{ .string = text } },
+        };
+        util_output.json_object(&fields);
+        return;
     }
+
+    util_output.print_text(text);
 }
 
 test "help command executes without error" {
