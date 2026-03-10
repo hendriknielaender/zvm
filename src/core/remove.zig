@@ -66,7 +66,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
             }
         }
 
-        // Fallback to probing the active executable version.
+        // Fallback to reading the active installation manifest.
         if (!should_remove_current) {
             var version_buffer = try ctx.acquire_path_buffer();
             defer version_buffer.reset();
@@ -80,7 +80,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
                 &output_buffer,
                 is_zls,
             ) catch |err| switch (err) {
-                error.EmptyVersion, error.FailedToReadVersion, error.FileNotFound => null,
+                error.EmptyVersion, error.FileNotFound => null,
                 else => return err,
             };
 

@@ -3,32 +3,22 @@ const builtin = @import("builtin");
 
 pub fn has_env_var(var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const result = std.process.getEnvVarOwned(arena.allocator(), var_name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return false,
-        else => return false,
-    };
-
-    return result.len > 0;
+    var key_w: [256:0]u16 = undefined;
+    const key_len = std.unicode.utf8ToUtf16Le(key_w[0..], var_name) catch return false;
+    key_w[key_len] = 0;
+    return std.process.getenvW(key_w[0..key_len :0].ptr) != null;
 }
 
-pub fn get_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+pub fn get_env_var(var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
+    var key_w: [256:0]u16 = undefined;
+    const key_len = std.unicode.utf8ToUtf16Le(key_w[0..], var_name) catch return error.InvalidWtf8;
+    key_w[key_len] = 0;
 
-    const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return null,
-        else => return err,
-    };
-
-    if (result.len >= buffer.len) {
-        return error.BufferTooSmall;
-    }
-
-    @memcpy(buffer[0..result.len], result);
-    return buffer[0..result.len];
+    const result_w = std.process.getenvW(key_w[0..key_len :0].ptr) orelse return null;
+    const result_len = std.unicode.wtf16LeToWtf8(buffer, result_w);
+    if (result_len > buffer.len) return error.BufferTooSmall;
+    return buffer[0..result_len];
 }
 
 pub fn get_env_var_cross_platform(var_name: []const u8) ?[]const u8 {

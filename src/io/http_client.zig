@@ -1,6 +1,7 @@
 const std = @import("std");
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
+const object_pools = @import("../memory/object_pools.zig");
 const log = std.log.scoped(.http);
 
 // Check if we have gzip decompression available
@@ -39,14 +40,13 @@ pub const HttpClient = struct {
         const operation = try ctx.acquire_http_operation();
         defer operation.release();
 
-        // For HTTPS operations, we need an allocator that can handle certificate loading.
-        // We use an arena that combines our pre-allocated buffer with page allocation fallback.
-        // This ensures our data operations use pre-allocated memory while allowing
-        // the certificate subsystem to work correctly.
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-
-        var client = std.http.Client{ .allocator = arena.allocator() };
+        var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
+        var client = std.http.Client{
+            .allocator = scratch_fba.allocator(),
+            .connection_pool = .{ .free_size = 0 },
+            .read_buffer_size = limits.limits.http_read_buffer_size,
+            .write_buffer_size = limits.limits.http_write_buffer_size,
+        };
         defer client.deinit();
 
         var buffer_writer = std.Io.fixedBufferStream(&operation.response_buffer);
@@ -58,12 +58,13 @@ pub const HttpClient = struct {
         const writer = &adapter.new_interface;
 
         // Use the simple fetch API that handles redirects, compression, etc. automatically
-        var redirect_buffer: [8192]u8 = undefined;
+        var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
         const result = try client.fetch(.{
             .location = .{ .uri = uri },
             .method = .GET,
             .headers = headers,
             .redirect_buffer = &redirect_buffer,
+            .decompress_buffer = operation.decompress_slice(),
             .response_writer = writer,
         });
         try writer.flush();
@@ -101,14 +102,18 @@ pub const HttpClient = struct {
         dest_file: std.fs.File,
         progress_node: std.Progress.Node,
     ) !void {
-        _ = ctx;
         _ = progress_node;
 
-        // Same as fetch() - we need a proper allocator for certificate handling
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
+        const operation = try ctx.acquire_http_operation();
+        defer operation.release();
 
-        var client = std.http.Client{ .allocator = arena.allocator() };
+        var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
+        var client = std.http.Client{
+            .allocator = scratch_fba.allocator(),
+            .connection_pool = .{ .free_size = 0 },
+            .read_buffer_size = limits.limits.http_read_buffer_size,
+            .write_buffer_size = limits.limits.http_write_buffer_size,
+        };
         defer client.deinit();
 
         // Create a writer that writes directly to the file
@@ -116,12 +121,13 @@ pub const HttpClient = struct {
         var writer = dest_file.writer(&writer_buffer);
 
         // Use the simple fetch API that handles redirects, compression, etc. automatically
-        var redirect_buffer: [8192]u8 = undefined;
+        var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
         const result = try client.fetch(.{
             .location = .{ .uri = uri },
             .method = .GET,
             .headers = headers,
             .redirect_buffer = &redirect_buffer,
+            .decompress_buffer = operation.decompress_slice(),
             .response_writer = &writer.interface,
         });
 

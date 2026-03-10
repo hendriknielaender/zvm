@@ -55,6 +55,8 @@ pub const HttpOperation = struct {
     response_buffer: [limits.limits.http_response_size_maximum]u8,
     url_buffer: [limits.limits.url_length_maximum]u8,
     header_buffer: [limits.limits.http_header_size_maximum]u8,
+    decompress_buffer: [limits.limits.http_decompress_buffer_size_maximum]u8,
+    scratch_buffer: [limits.limits.http_client_scratch_size_maximum]u8,
 
     in_use: bool = false,
 
@@ -80,6 +82,14 @@ pub const HttpOperation = struct {
 
     pub fn header_slice(self: *HttpOperation) []u8 {
         return self.header_buffer[0..];
+    }
+
+    pub fn decompress_slice(self: *HttpOperation) []u8 {
+        return self.decompress_buffer[0..];
+    }
+
+    pub fn scratch_slice(self: *HttpOperation) []u8 {
+        return self.scratch_buffer[0..];
     }
 };
 
@@ -125,6 +135,7 @@ pub const VersionEntry = struct {
 /// Pre-allocated extract operation with static buffer.
 pub const ExtractOperation = struct {
     buffer: [limits.limits.extract_buffer_size_maximum]u8,
+    xz_scratch_buffer: [limits.limits.xz_scratch_size_maximum]u8,
     tmp_path_buffer: PathBuffer,
     out_path_buffer: PathBuffer,
     in_use: bool = false,
@@ -143,6 +154,10 @@ pub const ExtractOperation = struct {
 
     pub fn slice(self: *ExtractOperation) []u8 {
         return self.buffer[0..];
+    }
+
+    pub fn xz_scratch_slice(self: *ExtractOperation) []u8 {
+        return self.xz_scratch_buffer[0..];
     }
 };
 
@@ -173,45 +188,49 @@ pub const ObjectPools = struct {
     version_entries: [limits.limits.versions_maximum]VersionEntry,
     extract_operations: [limits.limits.extract_operations_maximum]ExtractOperation,
     process_buffer: ProcessBuffer,
-    json_parse_buffer: [limits.limits.json_parse_size_maximum]u8,
 
-    /// Initialize object pools - no allocation needed!
-    pub fn init() ObjectPools {
-        return ObjectPools{
-            // SAFETY: PathBuffer data arrays are initialized before first use by set() method
-            .path_buffers = [_]PathBuffer{.{ .data = undefined, .used = 0 }} ** limits.limits.path_buffers_maximum,
-            .http_operations = [_]HttpOperation{.{
-                // SAFETY: HTTP buffers are initialized before first use by HTTP client
-                .response_buffer = undefined,
-                // SAFETY: HTTP buffers are initialized before first use by HTTP client
-                .url_buffer = undefined,
-                // SAFETY: HTTP buffers are initialized before first use by HTTP client
-                .header_buffer = undefined,
-                .in_use = false,
-            }} ** limits.limits.http_operations_maximum,
-            // SAFETY: VersionEntry name buffers are initialized before first use by set_name() method
-            .version_entries = [_]VersionEntry{.{ .name_buffer = undefined, .name_length = 0, .metadata = .{}, .occupied = false }} ** limits.limits.versions_maximum,
-            .extract_operations = [_]ExtractOperation{.{
-                // SAFETY: Extract buffer is initialized before first use by extract operations
-                .buffer = undefined,
-                // SAFETY: PathBuffer data arrays are initialized before first use by set() method
-                .tmp_path_buffer = .{ .data = undefined, .used = 0 },
-                // SAFETY: PathBuffer data arrays are initialized before first use by set() method
-                .out_path_buffer = .{ .data = undefined, .used = 0 },
-                .in_use = false,
-            }} ** limits.limits.extract_operations_maximum,
-            .process_buffer = .{
-                // SAFETY: Process buffers are initialized before first use by process operations
-                .output = undefined,
-                // SAFETY: Process buffers are initialized before first use by process operations
-                .arguments = undefined,
-                // SAFETY: Process buffers are initialized before first use by process operations
-                .arguments_storage = undefined,
-                .arguments_count = 0,
-            },
-            // SAFETY: JSON buffer is initialized before first use by JSON parsing operations
-            .json_parse_buffer = undefined,
-        };
+    /// Initialize object pools in place.
+    /// Returning this struct by value would copy tens of megabytes of scratch space onto the stack.
+    pub fn init(self: *ObjectPools) void {
+        init_path_buffers(&self.path_buffers);
+        init_http_operations(&self.http_operations);
+        init_version_entries(&self.version_entries);
+        init_extract_operations(&self.extract_operations);
+        init_process_buffer(&self.process_buffer);
+    }
+
+    fn init_path_buffers(path_buffers: *[limits.limits.path_buffers_maximum]PathBuffer) void {
+        for (path_buffers) |*path_buffer| {
+            path_buffer.used = 0;
+        }
+    }
+
+    fn init_http_operations(http_operations: *[limits.limits.http_operations_maximum]HttpOperation) void {
+        for (http_operations) |*http_operation| {
+            http_operation.in_use = false;
+        }
+    }
+
+    fn init_version_entries(version_entries: *[limits.limits.versions_maximum]VersionEntry) void {
+        for (version_entries) |*version_entry| {
+            version_entry.name_length = 0;
+            version_entry.metadata = .{};
+            version_entry.occupied = false;
+        }
+    }
+
+    fn init_extract_operations(
+        extract_operations: *[limits.limits.extract_operations_maximum]ExtractOperation,
+    ) void {
+        for (extract_operations) |*extract_operation| {
+            extract_operation.tmp_path_buffer.used = 0;
+            extract_operation.out_path_buffer.used = 0;
+            extract_operation.in_use = false;
+        }
+    }
+
+    fn init_process_buffer(process_buffer: *ProcessBuffer) void {
+        process_buffer.arguments_count = 0;
     }
 
     pub fn acquire_path_buffer(self: *ObjectPools) !*PathBuffer {
@@ -261,10 +280,6 @@ pub const ObjectPools = struct {
             limits.limits.versions_maximum,
         });
         return error.NoVersionEntryAvailable;
-    }
-
-    pub fn get_json_buffer(self: *ObjectPools) []u8 {
-        return &self.json_parse_buffer;
     }
 
     pub fn get_process_buffer(self: *ObjectPools) *ProcessBuffer {

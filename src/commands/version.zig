@@ -22,7 +22,7 @@ pub fn execute(
         };
         util_output.json_object(&fields);
     } else {
-        util_output.info("zvm {s}", .{options.version});
+        util_output.info("zvm {s}\n", .{options.version});
     }
 }
 

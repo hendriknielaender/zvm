@@ -20,12 +20,9 @@ pub const VersionSource = enum {
 pub const SmartVersionResult = struct {
     version: []const u8,
     source: VersionSource,
-    allocator: std.mem.Allocator,
 
     pub fn deinit(self: *const SmartVersionResult) void {
-        if (self.source == .build_zig_zon or self.source == .current) {
-            self.allocator.free(self.version);
-        }
+        _ = self;
     }
 };
 
@@ -34,7 +31,6 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
         return SmartVersionResult{
             .version = args[0],
             .source = .command_line,
-            .allocator = ctx.get_allocator(),
         };
     }
 
@@ -42,12 +38,15 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
         return SmartVersionResult{
             .version = version,
             .source = .build_zig_zon,
-            .allocator = ctx.get_allocator(),
         };
     }
 
     // Check if user has set a default version with 'zvm use'
-    const default_version_result = find_default_version(ctx) catch |err| {
+    var default_version_buffer: [32]u8 = undefined;
+    const default_version_result = find_default_version_in_buffer(
+        ctx,
+        &default_version_buffer,
+    ) catch |err| {
         log.debug("Error when finding default version: {}, falling back to master", .{err});
         return error.FailedToDetectVersion;
     };
@@ -59,7 +58,6 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
         return SmartVersionResult{
             .version = default_version,
             .source = .current,
-            .allocator = std.heap.page_allocator,
         };
     } else {
         if (!is_ci_environment()) {
@@ -67,13 +65,10 @@ pub fn detect_version(ctx: *Context.CliContext, args: []const []const u8) !Smart
             log.info("Consider creating build.zig.zon with 'minimum_zig_version' field for reproducible builds.", .{});
         }
 
-        const master_copy = try std.heap.page_allocator.dupe(u8, "master");
-
         // Default to master when no build.zig.zon found and no default set
         return SmartVersionResult{
-            .version = master_copy,
+            .version = "master",
             .source = .current,
-            .allocator = std.heap.page_allocator,
         };
     }
 }
@@ -287,14 +282,6 @@ pub fn is_ci_environment() bool {
     }
 
     return false;
-}
-
-pub fn find_default_version(ctx: *Context.CliContext) !?[]const u8 {
-    var version_buffer: [32]u8 = undefined;
-    const content = try find_default_version_in_buffer(ctx, &version_buffer) orelse return null;
-
-    // Use page allocator to avoid coupling this utility to CliContext allocator state.
-    return std.heap.page_allocator.dupe(u8, content) catch null;
 }
 
 pub fn find_default_version_in_buffer(

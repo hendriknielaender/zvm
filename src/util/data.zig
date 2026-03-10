@@ -2,8 +2,10 @@ const std = @import("std");
 const limits = @import("../memory/limits.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const context = @import("../Context.zig");
-const config = @import("../metadata.zig");
 const util_tool = @import("tool.zig");
+const assert = std.debug.assert;
+
+pub const version_manifest_name = ".zvm-version";
 
 /// Cross-platform environment variable getter
 /// Returns null if variable doesn't exist, slice if it does
@@ -103,55 +105,64 @@ pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     return try buffer.set(fbs.getWritten());
 }
 
-/// Try to get zig/zls version using pre-allocated buffers.
+pub fn write_version_manifest(install_path: []const u8, version: []const u8) !void {
+    assert(install_path.len > 0);
+    assert(version.len > 0);
+    assert(version.len <= limits.limits.version_string_length_maximum);
+
+    var manifest_path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    const manifest_path = try std.fmt.bufPrint(
+        &manifest_path_buffer,
+        "{s}/{s}",
+        .{ install_path, version_manifest_name },
+    );
+
+    const manifest_file = try std.fs.cwd().createFile(manifest_path, .{});
+    defer manifest_file.close();
+
+    try manifest_file.writeAll(version);
+}
+
+fn build_manifest_path(
+    path_buffer: *object_pools.PathBuffer,
+    install_path: []const u8,
+) ![]const u8 {
+    assert(install_path.len > 0);
+
+    var stream = std.Io.fixedBufferStream(path_buffer.slice());
+    try stream.writer().print("{s}/{s}", .{ install_path, version_manifest_name });
+    return try path_buffer.set(stream.getWritten());
+}
+
+fn read_version_manifest_absolute(
+    path_buffer: *object_pools.PathBuffer,
+    install_path: []const u8,
+    output_buffer: []u8,
+) ![]const u8 {
+    assert(output_buffer.len > 0);
+
+    const manifest_path = try build_manifest_path(path_buffer, install_path);
+    const manifest_file = try std.fs.openFileAbsolute(manifest_path, .{ .mode = .read_only });
+    defer manifest_file.close();
+
+    const bytes_read = try manifest_file.readAll(output_buffer);
+    if (bytes_read == 0) return error.EmptyVersion;
+
+    const version = std.mem.trim(u8, output_buffer[0..bytes_read], " \t\r\n");
+    if (version.len == 0) return error.EmptyVersion;
+    return version;
+}
+
+/// Try to get zig/zls version using a manifest within the active installation.
 pub fn get_current_version(
     path_buffer: *object_pools.PathBuffer,
     output_buffer: []u8,
     is_zls: bool,
 ) ![]const u8 {
-    // Build executable path.
-    const exe_name = if (is_zls) config.zls_name else config.zig_name;
     const base_path = if (is_zls)
         try get_zvm_current_zls(path_buffer)
     else
         try get_zvm_current_zig(path_buffer);
 
-    // Need to copy base_path to avoid aliasing when we build the full path
-    var base_path_copy: [limits.limits.path_length_maximum]u8 = undefined;
-    const base_path_len = base_path.len;
-    @memcpy(base_path_copy[0..base_path_len], base_path);
-
-    // Build full path.
-    var fbs = std.Io.fixedBufferStream(path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ base_path_copy[0..base_path_len], exe_name });
-    const current_path = fbs.getWritten();
-
-    // Create child process with static args.
-    const args = [_][]const u8{ current_path, if (is_zls) "--version" else "version" };
-    var child_process = std.process.Child.init(&args, std.heap.page_allocator);
-
-    child_process.stdin_behavior = .Close;
-    child_process.stdout_behavior = .Pipe;
-    child_process.stderr_behavior = .Close;
-
-    try child_process.spawn();
-
-    if (child_process.stdout) |stdout| {
-        var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
-        var file_reader = stdout.reader(&reader_buffer);
-
-        // takeDelimiterExclusive returns the line directly or an error
-        const result = file_reader.interface.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => return error.EmptyVersion,
-            error.StreamTooLong => return error.BufferTooSmall,
-            error.ReadFailed => return error.FailedToReadVersion,
-            else => return err,
-        };
-
-        if (result.len > output_buffer.len) return error.BufferTooSmall;
-        @memcpy(output_buffer[0..result.len], result);
-        return output_buffer[0..result.len];
-    }
-
-    return error.FailedToReadVersion;
+    return try read_version_manifest_absolute(path_buffer, base_path, output_buffer);
 }

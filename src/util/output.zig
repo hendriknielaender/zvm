@@ -10,6 +10,7 @@ comptime {
     assert(io_buffer_size_bytes >= 1024);
     assert(max_message_length_bytes >= 256);
     assert(max_message_length_bytes <= io_buffer_size_bytes);
+    assert(max_message_length_bytes + 16 <= io_buffer_size_bytes);
     assert(max_json_object_fields >= 4);
     assert(max_json_object_fields <= 32);
 }
@@ -370,6 +371,11 @@ pub const OutputEmitter = struct {
         return result;
     }
 
+    fn has_trailing_newline(text: []const u8) bool {
+        assert(text.len > 0);
+        return text[text.len - 1] == '\n';
+    }
+
     /// Write colored text to stdout
     fn write_colored_to_stdout(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
         var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
@@ -378,6 +384,7 @@ pub const OutputEmitter = struct {
         writer.writeAll(color_code) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
+        if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
         self.flush_stdout_buffer(stream.getWritten());
     }
@@ -390,6 +397,7 @@ pub const OutputEmitter = struct {
         writer.writeAll(color_code) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
+        if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
         self.flush_stderr_buffer(stream.getWritten());
     }
@@ -400,6 +408,7 @@ pub const OutputEmitter = struct {
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;
+        if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
         self.flush_stdout_buffer(stream.getWritten());
     }
@@ -410,6 +419,7 @@ pub const OutputEmitter = struct {
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;
+        if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
         self.flush_stderr_buffer(stream.getWritten());
     }
@@ -476,6 +486,11 @@ comptime {
 }
 
 /// Global output emitter instance
+var global_emitter_storage: OutputEmitter = OutputEmitter.init(.{
+    .mode = .human_readable,
+    .color = .always_use_color,
+});
+var global_emitter_initialized: bool = false;
 var global_emitter: ?*OutputEmitter = null;
 
 /// Initialize global output emitter with configuration
@@ -486,12 +501,13 @@ pub fn init_global(config: OutputConfig) !*OutputEmitter {
         std.debug.panic("Output emitter already initialized - multiple initialization is not allowed", .{});
     }
 
-    // Allocate on heap since this lives for entire program duration
-    const emitter = try std.heap.page_allocator.create(OutputEmitter);
-    emitter.* = OutputEmitter.init(config);
+    global_emitter_storage = OutputEmitter.init(config);
+    global_emitter_initialized = true;
+    const emitter = &global_emitter_storage;
 
     global_emitter = emitter;
 
+    assert(global_emitter_initialized);
     assert(global_emitter == emitter);
     return emitter;
 }

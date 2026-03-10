@@ -12,13 +12,19 @@ pub const limits = struct {
     pub const arguments_storage_size_maximum: u32 = 8192; // 8KB total for all args.
 
     /// Maximum number of concurrent HTTP operations.
-    pub const http_operations_maximum: u32 = 2; // ZVM rarely needs concurrent downloads.
+    pub const http_operations_maximum: u32 = 1; // ZVM performs HTTP operations serially.
 
     /// Maximum size of a single HTTP response.
     pub const http_response_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - matches JSON parse size
 
     /// Maximum size for HTTP client internal buffers (headers, TLS, etc).
     pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
+
+    /// Maximum size for HTTP client scratch allocations.
+    pub const http_client_scratch_size_maximum: u32 = 2 * 1024 * 1024;
+
+    /// Maximum size for HTTP decompression scratch.
+    pub const http_decompress_buffer_size_maximum: u32 = 64 * 1024;
 
     /// Maximum number of HTTP headers.
     pub const http_headers_maximum: u32 = 64;
@@ -46,15 +52,14 @@ pub const limits = struct {
     /// Maximum number of path buffers.
     pub const path_buffers_maximum: u32 = 8; // For concurrent path operations.
 
-    /// Maximum size of JSON to parse.
-    /// GitHub API responses for releases can be 150KB+ when decompressed
-    pub const json_parse_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - extra space for JSON parser overhead
-
     /// Maximum number of extract operations.
-    pub const extract_operations_maximum: u32 = 8;
+    pub const extract_operations_maximum: u32 = 1;
 
     /// Maximum size of extract buffer.
     pub const extract_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
+
+    /// Maximum size for XZ decoder scratch state.
+    pub const xz_scratch_size_maximum: u32 = 16 * 1024 * 1024;
 
     /// Maximum process output buffer.
     pub const process_output_size_maximum: u32 = 4096;
@@ -108,7 +113,16 @@ pub const limits = struct {
     pub const text_buffer_size: u32 = 1024;
 
     /// Redirect buffer size for HTTP redirects
-    pub const http_redirect_buffer_size: u32 = 2048;
+    pub const http_redirect_buffer_size: u32 = 8192;
+
+    /// Buffered read size for HTTP connections.
+    pub const http_read_buffer_size: u32 = 8192;
+
+    /// Buffered write size for HTTP connections.
+    pub const http_write_buffer_size: u32 = 1024;
+
+    /// Scratch space for child process setup on Windows.
+    pub const process_scratch_size_maximum: u32 = 64 * 1024;
 
     /// Signature buffer size for minisign operations
     pub const signature_buffer_size: u32 = 4096;
@@ -122,9 +136,6 @@ comptime {
     // Ensure path length is reasonable.
     assert(limits.path_length_maximum >= 256);
     assert(limits.path_length_maximum <= 4096);
-
-    // Ensure HTTP response can fit JSON data.
-    assert(limits.http_response_size_maximum >= limits.json_parse_size_maximum);
 
     // Ensure version string can hold semantic version plus metadata.
     assert(limits.version_string_length_maximum >= 32);

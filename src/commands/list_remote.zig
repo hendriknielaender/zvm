@@ -35,15 +35,10 @@ pub fn execute(
         }
     }
 
-    const version_count = if (command.tool == .zls) blk: {
-        var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
-        defer zls_meta.deinit();
-        break :blk try zls_meta.get_version_list(version_entries_storage[0..entries_count]);
-    } else blk: {
-        var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
-        defer zig_meta.deinit();
-        break :blk try zig_meta.get_version_list(version_entries_storage[0..entries_count]);
-    };
+    const version_count = if (command.tool == .zls)
+        try meta.Zls.get_version_list(res, version_entries_storage[0..entries_count])
+    else
+        try meta.Zig.get_version_list(res, version_entries_storage[0..entries_count]);
 
     if (command.tool == .zls) {
         try color.bold().white().print("Available ZLS versions:\n", .{});

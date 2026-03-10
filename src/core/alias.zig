@@ -53,6 +53,11 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         std.process.exit(@intFromEnum(util_output.ExitCode.version_not_found));
     };
 
+    ensure_version_manifest(version_path, version) catch |err| switch (err) {
+        error.PathAlreadyExists => unreachable,
+        else => return err,
+    };
+
     // Get symlink path.
     var symlink_path_buffer = try ctx.acquire_path_buffer();
     defer symlink_path_buffer.reset();
@@ -70,6 +75,24 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try save_default_version(ctx, version);
         try verify_zig_version(ctx, version);
     }
+}
+
+fn ensure_version_manifest(version_path: []const u8, version: []const u8) !void {
+    assert(version_path.len > 0);
+    assert(version.len > 0);
+
+    var manifest_path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    const manifest_path = try std.fmt.bufPrint(
+        &manifest_path_buffer,
+        "{s}/{s}",
+        .{ version_path, util_data.version_manifest_name },
+    );
+
+    if (util_tool.does_path_exist(manifest_path)) {
+        return;
+    }
+
+    try util_data.write_version_manifest(version_path, version);
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {

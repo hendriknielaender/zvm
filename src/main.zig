@@ -43,10 +43,12 @@ const commands = struct {
 const detect_version = @import("core/detect_version.zig");
 const install = @import("core/install.zig");
 
-// SAFETY: global_static_buffer is initialized before first use in main()
-var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
-// SAFETY: alias_static_buffer is used for alias handling to avoid conflicts with main context
-var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
+// SAFETY: global_static_buffer is initialized before first use in main().
+// StaticMemory requires at least 8-byte alignment for its fixed allocator state.
+var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
+// SAFETY: alias_static_buffer is used for alias handling to avoid conflicts with main context.
+// It must meet the same alignment requirement as the primary static buffer.
+var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
 // SAFETY: global_context is initialized in main() before being accessed
 var global_context: Context.CliContext = undefined;
 // SAFETY: global_config is initialized in main() with Config.init() before being used
@@ -58,37 +60,22 @@ const AliasBuffers = struct {
     tool_path: [memory_limits.limits.path_length_maximum]u8,
     exec_arguments_ptrs: [memory_limits.limits.arguments_maximum + 1]?[*:0]const u8,
     exec_arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8,
+    process_scratch: [memory_limits.limits.process_scratch_size_maximum]u8,
     exec_arguments_count: u32 = 0,
 };
 
-fn has_windows_env_var(var_name: []const u8) bool {
+fn has_windows_env_var(comptime var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
-
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    const result = std.process.getEnvVarOwned(arena.allocator(), var_name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return false,
-        else => return false,
-    };
-
-    return result.len > 0;
+    return std.process.hasNonEmptyEnvVarConstant(var_name);
 }
 
-fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
-
-    const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return null,
-        else => return err,
-    };
-
-    if (result.len >= buffer.len) {
-        return error.BufferTooSmall;
-    }
-
-    @memcpy(buffer[0..result.len], result);
-    return buffer[0..result.len];
+    const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(var_name);
+    const result_w = std.process.getenvW(key_w) orelse return null;
+    const result_len = std.unicode.wtf16LeToWtf8(buffer, result_w);
+    if (result_len > buffer.len) return error.BufferTooSmall;
+    return buffer[0..result_len];
 }
 
 fn append_argument_to_static_storage(
@@ -120,7 +107,9 @@ pub fn main() !void {
     var arguments_storage_offset: usize = 0;
 
     if (builtin.os.tag == .windows) {
-        var arguments_iterator = try std.process.argsWithAllocator(std.heap.page_allocator);
+        var arguments_iterator_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
+        var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
+        var arguments_iterator = try std.process.argsWithAllocator(arguments_iterator_fba.allocator());
         defer arguments_iterator.deinit();
 
         while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
@@ -337,6 +326,7 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         .tool_path = undefined,
         .exec_arguments_ptrs = undefined,
         .exec_arguments_storage = undefined,
+        .process_scratch = undefined,
         .exec_arguments_count = 0,
     };
 
@@ -353,7 +343,8 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         }
         const argv_slice = argv_list[0..i];
 
-        var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
+        var process_fba = std.heap.FixedBufferAllocator.init(&alias_buffers.process_scratch);
+        var process = std.process.Child.init(argv_slice, process_fba.allocator());
         process.spawn() catch |err| {
             log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
             return err;
@@ -579,6 +570,7 @@ fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const 
         .tool_path = undefined,
         .exec_arguments_ptrs = undefined,
         .exec_arguments_storage = undefined,
+        .process_scratch = undefined,
         .exec_arguments_count = 0,
     };
 
@@ -595,7 +587,8 @@ fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const 
         }
         const argv_slice = argv_list[0..i];
 
-        var process = std.process.Child.init(argv_slice, std.heap.page_allocator);
+        var process_fba = std.heap.FixedBufferAllocator.init(&alias_buffers.process_scratch);
+        var process = std.process.Child.init(argv_slice, process_fba.allocator());
         process.spawn() catch |err| {
             log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
             return err;
@@ -614,20 +607,12 @@ fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const 
 
 fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
     if (builtin.os.tag == .windows) {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-
-        const home = std.process.getEnvVarOwned(arena.allocator(), "USERPROFILE") catch |err| {
-            switch (err) {
-                error.EnvironmentVariableNotFound => {
-                    log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
-                    return error.HomeNotFound;
-                },
-                else => {
-                    log.err("Error reading USERPROFILE: {}", .{err});
-                    return error.HomeNotFound;
-                },
-            }
+        const home = get_windows_env_var("USERPROFILE", &alias_buffers.home) catch |err| {
+            log.err("Error reading USERPROFILE: {}", .{err});
+            return error.HomeNotFound;
+        } orelse {
+            log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
+            return error.HomeNotFound;
         };
 
         if (home.len >= alias_buffers.home.len) {
@@ -635,7 +620,6 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
             return error.HomePathTooLong;
         }
 
-        @memcpy(alias_buffers.home[0..home.len], home);
         return alias_buffers.home[0..home.len];
     } else {
         const home = util_tool.getenv_cross_platform("HOME") orelse {
@@ -655,10 +639,7 @@ fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
 
 fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]const u8 {
     if (builtin.os.tag == .windows) {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-
-        if (get_windows_env_var(arena.allocator(), "ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
+        if (get_windows_env_var("ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
             var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
@@ -775,6 +756,7 @@ test "build_tool_path points at the current tool binary" {
         .tool_path = undefined,
         .exec_arguments_ptrs = undefined,
         .exec_arguments_storage = undefined,
+        .process_scratch = undefined,
         .exec_arguments_count = 0,
     };
 

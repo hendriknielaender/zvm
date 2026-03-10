@@ -39,9 +39,8 @@ pub const Signature = struct {
     trusted_comment_buffer: [limits.limits.trusted_comment_length_maximum]u8 = [_]u8{0} ** limits.limits.trusted_comment_length_maximum,
     trusted_comment_len: usize = 0,
 
-    pub fn deinit(self: *Signature, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Signature) void {
         _ = self;
-        _ = allocator;
     }
 
     pub fn fix_trusted_comment_slice(self: *Signature) void {
@@ -54,7 +53,7 @@ pub const Signature = struct {
         return if (prehashed) .Prehash else .Legacy;
     }
 
-    pub fn decode(allocator: std.mem.Allocator, lines: []const u8) !Signature {
+    pub fn decode(lines: []const u8) !Signature {
         var tokenizer = mem.tokenizeScalar(u8, lines, '\n');
 
         // SAFETY: line is immediately assigned in the loop before use
@@ -103,7 +102,6 @@ pub const Signature = struct {
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
-        _ = allocator;
         if (trusted_comment_slice.len > limits.limits.trusted_comment_length_maximum) {
             return error.TrustedCommentTooLong;
         }
@@ -148,7 +146,7 @@ pub const Signature = struct {
         }
 
         const sig_str = buffer[0..bytes_read];
-        return try decode(std.heap.page_allocator, sig_str);
+        return try decode(sig_str);
     }
 };
 
@@ -272,7 +270,7 @@ pub fn verify_static(
     var sig_buffer: [limits.limits.signature_buffer_size]u8 = undefined;
 
     var signature = try Signature.from_file_static(&sig_buffer, signature_path);
-    defer signature.deinit(std.heap.page_allocator);
+    defer signature.deinit();
 
     signature.fix_trusted_comment_slice();
 

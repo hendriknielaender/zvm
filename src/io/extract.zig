@@ -20,13 +20,14 @@ pub fn extract_static(
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir_static(extract_op, out_dir, file, root_node),
-        .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls, root_node),
+        .tarxz => try extract_tarxz_to_dir(extract_op, out_dir, file, is_zls, root_node),
         .tar_gz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
     }
 }
 
 /// Extract tar.xz to dir
 fn extract_tarxz_to_dir(
+    extract_op: *object_pools.ExtractOperation,
     out_dir: std.fs.Dir,
     file: std.fs.File,
     is_zls: bool,
@@ -36,11 +37,9 @@ fn extract_tarxz_to_dir(
     var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
     var file_reader = file.reader(&reader_buffer);
 
-    // Note: Decompression still needs dynamic allocation due to xz library requirements.
-    // This is unavoidable for compressed data handling.
-    // xz still expects the old reader interface, so we need to use the adapter
+    var scratch_fba = std.heap.FixedBufferAllocator.init(extract_op.xz_scratch_slice());
     const generic_reader = file_reader.interface.adaptToOldInterface();
-    var decompressed = try xz.decompress(std.heap.page_allocator, generic_reader);
+    var decompressed = try xz.decompress(scratch_fba.allocator(), generic_reader);
     defer decompressed.deinit();
 
     // Start extraction with an indeterminate progress indicator
