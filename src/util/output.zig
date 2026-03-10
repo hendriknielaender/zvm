@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
 const max_message_length_bytes = 2048;
 const max_json_object_fields = 16;
+const json_hex_digits = "0123456789abcdef";
 
 comptime {
     assert(io_buffer_size_bytes >= 1024);
@@ -214,7 +215,6 @@ pub const OutputEmitter = struct {
         var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
-        // Write JSON array with explicit error handling
         writer.writeAll("{\"") catch return;
         writer.writeAll(field_name) catch return;
         writer.writeAll("\":[") catch return;
@@ -226,9 +226,7 @@ pub const OutputEmitter = struct {
             if (index > 0) {
                 writer.writeAll(",") catch return;
             }
-            writer.writeAll("\"") catch return;
-            writer.writeAll(item) catch return;
-            writer.writeAll("\"") catch return;
+            write_json_string(writer, item) catch return;
         }
 
         writer.writeAll("]}\n") catch return;
@@ -257,17 +255,14 @@ pub const OutputEmitter = struct {
                 writer.writeAll(",") catch return;
             }
 
-            writer.writeAll("\"") catch return;
-            writer.writeAll(field.key) catch return;
-            writer.writeAll("\":") catch return;
+            write_json_string(writer, field.key) catch return;
+            writer.writeAll(":") catch return;
 
             switch (field.value) {
                 .string => |s| {
                     if (s) |str| {
-                        assert(str.len < 256);
-                        writer.writeAll("\"") catch return;
-                        writer.writeAll(str) catch return;
-                        writer.writeAll("\"") catch return;
+                        assert(str.len <= io_buffer_size_bytes);
+                        write_json_string(writer, str) catch return;
                     } else {
                         writer.writeAll("null") catch return;
                     }
@@ -277,12 +272,38 @@ pub const OutputEmitter = struct {
                     const num_str = std.fmt.bufPrint(&buf, "{d}", .{n}) catch return;
                     writer.writeAll(num_str) catch return;
                 },
+                .boolean => |value| {
+                    if (value) {
+                        writer.writeAll("true") catch return;
+                    } else {
+                        writer.writeAll("false") catch return;
+                    }
+                },
+                .array_strings => |items| {
+                    write_json_string_array(writer, items) catch return;
+                },
             }
         }
 
         writer.writeAll("}\n") catch return;
 
         self.flush_stdout_buffer(stream.getWritten());
+    }
+
+    pub fn emit_text(self: *OutputEmitter, text: []const u8) void {
+        assert(text.len > 0);
+        assert(text.len <= io_buffer_size_bytes);
+
+        switch (self.config.mode) {
+            .silent_errors_only => return,
+            .human_readable => self.write_plain_to_stdout(text),
+            .machine_json => {
+                const fields = [_]JsonField{
+                    .{ .key = "text", .value = .{ .string = text } },
+                };
+                self.emit_json_object(&fields);
+            },
+        }
     }
 
     // Private implementation methods
@@ -346,11 +367,11 @@ pub const OutputEmitter = struct {
         var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
-        writer.writeAll("{\"level\":\"") catch return;
-        writer.writeAll(level.to_string()) catch return;
-        writer.writeAll("\",\"message\":\"") catch return;
-        writer.writeAll(formatted) catch return;
-        writer.writeAll("\"}\n") catch return;
+        writer.writeAll("{\"level\":") catch return;
+        write_json_string(writer, level.to_string()) catch return;
+        writer.writeAll(",\"message\":") catch return;
+        write_json_string(writer, formatted) catch return;
+        writer.writeAll("}\n") catch return;
 
         self.flush_stdout_buffer(stream.getWritten());
     }
@@ -457,6 +478,8 @@ pub const JsonField = struct {
     pub const Value = union(enum) {
         string: ?[]const u8, // null represents JSON null
         number: i64,
+        boolean: bool,
+        array_strings: []const []const u8,
     };
 
     comptime {
@@ -474,6 +497,49 @@ fn get_color_code(level: MessageLevel) []const u8 {
         .error_recoverable => "\x1b[31m", // Red
         .error_fatal => "\x1b[91m", // Bright red
     };
+}
+
+fn write_json_string(writer: anytype, text: []const u8) !void {
+    try writer.writeByte('"');
+
+    for (text) |byte| {
+        switch (byte) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            0x08 => try writer.writeAll("\\b"),
+            0x0c => try writer.writeAll("\\f"),
+            else => {
+                if (byte < 0x20) {
+                    try writer.writeAll("\\u00");
+                    try writer.writeByte(json_hex_digits[byte >> 4]);
+                    try writer.writeByte(json_hex_digits[byte & 0x0f]);
+                } else {
+                    try writer.writeByte(byte);
+                }
+            },
+        }
+    }
+
+    try writer.writeByte('"');
+}
+
+fn write_json_string_array(writer: anytype, items: []const []const u8) !void {
+    try writer.writeByte('[');
+
+    for (items, 0..) |item, index| {
+        assert(item.len < 256);
+
+        if (index > 0) {
+            try writer.writeByte(',');
+        }
+
+        try write_json_string(writer, item);
+    }
+
+    try writer.writeByte(']');
 }
 
 comptime {
@@ -529,6 +595,18 @@ pub fn get_global() *OutputEmitter {
     return global_emitter orelse std.debug.panic("Output emitter not initialized - call init_global() first", .{});
 }
 
+pub fn is_global_initialized() bool {
+    return global_emitter_initialized;
+}
+
+pub fn get_global_config() ?OutputConfig {
+    if (global_emitter) |emitter| {
+        return emitter.config;
+    }
+
+    return null;
+}
+
 pub fn success(comptime message: []const u8, args: anytype) void {
     get_global().emit_success(message, args);
 }
@@ -555,4 +633,30 @@ pub fn json_array(comptime field_name: []const u8, items: []const []const u8) vo
 
 pub fn json_object(fields: []const JsonField) void {
     get_global().emit_json_object(fields);
+}
+
+pub fn print_text(message: []const u8) void {
+    get_global().emit_text(message);
+}
+
+test "write_json_string escapes control characters" {
+    const testing = std.testing;
+    var buffer: [256]u8 = undefined;
+    var stream = std.Io.fixedBufferStream(&buffer);
+
+    try write_json_string(stream.writer(), "quote: \" newline: \n slash: \\");
+
+    const expected = "\"quote: \\\" newline: \\n slash: \\\\\"";
+    try testing.expectEqualStrings(expected, stream.getWritten());
+}
+
+test "write_json_string_array escapes nested strings" {
+    const testing = std.testing;
+    var buffer: [256]u8 = undefined;
+    var stream = std.Io.fixedBufferStream(&buffer);
+
+    try write_json_string_array(stream.writer(), &.{ "a\"b", "c\\d" });
+
+    const expected = "[\"a\\\"b\",\"c\\\\d\"]";
+    try testing.expectEqualStrings(expected, stream.getWritten());
 }

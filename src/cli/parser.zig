@@ -246,16 +246,6 @@ fn standard_command_to_validated_command(standard_command: StandardCommand) vali
     };
 }
 
-fn normalize_standard_command_config(global_config: GlobalConfig) GlobalConfig {
-    var normalized = global_config;
-
-    if (normalized.output_mode == .silent_errors_only) {
-        normalized.output_mode = .human_readable;
-    }
-
-    return normalized;
-}
-
 fn parse_raw_command_or_fatal(
     command_name: []const u8,
     remaining_args: []const []const u8,
@@ -323,7 +313,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
 
     if (global_prefix.standard_command) |standard_command| {
         const result = ParsedCommandLine{
-            .global_config = normalize_standard_command_config(global_prefix.global_config),
+            .global_config = global_prefix.global_config,
             .command = standard_command_to_validated_command(standard_command),
         };
         result.validate();
@@ -347,7 +337,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     if (command_help_topic(command_name)) |topic| {
         if (command_help_requested(remaining_args)) {
             const result = ParsedCommandLine{
-                .global_config = normalize_standard_command_config(global_prefix.global_config),
+                .global_config = global_prefix.global_config,
                 .command = .{ .help = .{ .topic = topic } },
             };
             result.validate();
@@ -413,10 +403,10 @@ test "clustered short global options are supported" {
     const version_parsed = try parse_command_line(&.{ "zvm", "-qV" });
 
     try testing.expect(std.meta.activeTag(help_parsed.command) == .help);
-    try testing.expectEqual(util_output.OutputMode.human_readable, help_parsed.global_config.output_mode);
+    try testing.expectEqual(util_output.OutputMode.silent_errors_only, help_parsed.global_config.output_mode);
 
     try testing.expect(std.meta.activeTag(version_parsed.command) == .version);
-    try testing.expectEqual(util_output.OutputMode.human_readable, version_parsed.global_config.output_mode);
+    try testing.expectEqual(util_output.OutputMode.silent_errors_only, version_parsed.global_config.output_mode);
 }
 
 test "standard commands remain global regardless of prefix ordering" {
@@ -427,9 +417,9 @@ test "standard commands remain global regardless of prefix ordering" {
     const version_reversed = try parse_command_line(&.{ "zvm", "--json", "--version" });
 
     try testing.expect(std.meta.activeTag(help_parsed.command) == .help);
-    try testing.expectEqual(util_output.OutputMode.human_readable, help_parsed.global_config.output_mode);
+    try testing.expectEqual(util_output.OutputMode.silent_errors_only, help_parsed.global_config.output_mode);
     try testing.expect(std.meta.activeTag(help_reversed.command) == .help);
-    try testing.expectEqual(util_output.OutputMode.human_readable, help_reversed.global_config.output_mode);
+    try testing.expectEqual(util_output.OutputMode.silent_errors_only, help_reversed.global_config.output_mode);
 
     try testing.expect(std.meta.activeTag(version_parsed.command) == .version);
     try testing.expectEqual(util_output.OutputMode.machine_json, version_parsed.global_config.output_mode);

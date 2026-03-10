@@ -15,13 +15,15 @@ const scanner_token_buffer_size: usize = limits.limits.url_length_maximum;
 
 pub const Zig = struct {
     pub const VersionData = struct {
-        version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined,
+        version_buffer: [limits.limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
         version_len: u32 = 0,
-        date_buffer: [32]u8 = undefined,
+        date_buffer: [32]u8 = std.mem.zeroes([32]u8),
         date_len: u32 = 0,
-        tarball_buffer: [limits.limits.url_length_maximum]u8 = undefined,
+        tarball_buffer: [limits.limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.url_length_maximum]u8),
         tarball_len: u32 = 0,
-        shasum: [64]u8 = undefined,
+        shasum: [64]u8 = std.mem.zeroes([64]u8),
         size: u64 = 0,
 
         pub fn init(target: *VersionData, requested_version: []const u8) !void {
@@ -52,6 +54,7 @@ pub const Zig = struct {
         version: []const u8,
         platform_str: []const u8,
     ) !?VersionData {
+        // SAFETY: init() writes every TokenScanner field before any read occurs.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -80,6 +83,7 @@ pub const Zig = struct {
         raw: []const u8,
         version_entries: []*object_pools.VersionEntry,
     ) !usize {
+        // SAFETY: init() writes every TokenScanner field before any read occurs.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -109,10 +113,12 @@ pub const Zig = struct {
 
 pub const Zls = struct {
     pub const VersionData = struct {
-        version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined,
+        version_buffer: [limits.limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
         version_len: u32 = 0,
         id: u64 = 0,
-        tarball_buffer: [limits.limits.url_length_maximum]u8 = undefined,
+        tarball_buffer: [limits.limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.url_length_maximum]u8),
         tarball_len: u32 = 0,
         size: u64 = 0,
 
@@ -146,6 +152,7 @@ pub const Zls = struct {
             .{ platform_str, config.archive_ext },
         );
 
+        // SAFETY: init() writes every TokenScanner field before any read occurs.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -171,6 +178,7 @@ pub const Zls = struct {
         raw: []const u8,
         version_entries: []*object_pools.VersionEntry,
     ) !usize {
+        // SAFETY: init() writes every TokenScanner field before any read occurs.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -209,8 +217,6 @@ const TokenScanner = struct {
     fn init(target: *TokenScanner, raw: []const u8) !void {
         assert(raw.len > 0);
 
-        target.scanner_stack_buffer = undefined;
-        target.token_buffer = undefined;
         target.scanner_fba = std.heap.FixedBufferAllocator.init(&target.scanner_stack_buffer);
         target.token_fba = std.heap.FixedBufferAllocator.init(&target.token_buffer);
         target.scanner = std.json.Scanner.initCompleteInput(target.scanner_fba.allocator(), raw);
@@ -290,7 +296,7 @@ fn parse_zig_version_entry(
     version: []const u8,
     platform_str: []const u8,
 ) !?Zig.VersionData {
-    var version_data: Zig.VersionData = undefined;
+    var version_data: Zig.VersionData = .{};
     try Zig.VersionData.init(&version_data, version);
 
     try scanner.expect_object_begin();
@@ -368,7 +374,7 @@ fn parse_zls_release(
     version: []const u8,
     asset_name: []const u8,
 ) !?Zls.VersionData {
-    var version_data: Zls.VersionData = undefined;
+    var version_data: Zls.VersionData = .{};
     try Zls.VersionData.init(&version_data, version);
 
     try scanner.expect_object_begin();

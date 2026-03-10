@@ -5,12 +5,6 @@ const assert = std.debug.assert;
 
 const log = std.log.scoped(.detect_version);
 
-const BuildZigZon = struct {
-    version: []const u8,
-    minimum_zig_version: ?[]const u8 = null,
-    dependencies: struct {},
-};
-
 pub const VersionSource = enum {
     command_line,
     build_zig_zon,

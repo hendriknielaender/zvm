@@ -1,8 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const Errors = @import("../Errors.zig");
 const limits = @import("../memory/limits.zig");
-const log = std.log.scoped(.exec);
 
 pub const ExecBuffers = struct {
     tool_path: [limits.limits.path_length_maximum]u8,
