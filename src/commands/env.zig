@@ -33,11 +33,8 @@ pub fn execute(
 
     const shell_type = if (command.shell) |s| @tagName(s) else blk: {
         if (builtin.os.tag == .windows) {
-            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            defer arena.deinit();
-
             var utf8_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-            if (get_windows_env_var(arena.allocator(), "COMSPEC", &utf8_buffer) catch null) |shell_path| {
+            if (get_windows_env_var("COMSPEC", &utf8_buffer) catch null) |shell_path| {
                 const shell_name = std.fs.path.basename(shell_path);
                 if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
                     break :blk "powershell";
@@ -82,18 +79,11 @@ pub fn execute(
     try stdout.flush();
 }
 
-fn get_windows_env_var(allocator: std.mem.Allocator, var_name: []const u8, buffer: []u8) !?[]const u8 {
+fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
-
-    const result = std.process.getEnvVarOwned(allocator, var_name) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return null,
-        else => return err,
-    };
-
-    if (result.len >= buffer.len) {
-        return error.BufferTooSmall;
-    }
-
-    @memcpy(buffer[0..result.len], result);
-    return buffer[0..result.len];
+    const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(var_name);
+    const result_w = std.process.getenvW(key_w) orelse return null;
+    const result_len = std.unicode.wtf16LeToWtf8(buffer, result_w);
+    if (result_len > buffer.len) return error.BufferTooSmall;
+    return buffer[0..result_len];
 }

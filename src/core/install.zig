@@ -173,6 +173,7 @@ fn install_zig(
     try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
     try extract_and_install(ctx, extract_path, tarball_file, &items_done, root_node);
+    try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, false);
 }
@@ -216,12 +217,7 @@ fn fetch_version_data(
 
     assert(res.len > 0);
 
-    var zig_meta = try meta.Zig.init(res, ctx.get_json_allocator());
-    defer zig_meta.deinit();
-
-    const tmp_val = try zig_meta.get_version_data(version, platform_str, ctx.get_json_allocator());
-
-    const version_data = tmp_val orelse {
+    const version_data = try meta.Zig.get_version_data(res, version, platform_str) orelse {
         log.err("Unsupported version '{s}' for platform '{s}'. Check available versions with 'zvm list'", .{
             version,
             platform_str,
@@ -229,7 +225,7 @@ fn fetch_version_data(
         return error.UnsupportedVersion;
     };
 
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
     assert(version_data.shasum.len > 0);
 
@@ -245,17 +241,18 @@ fn download_and_verify_signature(
     items_done: *u32,
     root_node: Progress.Node,
 ) !void {
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(items_done.* >= 0);
 
-    const file_name = std.fs.path.basename(version_data.tarball);
+    const tarball_url = version_data.tarball();
+    const file_name = std.fs.path.basename(tarball_url);
     assert(file_name.len > 0);
-    assert(file_name.len <= version_data.tarball.len);
+    assert(file_name.len <= tarball_url.len);
 
     const signature_file_name = try build_signature_filename(ctx, file_name);
 
     var sig_url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
-    const sig_url = try std.fmt.bufPrint(&sig_url_buffer, "{s}.minisig", .{version_data.tarball});
+    const sig_url = try std.fmt.bufPrint(&sig_url_buffer, "{s}.minisig", .{tarball_url});
 
     const sig_download_node = root_node.start("verifying file signature", 0);
     const minisig_file = try download_file_from_url(ctx, sig_url, signature_file_name, null, null, sig_download_node);
@@ -340,7 +337,8 @@ fn extract_and_install(
     }
 
     try util_tool.try_create_path(extract_path);
-    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    defer extract_dir.close();
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
@@ -372,13 +370,14 @@ fn download_with_mirrors(
     root_node: Progress.Node,
     items_done: *u32,
 ) !std.fs.File {
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
     assert(items_done.* >= 0);
 
-    const file_name = std.fs.path.basename(version_data.tarball);
+    const tarball_url = version_data.tarball();
+    const file_name = std.fs.path.basename(tarball_url);
     assert(file_name.len > 0);
-    assert(file_name.len <= version_data.tarball.len);
+    assert(file_name.len <= tarball_url.len);
 
     if (config.preferred_mirror) |mirror_index| {
         if (mirror_index < config.zig_mirrors.len) {
@@ -421,18 +420,19 @@ fn download_with_fallbacks(
     root_node: Progress.Node,
     items_done: *u32,
 ) !std.fs.File {
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(file_name.len > 0);
     assert(items_done.* >= 0);
 
-    const parsed_uri = try std.Uri.parse(version_data.tarball);
+    const tarball_url = version_data.tarball();
+    const parsed_uri = try std.Uri.parse(tarball_url);
 
-    log.info("Downloading from official source: {s}", .{version_data.tarball});
+    log.info("Downloading from official source: {s}", .{tarball_url});
 
     var node_name_buffer = try ctx.acquire_path_buffer();
     defer node_name_buffer.reset();
     var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
-    try fbs.writer().print("download zig (official): {s}", .{version_data.tarball});
+    try fbs.writer().print("download zig (official): {s}", .{tarball_url});
     const node_name = node_name_buffer.used_slice();
 
     const download_node = root_node.start(node_name, version_data.size);
@@ -453,7 +453,7 @@ fn download_from_mirrors(
     file_name: []const u8,
     root_node: Progress.Node,
 ) !std.fs.File {
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(file_name.len > 0);
 
     for (config.zig_mirrors, 0..) |mirror_info, i| {
@@ -541,6 +541,7 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     defer tarball_file.close();
 
     try extract_zls(ctx, extract_path, tarball_file, root_node);
+    try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, true);
 }
@@ -569,10 +570,7 @@ fn fetch_zls_version_data(
     const res = try http_client.HttpClient.fetch(ctx, config.zls_url, .{});
     assert(res.len > 0);
 
-    var zls_meta = try meta.Zls.init(res, ctx.get_json_allocator());
-    defer zls_meta.deinit();
-
-    const version_data = try zls_meta.get_version_data(version, platform_str, ctx.get_json_allocator()) orelse {
+    const version_data = try meta.Zls.get_version_data(res, version, platform_str) orelse {
         log.err("Unsupported ZLS version '{s}' for platform '{s}'. Check available versions with " ++
             "'zvm list-remote --zls'", .{
             version,
@@ -581,7 +579,7 @@ fn fetch_zls_version_data(
         return error.UnsupportedVersion;
     };
 
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
 
     return version_data;
@@ -592,14 +590,15 @@ fn download_zls(
     version_data: meta.Zls.VersionData,
     root_node: Progress.Node,
 ) !std.fs.File {
-    assert(version_data.tarball.len > 0);
+    assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
 
-    const parsed_uri = try std.Uri.parse(version_data.tarball);
-    const file_name = std.fs.path.basename(version_data.tarball);
+    const tarball_url = version_data.tarball();
+    const parsed_uri = try std.Uri.parse(tarball_url);
+    const file_name = std.fs.path.basename(tarball_url);
 
     assert(file_name.len > 0);
-    assert(file_name.len <= version_data.tarball.len);
+    assert(file_name.len <= tarball_url.len);
 
     const download_node = root_node.start("downloading zls", version_data.size);
     const tarball_file = try download_file_with_verification(ctx, parsed_uri, file_name, null, version_data.size, download_node);
@@ -616,7 +615,8 @@ fn extract_zls(
     assert(extract_path.len > 0);
 
     try util_tool.try_create_path(extract_path);
-    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    defer extract_dir.close();
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();

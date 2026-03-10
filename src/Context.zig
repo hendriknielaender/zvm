@@ -23,10 +23,6 @@ pub const CliContext = struct {
     /// Static memory system for any remaining allocations.
     static_mem: static_memory.StaticMemory,
 
-    /// JSON parsing allocator - separate from static allocator to allow JSON parsing
-    /// even after static allocator is locked.
-    json_fba: std.heap.FixedBufferAllocator,
-
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
 
@@ -74,12 +70,8 @@ pub const CliContext = struct {
         // Initialize static memory system
         context_storage.static_mem = static_memory.StaticMemory.init(static_buffer);
 
-        // Initialize object pools (no allocation needed)
-        context_storage.pools = object_pools.ObjectPools.init();
-
-        // Initialize JSON allocator with the pre-allocated JSON buffer
-        const json_buffer = context_storage.pools.get_json_buffer();
-        context_storage.json_fba = std.heap.FixedBufferAllocator.init(json_buffer);
+        // Initialize object pools in place to avoid copying large scratch buffers on the stack.
+        object_pools.ObjectPools.init(&context_storage.pools);
     }
 
     /// Copy command line arguments into pre-allocated buffer
@@ -120,17 +112,15 @@ pub const CliContext = struct {
 
     /// Initialize home directory
     fn init_home_directory(context_storage: *CliContext) !void {
-        // Get home directory
         const home = blk: {
             if (builtin.os.tag == .windows) {
-                // On Windows, we need to use the allocator since we're converting from UTF-16
-                break :blk std.process.getEnvVarOwned(context_storage.static_mem.allocator(), "USERPROFILE") catch "./";
-            } else {
-                // On POSIX, use getenv which doesn't allocate, then copy to our buffer
-                const home_env = std.posix.getenv("HOME") orelse "./";
-                const allocated = context_storage.static_mem.allocator().dupe(u8, home_env) catch "./";
-                break :blk allocated;
+                const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral("USERPROFILE");
+                const home_w = std.process.getenvW(key_w) orelse break :blk "./";
+                const home_len = std.unicode.wtf16LeToWtf8(&context_storage.home_dir_buffer, home_w);
+                break :blk context_storage.home_dir_buffer[0..home_len];
             }
+
+            break :blk std.posix.getenv("HOME") orelse "./";
         };
 
         // Validate home directory
@@ -146,7 +136,9 @@ pub const CliContext = struct {
             });
             return error.HomeDirectoryTooLong;
         }
-        @memcpy(context_storage.home_dir_buffer[0..home.len], home);
+        if (builtin.os.tag != .windows) {
+            @memcpy(context_storage.home_dir_buffer[0..home.len], home);
+        }
         context_storage.home_dir_length = @intCast(home.len);
 
         assert(context_storage.home_dir_length > 0);
@@ -238,21 +230,6 @@ pub const CliContext = struct {
         return result;
     }
 
-    /// Get the JSON parse buffer.
-    pub fn get_json_buffer(self: *CliContext) []u8 {
-        const buffer = self.pools.get_json_buffer();
-        assert(buffer.len > 0);
-        assert(buffer.len == limits.limits.json_parse_size_maximum);
-        return buffer;
-    }
-
-    /// Get a JSON allocator that uses the pre-allocated JSON buffer.
-    /// This allocator is separate from the static allocator to allow JSON parsing
-    /// to work correctly even after the static allocator is locked.
-    pub fn get_json_allocator(self: *CliContext) std.mem.Allocator {
-        return self.json_fba.allocator();
-    }
-
     /// Get a ZON allocator
     pub fn get_zon_allocator(self: *CliContext) std.mem.Allocator {
         return self.static_mem.allocator();
@@ -303,7 +280,6 @@ pub const CliContext = struct {
     pub fn reset(self: *CliContext) void {
         self.pools.reset();
         self.static_mem.reset();
-        self.json_fba = std.heap.FixedBufferAllocator.init(self.pools.get_json_buffer());
         self.arguments_count = 0;
         self.home_dir_length = 0;
         instance = null;

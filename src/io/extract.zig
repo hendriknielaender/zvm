@@ -4,9 +4,9 @@ const data = @import("../util/data.zig");
 const tool = @import("../util/tool.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
+const builtin = @import("builtin");
 const log = std.log.scoped(.extract);
 
-const xz = std.compress.xz;
 const tar = std.tar;
 
 /// Extract file to out_dir using static allocation.
@@ -20,45 +20,65 @@ pub fn extract_static(
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir_static(extract_op, out_dir, file, root_node),
-        .tarxz => try extract_tarxz_to_dir(out_dir, file, is_zls, root_node),
+        .tarxz => try extract_tarxz_to_dir(extract_op, out_dir, file, is_zls, root_node),
         .tar_gz => try extract_targz_to_dir(out_dir, file, is_zls, root_node),
     }
 }
 
 /// Extract tar.xz to dir
 fn extract_tarxz_to_dir(
+    extract_op: *object_pools.ExtractOperation,
     out_dir: std.fs.Dir,
     file: std.fs.File,
     is_zls: bool,
     root_node: std.Progress.Node,
 ) !void {
-    // Create a File.Reader with buffer
-    var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
-    var file_reader = file.reader(&reader_buffer);
-
-    // Note: Decompression still needs dynamic allocation due to xz library requirements.
-    // This is unavoidable for compressed data handling.
-    // xz still expects the old reader interface, so we need to use the adapter
-    const generic_reader = file_reader.interface.adaptToOldInterface();
-    var decompressed = try xz.decompress(std.heap.page_allocator, generic_reader);
-    defer decompressed.deinit();
-
-    // Start extraction with an indeterminate progress indicator
     root_node.setEstimatedTotalItems(0);
-
-    // tar has been updated but xz hasn't, so we need to adapt the old reader to new API
-    var decompress_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
-    var old_reader = decompressed.reader();
-    var adapter = old_reader.adaptToNewApi(&decompress_buffer);
-    const new_reader = &adapter.new_interface;
-
-    try tar.pipeToFileSystem(
-        out_dir,
-        new_reader,
-        .{ .mode_mode = .executable_bit_only, .strip_components = if (is_zls) 0 else 1 },
-    );
-
+    try extract_tarxz_with_system_tar(extract_op, out_dir, file, is_zls);
     root_node.setCompletedItems(1);
+}
+
+fn extract_tarxz_with_system_tar(
+    extract_op: *object_pools.ExtractOperation,
+    out_dir: std.fs.Dir,
+    file: std.fs.File,
+    is_zls: bool,
+) !void {
+    if (builtin.os.tag == .windows) return error.UnsupportedPlatform;
+
+    var archive_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const archive_path = try std.os.getFdPath(file.handle, &archive_path_buffer);
+
+    var out_path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const out_path = try out_dir.realpath(".", &out_path_buffer);
+
+    const strip_components = if (is_zls) "0" else "1";
+    const tar_executable = "/usr/bin/tar";
+    const argv = [_][]const u8{
+        tar_executable,
+        "-xJf",
+        archive_path,
+        "-C",
+        out_path,
+        "--strip-components",
+        strip_components,
+    };
+
+    var process_fba = std.heap.FixedBufferAllocator.init(extract_op.slice());
+    var child = std.process.Child.init(&argv, process_fba.allocator());
+    child.expand_arg0 = .no_expand;
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Inherit;
+
+    try child.spawn();
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) return error.TarExtractionFailed;
+        },
+        else => return error.TarExtractionFailed,
+    }
 }
 
 /// Extract tar.gz to dir

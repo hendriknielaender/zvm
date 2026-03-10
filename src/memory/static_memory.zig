@@ -56,10 +56,6 @@ pub const StaticMemory = struct {
         assert(config.limits.arguments_storage_size_maximum > 0);
         total += config.limits.arguments_storage_size_maximum; // Arg strings.
 
-        // JSON parse buffer.
-        assert(config.limits.json_parse_size_maximum > 0);
-        total += config.limits.json_parse_size_maximum;
-
         // Miscellaneous buffers.
         assert(config.limits.home_dir_length_maximum > 0);
         total += config.limits.home_dir_length_maximum;
@@ -215,5 +211,4 @@ comptime {
     assert(config.limits.path_length_maximum >= 256);
     assert(config.limits.path_buffers_maximum >= 4);
     assert(config.limits.http_operations_maximum >= 1);
-    assert(config.limits.json_parse_size_maximum >= 512 * 1024); // At least 512KB for JSON
 }
