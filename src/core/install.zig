@@ -23,7 +23,7 @@ fn download_file_with_verification(
     uri: std.Uri,
     file_name: []const u8,
     shasum: ?[64]u8,
-    size: ?usize,
+    size: ?u64,
     progress_node: std.Progress.Node,
 ) !std.fs.File {
     defer progress_node.end();
@@ -281,11 +281,23 @@ fn download_file_from_url(
     url: []const u8,
     file_name: []const u8,
     shasum: ?[64]u8,
-    size: ?usize,
+    size: ?u64,
     progress_node: std.Progress.Node,
 ) !std.fs.File {
     const uri = try std.Uri.parse(url);
     return try download_file_with_verification(ctx, uri, file_name, shasum, size, progress_node);
+}
+
+fn progress_items_from_size(size_bytes: u64) usize {
+    assert(size_bytes > 0);
+
+    const progress_items_max_u64: u64 = std.math.maxInt(usize);
+    if (size_bytes <= progress_items_max_u64) {
+        return @intCast(size_bytes);
+    } else {
+        // Progress metadata is bounded by usize even when the file size is not.
+        return std.math.maxInt(usize);
+    }
 }
 
 fn verify_signature(
@@ -394,7 +406,10 @@ fn download_with_mirrors(
             try fbs.writer().print("download zig (mirror {d}): {s}", .{ mirror_index, mirror_url });
             const node_name = node_name_buffer.used_slice();
 
-            const download_node = root_node.start(node_name, version_data.size);
+            const download_node = root_node.start(
+                node_name,
+                progress_items_from_size(version_data.size),
+            );
 
             const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
                 log.warn("Failed to download from preferred mirror {s}: {s}", .{ mirror_url, @errorName(err) });
@@ -435,7 +450,10 @@ fn download_with_fallbacks(
     try fbs.writer().print("download zig (official): {s}", .{tarball_url});
     const node_name = node_name_buffer.used_slice();
 
-    const download_node = root_node.start(node_name, version_data.size);
+    const download_node = root_node.start(
+        node_name,
+        progress_items_from_size(version_data.size),
+    );
 
     const result = download_file_with_verification(ctx, parsed_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
         log.warn("Failed to download from official source: {s}", .{@errorName(err)});
@@ -475,7 +493,10 @@ fn download_from_mirrors(
         try fbs.writer().print("download zig (mirror {d}): {s}", .{ i, mirror_url });
         const node_name = node_name_buffer.used_slice();
 
-        const download_node = root_node.start(node_name, version_data.size);
+        const download_node = root_node.start(
+            node_name,
+            progress_items_from_size(version_data.size),
+        );
 
         const result = download_file_with_verification(ctx, mirror_uri, file_name, version_data.shasum, version_data.size, download_node) catch |err| {
             log.warn("Failed to download from mirror {s}: {s}", .{ mirror_url, @errorName(err) });
@@ -600,7 +621,10 @@ fn download_zls(
     assert(file_name.len > 0);
     assert(file_name.len <= tarball_url.len);
 
-    const download_node = root_node.start("downloading zls", version_data.size);
+    const download_node = root_node.start(
+        "downloading zls",
+        progress_items_from_size(version_data.size),
+    );
     const tarball_file = try download_file_with_verification(ctx, parsed_uri, file_name, null, version_data.size, download_node);
 
     return tarball_file;
