@@ -337,7 +337,8 @@ fn extract_and_install(
     }
 
     try util_tool.try_create_path(extract_path);
-    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    defer extract_dir.close();
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
@@ -614,7 +615,8 @@ fn extract_zls(
     assert(extract_path.len > 0);
 
     try util_tool.try_create_path(extract_path);
-    const extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
+    defer extract_dir.close();
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();

@@ -129,9 +129,13 @@ fn build_manifest_path(
 ) ![]const u8 {
     assert(install_path.len > 0);
 
-    var stream = std.Io.fixedBufferStream(path_buffer.slice());
-    try stream.writer().print("{s}/{s}", .{ install_path, version_manifest_name });
-    return try path_buffer.set(stream.getWritten());
+    var manifest_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const manifest_path = try std.fmt.bufPrint(
+        &manifest_path_storage,
+        "{s}/{s}",
+        .{ install_path, version_manifest_name },
+    );
+    return try path_buffer.set(manifest_path);
 }
 
 fn read_version_manifest_absolute(
@@ -165,4 +169,15 @@ pub fn get_current_version(
         try get_zvm_current_zig(path_buffer);
 
     return try read_version_manifest_absolute(path_buffer, base_path, output_buffer);
+}
+
+test "build_manifest_path handles aliased input and output buffers" {
+    var path_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    const install_path = try path_buffer.set("/tmp/zvm/install");
+    const manifest_path = try build_manifest_path(&path_buffer, install_path);
+
+    try std.testing.expectEqualStrings(
+        "/tmp/zvm/install/.zvm-version",
+        manifest_path,
+    );
 }

@@ -134,8 +134,8 @@ pub const VersionEntry = struct {
 
 /// Pre-allocated extract operation with static buffer.
 pub const ExtractOperation = struct {
+    // Scratch space for extraction helpers such as child-process setup.
     buffer: [limits.limits.extract_buffer_size_maximum]u8,
-    xz_scratch_buffer: [limits.limits.xz_scratch_size_maximum]u8,
     tmp_path_buffer: PathBuffer,
     out_path_buffer: PathBuffer,
     in_use: bool = false,
@@ -154,10 +154,6 @@ pub const ExtractOperation = struct {
 
     pub fn slice(self: *ExtractOperation) []u8 {
         return self.buffer[0..];
-    }
-
-    pub fn xz_scratch_slice(self: *ExtractOperation) []u8 {
-        return self.xz_scratch_buffer[0..];
     }
 };
 

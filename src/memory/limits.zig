@@ -58,9 +58,6 @@ pub const limits = struct {
     /// Maximum size of extract buffer.
     pub const extract_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
 
-    /// Maximum size for XZ decoder scratch state.
-    pub const xz_scratch_size_maximum: u32 = 16 * 1024 * 1024;
-
     /// Maximum process output buffer.
     pub const process_output_size_maximum: u32 = 4096;
 
