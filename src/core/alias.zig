@@ -147,7 +147,13 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
             error.PathAlreadyExists => continue,
             else => return err,
         };
-        errdefer current_dir.deleteFile(temp_name) catch {};
+        errdefer current_dir.deleteFile(temp_name) catch |delete_err| switch (delete_err) {
+            error.FileNotFound => {},
+            else => log.warn("Failed to remove temporary symlink '{s}': {s}", .{
+                temp_name,
+                @errorName(delete_err),
+            }),
+        };
 
         try current_dir.rename(temp_name, symlink_basename);
         break;

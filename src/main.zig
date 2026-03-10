@@ -47,7 +47,6 @@ const commands = struct {
     pub const completions = @import("commands/completions.zig");
 };
 
-const detect_version = @import("core/detect_version.zig");
 const install = @import("core/install.zig");
 
 // SAFETY: global_static_buffer is initialized before first use in main().
@@ -285,6 +284,7 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
     if (std.mem.eql(u8, version, "current")) return error.AlreadyCurrent;
 
     // Create a minimal context for installation
+    // SAFETY: CliContext.init() initializes every field before the context is used.
     var install_context: Context.CliContext = undefined;
     var install_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 = undefined;
 
