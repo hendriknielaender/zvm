@@ -5,6 +5,7 @@ const alias = @import("alias.zig");
 const meta = @import("meta.zig");
 const util_arch = @import("../util/arch.zig");
 const util_data = @import("../util/data.zig");
+const util_output = @import("../util/output.zig");
 const util_extract = @import("../io/extract.zig");
 const util_tool = @import("../util/tool.zig");
 const http_client = @import("../io/http_client.zig");
@@ -324,12 +325,14 @@ fn verify_signature(
     try sig_path_fbs.writer().print("{s}/{s}", .{ zvm_store_path, signature_file_name });
     const sig_path = try sig_path_buffer.set(sig_path_fbs.getWritten());
 
-    try util_minimumisign.verify_static(
+    util_minimumisign.verify_static(
         ctx,
         sig_path,
         config.ZIG_MINISIGN_PUBLIC_KEY,
         tarball_path,
-    );
+    ) catch |err| {
+        util_output.fatal(.corruption_detected, "Failed to verify Zig signature: {s}", .{@errorName(err)});
+    };
 }
 
 fn extract_and_install(

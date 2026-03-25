@@ -1,11 +1,7 @@
 const std = @import("std");
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
-const object_pools = @import("../memory/object_pools.zig");
 const log = std.log.scoped(.http);
-
-// Check if we have gzip decompression available
-const has_gzip = @hasDecl(std.compress, "gzip");
 
 /// HTTP client that uses pre-allocated operations from the pool.
 ///

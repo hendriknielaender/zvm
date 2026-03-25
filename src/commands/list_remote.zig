@@ -1,13 +1,13 @@
 const std = @import("std");
 const context = @import("../Context.zig");
-
-const util_color = @import("../util/color.zig");
+const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
 const config = @import("../metadata.zig");
 const http_client = @import("../io/http_client.zig");
 const meta = @import("../core/meta.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
+const version_entries_max = 100;
 
 pub fn execute(
     ctx: *context.CliContext,
@@ -16,38 +16,73 @@ pub fn execute(
 ) !void {
     _ = progress_node;
 
-    var color = util_color.Color.RuntimeStyle.init();
-
     const meta_url = if (command.tool == .zls) config.zls_url else config.zig_url;
-    const res = try http_client.HttpClient.fetch(ctx, meta_url, .{});
-
+    const response = try http_client.HttpClient.fetch(ctx, meta_url, .{});
     var version_entries_storage: [limits.limits.versions_maximum]*object_pools.VersionEntry = undefined;
-    const max_entries = 100;
-    var entries_count: usize = 0;
+    const version_count = try load_version_entries(
+        ctx,
+        command.tool,
+        response,
+        &version_entries_storage,
+    );
+    defer release_version_entries(version_entries_storage[0..version_entries_max]);
 
-    while (entries_count < max_entries) : (entries_count += 1) {
+    var version_names: [limits.limits.versions_maximum][]const u8 = undefined;
+    copy_version_names(version_entries_storage[0..version_count], &version_names);
+
+    const emitter = util_output.get_global();
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "tool", .value = .{ .string = command.tool.to_string() } },
+            .{ .key = "available", .value = .{ .array_strings = version_names[0..version_count] } },
+        };
+        util_output.json_object(&fields);
+        return;
+    }
+
+    if (command.tool == .zls) {
+        util_output.info("Available ZLS versions:", .{});
+    } else {
+        util_output.info("Available Zig versions:", .{});
+    }
+
+    for (version_names[0..version_count]) |version| {
+        util_output.info("  {s}", .{version});
+    }
+}
+
+fn load_version_entries(
+    ctx: *context.CliContext,
+    tool: validation.ToolType,
+    response: []const u8,
+    version_entries_storage: *[limits.limits.versions_maximum]*object_pools.VersionEntry,
+) !usize {
+    var entries_count: usize = 0;
+    errdefer release_version_entries(version_entries_storage[0..entries_count]);
+
+    while (entries_count < version_entries_max) : (entries_count += 1) {
         version_entries_storage[entries_count] = try ctx.acquire_version_entry();
     }
 
-    defer {
-        for (version_entries_storage[0..entries_count]) |entry| {
-            entry.reset();
-        }
-    }
-
-    const version_count = if (command.tool == .zls)
-        try meta.Zls.get_version_list(res, version_entries_storage[0..entries_count])
+    const version_count = if (tool == .zls)
+        try meta.Zls.get_version_list(response, version_entries_storage[0..entries_count])
     else
-        try meta.Zig.get_version_list(res, version_entries_storage[0..entries_count]);
+        try meta.Zig.get_version_list(response, version_entries_storage[0..entries_count]);
 
-    if (command.tool == .zls) {
-        try color.bold().white().print("Available ZLS versions:\n", .{});
-    } else {
-        try color.bold().white().print("Available Zig versions:\n", .{});
+    return version_count;
+}
+
+fn copy_version_names(
+    version_entries: []const *object_pools.VersionEntry,
+    version_names: *[limits.limits.versions_maximum][]const u8,
+) void {
+    for (version_entries, 0..) |entry, index| {
+        version_names[index] = entry.get_name();
     }
+}
 
-    for (version_entries_storage[0..version_count]) |entry| {
-        const version = entry.get_name();
-        try color.green().print("  {s}\n", .{version});
+fn release_version_entries(entries: []const *object_pools.VersionEntry) void {
+    for (entries) |entry| {
+        entry.reset();
     }
 }

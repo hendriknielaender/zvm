@@ -135,6 +135,9 @@ zvm use 0.13.0
 # List installed versions
 zvm list
 
+# List installed Zig and ZLS versions together
+zvm list --all
+
 # List all available versions
 zvm list-remote
 
@@ -167,8 +170,8 @@ zvm list --help
 # Use attached long-option values
 zvm env --shell=zsh
 
-# Combine short global options
-zvm -qV
+# Use the short version alias
+zvm -V
 
 # End option parsing explicitly
 zvm -- list
