@@ -223,12 +223,15 @@ pub fn main(process_init: std.process.Init) !void {
     });
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
+        root_node.end();
         util_output.fatal(
             util_output.ExitCode.from_error(err),
             "Command failed: {s}",
             .{@errorName(err)},
         );
     };
+
+    root_node.end();
 
     const has_debug = if (builtin.os.tag == .windows) blk: {
         break :blk has_windows_env_var("ZVM_DEBUG");
