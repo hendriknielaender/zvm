@@ -97,9 +97,9 @@ fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
         var path_buf = try ctx.acquire_path_buffer();
         defer path_buf.reset();
 
-        var stream = @import("compat").fixedBufferStream(path_buf.slice());
-        try stream.writer().print("{s}/build.zig.zon", .{search_dir});
-        const build_zon_path = try path_buf.set(stream.getWritten());
+        const build_zon_path = try path_buf.set(
+            try std.fmt.bufPrint(path_buf.slice(), "{s}/build.zig.zon", .{search_dir}),
+        );
 
         if (try parse_build_zig_zon(ctx, build_zon_path)) |version| {
             return version;
@@ -219,9 +219,9 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     var zig_path_buffer = try ctx.acquire_path_buffer();
     defer zig_path_buffer.reset();
 
-    var stream = @import("compat").fixedBufferStream(zig_path_buffer.slice());
-    try stream.writer().print("{s}/zig", .{version_path});
-    const zig_path = try zig_path_buffer.set(stream.getWritten());
+    const zig_path = try zig_path_buffer.set(
+        try std.fmt.bufPrint(zig_path_buffer.slice(), "{s}/zig", .{version_path}),
+    );
 
     return util_tool.does_path_exist(ctx.io, zig_path);
 }
@@ -243,16 +243,13 @@ fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8
     var buffer = try ctx.acquire_path_buffer();
     defer buffer.reset();
 
-    var stream = @import("compat").fixedBufferStream(buffer.slice());
     const home_dir = ctx.get_home_dir();
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/version/zig/{s}", .{ xdg_data, version });
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/version/zig/{s}", .{ home_dir, version });
-    }
-
-    const path = try buffer.set(stream.getWritten());
+    const path = try buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/version/zig/{s}", .{ xdg_data, version })
+        else
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/version/zig/{s}", .{ home_dir, version }),
+    );
 
     // Always duplicate the path using the allocator
     return ctx.get_allocator().dupe(u8, path) catch error.OutOfMemory;
@@ -293,15 +290,12 @@ pub fn find_default_version_in_buffer(
     defer config_path_buffer.reset();
 
     const home_dir = ctx.get_home_dir();
-    var stream = @import("compat").fixedBufferStream(config_path_buffer.slice());
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/default_version", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/default_version", .{home_dir});
-    }
-
-    const config_path = try config_path_buffer.set(stream.getWritten());
+    const config_path = try config_path_buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.zm/default_version", .{xdg_data})
+        else
+            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.local/share/.zm/default_version", .{home_dir}),
+    );
 
     const file = std.Io.Dir.cwd().openFile(ctx.io, config_path, .{}) catch return null;
     defer file.close(ctx.io);
@@ -326,16 +320,13 @@ fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
     var current_zig_path_buffer = try ctx.acquire_path_buffer();
     defer current_zig_path_buffer.reset();
 
-    var stream = @import("compat").fixedBufferStream(current_zig_path_buffer.slice());
     const home_dir = ctx.get_home_dir();
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/current/zig", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/current/zig", .{home_dir});
-    }
-
-    const current_zig_path = try current_zig_path_buffer.set(stream.getWritten());
+    const current_zig_path = try current_zig_path_buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.zm/current/zig", .{xdg_data})
+        else
+            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.local/share/.zm/current/zig", .{home_dir}),
+    );
 
     // Check if symlink exists and where it points
     var link_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;

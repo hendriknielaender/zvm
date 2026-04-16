@@ -212,24 +212,21 @@ pub const CliContext = struct {
 
         // buffer is a pointer, not optional - no need for null check
 
-        var fixed_buffer_stream = @import("compat").fixedBufferStream(buffer.slice());
         const home_dir = self.get_home_dir();
         assert(home_dir.len > 0);
 
         // Follow XDG Base Directory specification
-        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-            try fixed_buffer_stream.writer().print("{s}/.zm/{s}", .{ xdg_data, segment });
-        } else {
-            // Use XDG default: $HOME/.local/share/.zm
-            try fixed_buffer_stream.writer().print("{s}/.local/share/.zm/{s}", .{ home_dir, segment });
-        }
+        const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/{s}", .{ xdg_data, segment })
+        else
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/{s}", .{ home_dir, segment });
 
-        const result = try buffer.set(fixed_buffer_stream.getWritten());
+        const path = try buffer.set(result);
 
-        assert(result.len > 0);
-        assert(result.len <= limits.limits.path_length_maximum);
+        assert(path.len > 0);
+        assert(path.len <= limits.limits.path_length_maximum);
 
-        return result;
+        return path;
     }
 
     /// Get a ZON allocator

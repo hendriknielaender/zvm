@@ -28,9 +28,6 @@ pub fn build(b: *Build) void {
     const options = b.addOptions();
     options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
     options.addOption([]const u8, "version", semver_string);
-    const compat_module = b.createModule(.{
-        .root_source_file = b.path("src/compat.zig"),
-    });
 
     const exe = b.addExecutable(.{
         .name = "zvm",
@@ -44,7 +41,6 @@ pub fn build(b: *Build) void {
 
     const exe_options_module = options.createModule();
     exe.root_module.addImport("options", exe_options_module);
-    exe.root_module.addImport("compat", compat_module);
 
     b.installArtifact(exe);
 
@@ -89,7 +85,6 @@ pub fn build(b: *Build) void {
 
         const rel_exe_options_module = options.createModule();
         rel_exe.root_module.addImport("options", rel_exe_options_module);
-        rel_exe.root_module.addImport("compat", compat_module);
 
         const file_name_ext = if (t.os.tag == .windows) ".exe" else "";
 
@@ -111,7 +106,6 @@ pub fn build(b: *Build) void {
     });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
-    unit_tests.root_module.addImport("compat", compat_module);
 
     // Add staged validation tests
     const staged_validation_tests = b.addTest(.{
@@ -123,7 +117,6 @@ pub fn build(b: *Build) void {
     });
 
     const run_staged_validation_tests = b.addRunArtifact(staged_validation_tests);
-    staged_validation_tests.root_module.addImport("compat", compat_module);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request

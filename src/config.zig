@@ -67,19 +67,13 @@ fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
             @memcpy(self.zvm_home_buffer[0..zvm_home.len], zvm_home);
             return self.zvm_home_buffer[0..zvm_home.len];
         } else {
-            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
-            try stream.writer().print("{s}\\.zm", .{home});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}\\.zm", .{home});
         }
     } else {
         if (self.get_env_var_to_buffer("XDG_DATA_HOME", &self.env_buffer)) |xdg_data| {
-            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
-            try stream.writer().print("{s}/.zm", .{xdg_data});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}/.zm", .{xdg_data});
         } else {
-            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
-            try stream.writer().print("{s}/.local/share/.zm", .{home});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}/.local/share/.zm", .{home});
         }
     }
 }

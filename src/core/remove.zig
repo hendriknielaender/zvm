@@ -119,9 +119,9 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     defer version_path_buffer.reset();
     // version_path_buffer is a pointer, not optional - no need for null check
 
-    var fbs = @import("compat").fixedBufferStream(version_path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ base_path, true_version });
-    const version_path = try version_path_buffer.set(fbs.getWritten());
+    const version_path = try version_path_buffer.set(
+        try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, true_version }),
+    );
 
     assert(version_path.len > 0);
     assert(version_path.len <= limits.limits.path_length_maximum);

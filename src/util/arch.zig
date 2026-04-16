@@ -89,14 +89,12 @@ pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParam
             return error.UnsupportedSystem;
         };
 
-    var fbs = @import("compat").fixedBufferStream(buffer.slice());
-    if (params.reverse) {
-        try fbs.writer().print("{s}-{s}", .{ arch_str, os_str });
-    } else {
-        try fbs.writer().print("{s}-{s}", .{ os_str, arch_str });
-    }
+    const result = if (params.reverse)
+        try std.fmt.bufPrint(buffer.slice(), "{s}-{s}", .{ arch_str, os_str })
+    else
+        try std.fmt.bufPrint(buffer.slice(), "{s}-{s}", .{ os_str, arch_str });
 
-    return try buffer.set(fbs.getWritten());
+    return try buffer.set(result);
 }
 
 /// Platform string for ZLS using static allocation.

@@ -33,9 +33,9 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
 
     var version_path_buffer = try ctx.acquire_path_buffer();
     defer version_path_buffer.reset();
-    var fbs = @import("compat").fixedBufferStream(version_path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ base_path, version });
-    const version_path = try version_path_buffer.set(fbs.getWritten());
+    const version_path = try version_path_buffer.set(
+        try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
+    );
 
     std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
         if (err != error.FileNotFound)

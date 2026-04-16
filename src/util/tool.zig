@@ -69,15 +69,15 @@ pub fn copy_dir_static(
 
         // Build source sub path.
         source_path_buffer.reset();
-        var fbs_src = @import("compat").fixedBufferStream(source_path_buffer.slice());
-        try fbs_src.writer().print("{s}/{s}", .{ source_dir, entry_name });
-        const source_sub_path = try source_path_buffer.set(fbs_src.getWritten());
+        const source_sub_path = try source_path_buffer.set(
+            try std.fmt.bufPrint(source_path_buffer.slice(), "{s}/{s}", .{ source_dir, entry_name }),
+        );
 
         // Build dest sub path.
         dest_path_buffer.reset();
-        var fbs_dest = @import("compat").fixedBufferStream(dest_path_buffer.slice());
-        try fbs_dest.writer().print("{s}/{s}", .{ dest_dir, entry_name });
-        const dest_sub_path = try dest_path_buffer.set(fbs_dest.getWritten());
+        const dest_sub_path = try dest_path_buffer.set(
+            try std.fmt.bufPrint(dest_path_buffer.slice(), "{s}/{s}", .{ dest_dir, entry_name }),
+        );
 
         switch (entry.kind) {
             .directory => try copy_dir_static(io, source_sub_path, dest_sub_path, source_path_buffer, dest_path_buffer),

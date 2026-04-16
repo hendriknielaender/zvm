@@ -12,9 +12,7 @@ pub const ExecBuffers = struct {
 pub fn build_tool_path(buffers: *ExecBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (std.mem.eql(u8, program_name, "zig")) "zig" else "zls";
 
-    var stream = @import("compat").fixedBufferStream(&buffers.tool_path);
-    try stream.writer().print("{s}/current/{s}", .{ zvm_home, tool_name });
-    return stream.getWritten();
+    return try std.fmt.bufPrint(&buffers.tool_path, "{s}/current/{s}", .{ zvm_home, tool_name });
 }
 
 pub fn build_exec_arguments(buffers: *ExecBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {

@@ -653,19 +653,13 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
         if (get_windows_env_var("ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
-            var stream = @import("compat").fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}\\.zm", .{home_slice});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}\\.zm", .{home_slice});
         }
     } else {
         if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-            var stream = @import("compat").fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}/.zm", .{xdg_data});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.zm", .{xdg_data});
         } else {
-            var stream = @import("compat").fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}/.local/share/.zm", .{home_slice});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.local/share/.zm", .{home_slice});
         }
     }
 }
@@ -673,22 +667,16 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
 fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = @import("compat").fixedBufferStream(&alias_buffers.tool_path);
-    try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
-    return stream.getWritten();
+    return try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
 }
 
 fn build_smart_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8, version: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = @import("compat").fixedBufferStream(&alias_buffers.tool_path);
-    if (util_tool.eql_str(version, "current")) {
-        try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
-    } else {
-        const tool_prefix = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
-        try stream.writer().print("{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_prefix, version, tool_name });
-    }
-    return stream.getWritten();
+    return if (util_tool.eql_str(version, "current"))
+        try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name })
+    else
+        try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_name, version, tool_name });
 }
 
 fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {

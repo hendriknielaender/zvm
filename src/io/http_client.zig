@@ -46,8 +46,8 @@ pub const HttpClient = struct {
         };
         defer client.deinit();
 
-        var buffer_writer = @import("compat").fixedBufferStream(&operation.response_buffer);
-        const writer = buffer_writer.writer();
+        var writer_state: std.Io.Writer = .fixed(&operation.response_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         // Use the simple fetch API that handles redirects, compression, etc. automatically
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
@@ -66,7 +66,7 @@ pub const HttpClient = struct {
             return error.HttpRequestFailed;
         }
 
-        const bytes_read = buffer_writer.getWritten().len;
+        const bytes_read = writer_state.buffered().len;
         if (bytes_read == 0) {
             log.err("HTTP response is empty for URL: {any}", .{uri});
             return error.EmptyResponse;
@@ -133,12 +133,12 @@ pub const HttpClient = struct {
 
 test "adapted fixed buffer writer flushes into the backing stream" {
     var response_buffer: [64]u8 = undefined;
-    var stream = @import("compat").fixedBufferStream(&response_buffer);
-    const writer = stream.writer();
+    var writer_state: std.Io.Writer = .fixed(&response_buffer);
+    const writer: *std.Io.Writer = &writer_state;
 
     try writer.writeAll("hello");
     try writer.flush();
 
-    try std.testing.expectEqual(@as(usize, 5), stream.getWritten().len);
-    try std.testing.expectEqualStrings("hello", stream.getWritten());
+    try std.testing.expectEqual(@as(usize, 5), writer_state.buffered().len);
+    try std.testing.expectEqualStrings("hello", writer_state.buffered());
 }
