@@ -48,7 +48,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     assert(current_path.len <= limits.limits.path_length_maximum);
 
     // Try remove current path.
-    if (util_tool.does_path_exist(current_path)) {
+    if (util_tool.does_path_exist(ctx.io, current_path)) {
         var should_remove_current = false;
 
         // In smart Zig mode, current/zig points to zvm and default_version identifies active Zig.
@@ -95,9 +95,9 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
         if (should_remove_current) {
             if (builtin.os.tag == .windows) {
-                try std.fs.deleteTreeAbsolute(current_path);
+                try std.Io.Dir.cwd().deleteTree(ctx.io, current_path);
             } else {
-                try std.fs.deleteFileAbsolute(current_path);
+                try std.Io.Dir.deleteFileAbsolute(ctx.io, current_path);
             }
         }
     }
@@ -119,7 +119,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     defer version_path_buffer.reset();
     // version_path_buffer is a pointer, not optional - no need for null check
 
-    var fbs = std.Io.fixedBufferStream(version_path_buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(version_path_buffer.slice());
     try fbs.writer().print("{s}/{s}", .{ base_path, true_version });
     const version_path = try version_path_buffer.set(fbs.getWritten());
 
@@ -129,13 +129,13 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     assert(version_path.len >= base_path.len + true_version.len + 1); // +1 for '/'
 
     // Try remove version path.
-    if (util_tool.does_path_exist(version_path)) {
+    if (util_tool.does_path_exist(ctx.io, version_path)) {
         assert(std.mem.indexOf(u8, version_path, ".zm") != null);
 
-        try std.fs.deleteTreeAbsolute(version_path);
+        try std.Io.Dir.cwd().deleteTree(ctx.io, version_path);
 
-        if (!util_tool.does_path_exist(version_path)) {
-            assert(!util_tool.does_path_exist(version_path));
+        if (!util_tool.does_path_exist(ctx.io, version_path)) {
+            assert(!util_tool.does_path_exist(ctx.io, version_path));
         }
     }
 }

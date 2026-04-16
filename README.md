@@ -233,7 +233,7 @@ zvm completions fish > ~/.config/fish/completions/zvm.fish
 ## 🏗️ Building from Source
 
 ### Prerequisites
-- Zig 0.15.1 or later
+- Zig 0.16.0 or later
 
 ### Build Steps
 ```bash

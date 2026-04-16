@@ -1,7 +1,6 @@
 const std = @import("std");
 const base64 = std.base64;
 const crypto = std.crypto;
-const fs = std.fs;
 const mem = std.mem;
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
@@ -109,11 +108,15 @@ pub const Signature = struct {
         return sig;
     }
 
-    pub fn from_file_static(buffer: []u8, path: []const u8) !Signature {
-        const file = try fs.openFileAbsolute(path, .{ .mode = .read_only });
-        defer file.close();
+    pub fn from_file_static(io: std.Io, buffer: []u8, path: []const u8) !Signature {
+        const file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
+        defer file.close(io);
 
-        const bytes_read = try file.read(buffer);
+        var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var file_reader = file.reader(io, &reader_buffer);
+        const bytes_read = file_reader.interface.readSliceShort(buffer) catch |err| switch (err) {
+            error.ReadFailed => return file_reader.err.?,
+        };
         if (bytes_read >= buffer.len) {
             return error.SignatureFileTooLarge;
         }
@@ -226,11 +229,9 @@ pub fn verify_static(
     public_key_str: []const u8,
     file_path: []const u8,
 ) !void {
-    _ = ctx;
-
     var sig_buffer: [limits.limits.signature_buffer_size]u8 = undefined;
 
-    var signature = try Signature.from_file_static(&sig_buffer, signature_path);
+    var signature = try Signature.from_file_static(ctx.io, &sig_buffer, signature_path);
     defer signature.deinit();
 
     signature.fix_trusted_comment_slice();
@@ -239,12 +240,16 @@ pub fn verify_static(
 
     var verifier = try Verifier.init(public_key, &signature);
 
-    const file = try fs.openFileAbsolute(file_path, .{ .mode = .read_only });
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(ctx.io, file_path, .{ .mode = .read_only });
+    defer file.close(ctx.io);
 
     var buffer: [limits.limits.signature_buffer_size]u8 = undefined;
+    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var file_reader = file.reader(ctx.io, &reader_buffer);
     while (true) {
-        const bytes_read = try file.read(&buffer);
+        const bytes_read = file_reader.interface.readSliceShort(&buffer) catch |err| switch (err) {
+            error.ReadFailed => return file_reader.err.?,
+        };
         if (bytes_read == 0) break;
         verifier.update(buffer[0..bytes_read]);
     }

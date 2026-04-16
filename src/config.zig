@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const util_output = @import("util/output.zig");
+const util_tool = @import("util/tool.zig");
 const metadata = @import("metadata.zig");
 
 zvm_home: []const u8,
@@ -66,17 +67,17 @@ fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
             @memcpy(self.zvm_home_buffer[0..zvm_home.len], zvm_home);
             return self.zvm_home_buffer[0..zvm_home.len];
         } else {
-            var stream = std.Io.fixedBufferStream(&self.zvm_home_buffer);
+            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
             try stream.writer().print("{s}\\.zm", .{home});
             return stream.getWritten();
         }
     } else {
         if (self.get_env_var_to_buffer("XDG_DATA_HOME", &self.env_buffer)) |xdg_data| {
-            var stream = std.Io.fixedBufferStream(&self.zvm_home_buffer);
+            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
             try stream.writer().print("{s}/.zm", .{xdg_data});
             return stream.getWritten();
         } else {
-            var stream = std.Io.fixedBufferStream(&self.zvm_home_buffer);
+            var stream = @import("compat").fixedBufferStream(&self.zvm_home_buffer);
             try stream.writer().print("{s}/.local/share/.zm", .{home});
             return stream.getWritten();
         }
@@ -89,22 +90,10 @@ fn get_env_var(self: *Self, name: []const u8) ?[]const u8 {
 
 fn get_env_var_to_buffer(self: *Self, name: []const u8, buffer: []u8) ?[]const u8 {
     _ = self;
-    if (builtin.os.tag == .windows) {
-        // For Windows, convert to UTF-16 and use getenvW
-        var name_w: [256:0]u16 = undefined;
-        const name_len = std.unicode.utf8ToUtf16Le(name_w[0..], name) catch return null;
-        name_w[name_len] = 0;
-
-        if (std.process.getenvW(name_w[0..name_len :0].ptr)) |value_w| {
-            const value_len = std.unicode.utf16LeToUtf8(buffer, value_w) catch return null;
-            return buffer[0..value_len];
-        } else {
-            return null;
-        }
-    } else {
-        // Use POSIX API for Unix-like systems
-        return std.posix.getenv(name);
-    }
+    const value = util_tool.getenv_cross_platform(name) orelse return null;
+    if (value.len > buffer.len) return null;
+    @memcpy(buffer[0..value.len], value);
+    return buffer[0..value.len];
 }
 
 pub fn validate(self: Self) !void {

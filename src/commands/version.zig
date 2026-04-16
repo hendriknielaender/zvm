@@ -39,7 +39,7 @@ test "version command executes without error" {
     _ = try util_output.init_global(output_config);
 
     const command = validation.ValidatedCommand.VersionCommand{};
-    const progress_node = std.Progress.start(.{ .root_name = "test" });
+    const progress_node = std.Progress.start(std.testing.io, .{ .root_name = "test" });
     defer progress_node.end();
 
     var mock_ctx: context.CliContext = undefined;

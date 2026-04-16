@@ -212,7 +212,7 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll("{\"") catch return;
@@ -242,7 +242,7 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll("{") catch return;
@@ -364,7 +364,7 @@ pub const OutputEmitter = struct {
     fn emit_json_message(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll("{\"level\":") catch return;
@@ -399,7 +399,7 @@ pub const OutputEmitter = struct {
 
     /// Write colored text to stdout
     fn write_colored_to_stdout(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll(color_code) catch return;
@@ -412,7 +412,7 @@ pub const OutputEmitter = struct {
 
     /// Write colored text to stderr
     fn write_colored_to_stderr(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stderr_buffer);
         const writer = stream.writer();
 
         writer.writeAll(color_code) catch return;
@@ -425,7 +425,7 @@ pub const OutputEmitter = struct {
 
     /// Write plain text to stdout
     fn write_plain_to_stdout(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stdout_buffer);
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;
@@ -436,7 +436,7 @@ pub const OutputEmitter = struct {
 
     /// Write plain text to stderr
     fn write_plain_to_stderr(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
+        var stream = @import("compat").fixedBufferStream(&self.stderr_buffer);
         const writer = stream.writer();
 
         writer.writeAll(text) catch return;
@@ -450,8 +450,7 @@ pub const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
-        const stdout = std.fs.File.stdout();
-        stdout.writeAll(content) catch return;
+        std.Io.File.stdout().writeStreamingAll(@import("compat").io(), content) catch return;
     }
 
     /// Flush stderr buffer to system
@@ -459,8 +458,7 @@ pub const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
-        const stderr = std.fs.File.stderr();
-        stderr.writeAll(content) catch return;
+        std.Io.File.stderr().writeStreamingAll(@import("compat").io(), content) catch return;
     }
 
     comptime {
@@ -642,7 +640,7 @@ pub fn print_text(message: []const u8) void {
 test "write_json_string escapes control characters" {
     const testing = std.testing;
     var buffer: [256]u8 = undefined;
-    var stream = std.Io.fixedBufferStream(&buffer);
+    var stream = @import("compat").fixedBufferStream(&buffer);
 
     try write_json_string(stream.writer(), "quote: \" newline: \n slash: \\");
 
@@ -653,7 +651,7 @@ test "write_json_string escapes control characters" {
 test "write_json_string_array escapes nested strings" {
     const testing = std.testing;
     var buffer: [256]u8 = undefined;
-    var stream = std.Io.fixedBufferStream(&buffer);
+    var stream = @import("compat").fixedBufferStream(&buffer);
 
     try write_json_string_array(stream.writer(), &.{ "a\"b", "c\\d" });
 

@@ -59,9 +59,9 @@ const install_help_text =
     \\    --zls                   Install ZLS instead of Zig
     \\
     \\EXAMPLES:
-    \\    zvm install 0.15.1
+    \\    zvm install 0.16.0
     \\    zvm i master
-    \\    zvm install --zls 0.15.1
+    \\    zvm install --zls 0.16.0
     \\
 ;
 
@@ -77,7 +77,7 @@ const remove_help_text =
     \\    --zls                   Remove ZLS instead of Zig
     \\
     \\EXAMPLES:
-    \\    zvm remove 0.15.1
+    \\    zvm remove 0.16.0
     \\    zvm rm --zls master
     \\
 ;
@@ -94,7 +94,7 @@ const use_help_text =
     \\    --zls                   Select ZLS instead of Zig
     \\
     \\EXAMPLES:
-    \\    zvm use 0.15.1
+    \\    zvm use 0.16.0
     \\    zvm u --zls master
     \\
 ;
@@ -288,7 +288,7 @@ test "help command executes without error" {
     _ = try util_output.init_global(output_config);
 
     const command = validation.ValidatedCommand.HelpCommand{ .topic = .general };
-    const progress_node = std.Progress.start(.{ .root_name = "test" });
+    const progress_node = std.Progress.start(std.testing.io, .{ .root_name = "test" });
     defer progress_node.end();
 
     var mock_ctx: context.CliContext = undefined;

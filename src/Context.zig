@@ -23,6 +23,9 @@ pub const CliContext = struct {
     /// Static memory system for any remaining allocations.
     static_mem: static_memory.StaticMemory,
 
+    /// Process-owned I/O implementation.
+    io: std.Io,
+
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
 
@@ -31,6 +34,7 @@ pub const CliContext = struct {
         context_storage: *CliContext,
         static_buffer: []u8,
         arguments: []const []const u8,
+        io: std.Io,
     ) !*CliContext {
         // context_storage is a pointer, not optional - can't be null in Zig
         assert(static_buffer.len > 0);
@@ -45,6 +49,7 @@ pub const CliContext = struct {
 
         // Initialize core systems
         try init_core_systems(context_storage, static_buffer);
+        context_storage.io = io;
 
         // Copy command line arguments
         try copy_args(context_storage, arguments);
@@ -114,13 +119,10 @@ pub const CliContext = struct {
     fn init_home_directory(context_storage: *CliContext) !void {
         const home = blk: {
             if (builtin.os.tag == .windows) {
-                const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral("USERPROFILE");
-                const home_w = std.process.getenvW(key_w) orelse break :blk "./";
-                const home_len = std.unicode.wtf16LeToWtf8(&context_storage.home_dir_buffer, home_w);
-                break :blk context_storage.home_dir_buffer[0..home_len];
+                break :blk util_tool.getenv_cross_platform("USERPROFILE") orelse "./";
             }
 
-            break :blk std.posix.getenv("HOME") orelse "./";
+            break :blk util_tool.getenv_cross_platform("HOME") orelse "./";
         };
 
         // Validate home directory
@@ -210,7 +212,7 @@ pub const CliContext = struct {
 
         // buffer is a pointer, not optional - no need for null check
 
-        var fixed_buffer_stream = std.Io.fixedBufferStream(buffer.slice());
+        var fixed_buffer_stream = @import("compat").fixedBufferStream(buffer.slice());
         const home_dir = self.get_home_dir();
         assert(home_dir.len > 0);
 
@@ -267,7 +269,7 @@ pub const CliContext = struct {
         const pool_stats = self.get_pool_stats();
 
         var buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
-        var stderr_writer = std.fs.File.Writer.init(std.fs.File.stderr(), &buffer);
+        var stderr_writer = std.Io.File.stderr().writer(self.io, &buffer);
         const stderr = &stderr_writer.interface;
         try stderr.print("\n=== ZVM Resource Usage ===\n", .{});
         try stderr.print("{any}\n", .{mem_usage});

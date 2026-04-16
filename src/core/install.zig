@@ -26,23 +26,25 @@ fn download_file_with_verification(
     shasum: ?[64]u8,
     size: ?u64,
     progress_node: std.Progress.Node,
-) !std.fs.File {
+) !std.Io.File {
     defer progress_node.end();
     var store_path_buffer = try ctx.acquire_path_buffer();
     defer store_path_buffer.reset();
     const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
-    var store = try std.fs.cwd().makeOpenPath(zvm_path, .{});
-    defer store.close();
+    var store = try std.Io.Dir.cwd().createDirPathOpen(ctx.io, zvm_path, .{});
+    defer store.close(ctx.io);
 
-    if (util_tool.does_path_exist2(store, file_name)) {
+    if (util_tool.does_path_exist2(ctx.io, store, file_name)) {
         if (shasum) |expected_hash| {
-            const file = try store.openFile(file_name, .{});
-            defer file.close();
+            const file = try store.openFile(ctx.io, file_name, .{});
+            defer file.close(ctx.io);
 
             var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
             var buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+            var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+            var file_reader = file.reader(ctx.io, &reader_buffer);
             while (true) {
-                const byte_nums = try file.read(&buffer);
+                const byte_nums = try file_reader.interface.readSliceShort(&buffer);
                 if (byte_nums == 0) break;
                 sha256.update(buffer[0..byte_nums]);
             }
@@ -50,32 +52,33 @@ fn download_file_with_verification(
             sha256.final(&result);
 
             if (verify_hash(result, expected_hash)) {
-                try file.seekTo(0);
                 // Re-open the file for reading (like the old code did)
-                return try store.openFile(file_name, .{});
+                return try store.openFile(ctx.io, file_name, .{});
             }
         }
-        try store.deleteFile(file_name);
+        try store.deleteFile(ctx.io, file_name);
     }
 
-    const new_file = try store.createFile(file_name, .{ .read = true });
+    const new_file = try store.createFile(ctx.io, file_name, .{ .read = true });
+    errdefer new_file.close(ctx.io);
 
     try http_client.HttpClient.download_file(ctx, uri, .{}, new_file, progress_node);
 
     if (size) |expected_size| {
-        const file_stat = try new_file.stat();
+        const file_stat = try new_file.stat(ctx.io);
         if (file_stat.size != expected_size) {
-            try store.deleteFile(file_name);
+            try store.deleteFile(ctx.io, file_name);
             return error.IncorrectSize;
         }
     }
 
     if (shasum) |expected_hash| {
-        try new_file.seekTo(0);
         var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
         var buffer: [512]u8 = undefined;
+        var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var file_reader = new_file.reader(ctx.io, &reader_buffer);
         while (true) {
-            const bytes_read = try new_file.read(&buffer);
+            const bytes_read = try file_reader.interface.readSliceShort(&buffer);
             if (bytes_read == 0) break;
             sha256.update(buffer[0..bytes_read]);
         }
@@ -83,13 +86,13 @@ fn download_file_with_verification(
         sha256.final(&result);
 
         if (!verify_hash(result, expected_hash)) {
-            try store.deleteFile(file_name);
+            try store.deleteFile(ctx.io, file_name);
             return error.HashMismatch;
         }
     }
 
-    new_file.close();
-    return try store.openFile(file_name, .{});
+    new_file.close(ctx.io);
+    return try store.openFile(ctx.io, file_name, .{});
 }
 
 fn verify_hash(computed_hash: [32]u8, actual_hash_string: [64]u8) bool {
@@ -150,7 +153,7 @@ fn install_zig(
     const extract_path = blk: {
         const extract_path_buffer = try ctx.acquire_path_buffer();
         defer extract_path_buffer.reset();
-        var fbs = std.Io.fixedBufferStream(extract_path_buffer.slice());
+        var fbs = @import("compat").fixedBufferStream(extract_path_buffer.slice());
         try fbs.writer().print("{s}/{s}", .{ version_path, version });
         const path = try extract_path_buffer.set(fbs.getWritten());
         @memcpy(extract_path_storage[0..path.len], path);
@@ -159,7 +162,7 @@ fn install_zig(
     items_done += 1;
     root_node.setCompletedItems(items_done);
 
-    if (util_tool.does_path_exist(extract_path)) {
+    if (util_tool.does_path_exist(ctx.io, extract_path)) {
         try alias.set_version(ctx, version, false);
         return;
     }
@@ -167,7 +170,7 @@ fn install_zig(
     const version_data = try fetch_version_data(ctx, platform_str, version, &items_done, root_node);
 
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
-    defer tarball_file.close();
+    defer tarball_file.close(ctx.io);
 
     root_node.setCompletedItems(items_done);
 
@@ -257,7 +260,7 @@ fn download_and_verify_signature(
 
     const sig_download_node = root_node.start("verifying file signature", 0);
     const minisig_file = try download_file_from_url(ctx, sig_url, signature_file_name, null, null, sig_download_node);
-    minisig_file.close();
+    minisig_file.close(ctx.io);
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
 
@@ -272,7 +275,7 @@ fn build_signature_filename(ctx: *context.CliContext, file_name: []const u8) ![]
 
     var sig_name_buffer = try ctx.acquire_path_buffer();
 
-    var sig_name_fbs = std.Io.fixedBufferStream(sig_name_buffer.slice());
+    var sig_name_fbs = @import("compat").fixedBufferStream(sig_name_buffer.slice());
     try sig_name_fbs.writer().print("{s}.minisig", .{file_name});
     return try sig_name_buffer.set(sig_name_fbs.getWritten());
 }
@@ -284,7 +287,7 @@ fn download_file_from_url(
     shasum: ?[64]u8,
     size: ?u64,
     progress_node: std.Progress.Node,
-) !std.fs.File {
+) !std.Io.File {
     const uri = try std.Uri.parse(url);
     return try download_file_with_verification(ctx, uri, file_name, shasum, size, progress_node);
 }
@@ -315,13 +318,13 @@ fn verify_signature(
 
     var tarball_path_buffer = try ctx.acquire_path_buffer();
     defer tarball_path_buffer.reset();
-    var tarball_fbs = std.Io.fixedBufferStream(tarball_path_buffer.slice());
+    var tarball_fbs = @import("compat").fixedBufferStream(tarball_path_buffer.slice());
     try tarball_fbs.writer().print("{s}/{s}", .{ zvm_store_path, file_name });
     const tarball_path = try tarball_path_buffer.set(tarball_fbs.getWritten());
 
     var sig_path_buffer = try ctx.acquire_path_buffer();
     defer sig_path_buffer.reset();
-    var sig_path_fbs = std.Io.fixedBufferStream(sig_path_buffer.slice());
+    var sig_path_fbs = @import("compat").fixedBufferStream(sig_path_buffer.slice());
     try sig_path_fbs.writer().print("{s}/{s}", .{ zvm_store_path, signature_file_name });
     const sig_path = try sig_path_buffer.set(sig_path_fbs.getWritten());
 
@@ -338,7 +341,7 @@ fn verify_signature(
 fn extract_and_install(
     ctx: *context.CliContext,
     extract_path: []const u8,
-    tarball_file: std.fs.File,
+    tarball_file: std.Io.File,
     items_done: *u32,
     root_node: Progress.Node,
 ) !void {
@@ -347,18 +350,19 @@ fn extract_and_install(
 
     const extract_node = root_node.start("extracting zig", 0);
 
-    if (util_tool.does_path_exist(extract_path)) {
-        try std.fs.deleteTreeAbsolute(extract_path);
+    if (util_tool.does_path_exist(ctx.io, extract_path)) {
+        try std.Io.Dir.cwd().deleteTree(ctx.io, extract_path);
     }
 
-    try util_tool.try_create_path(extract_path);
-    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
-    defer extract_dir.close();
+    try util_tool.try_create_path(ctx.io, extract_path);
+    var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
+    defer extract_dir.close(ctx.io);
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
     util_extract.extract_static(
+        ctx.io,
         extract_op,
         extract_dir,
         tarball_file,
@@ -368,7 +372,7 @@ fn extract_and_install(
     ) catch |err| {
         log.err("Extraction failed with error: {s} for path: {s}", .{ @errorName(err), extract_path });
 
-        try std.fs.deleteTreeAbsolute(extract_path);
+        try std.Io.Dir.cwd().deleteTree(ctx.io, extract_path);
         return err;
     };
 
@@ -384,7 +388,7 @@ fn download_with_mirrors(
     version_data: meta.Zig.VersionData,
     root_node: Progress.Node,
     items_done: *u32,
-) !std.fs.File {
+) !std.Io.File {
     assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
     assert(items_done.* >= 0);
@@ -405,7 +409,7 @@ fn download_with_mirrors(
 
             var node_name_buffer = try ctx.acquire_path_buffer();
             defer node_name_buffer.reset();
-            var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
+            var fbs = @import("compat").fixedBufferStream(node_name_buffer.slice());
             try fbs.writer().print("download zig (mirror {d}): {s}", .{ mirror_index, mirror_url });
             const node_name = node_name_buffer.used_slice();
 
@@ -437,7 +441,7 @@ fn download_with_fallbacks(
     file_name: []const u8,
     root_node: Progress.Node,
     items_done: *u32,
-) !std.fs.File {
+) !std.Io.File {
     assert(version_data.tarball().len > 0);
     assert(file_name.len > 0);
     assert(items_done.* >= 0);
@@ -449,7 +453,7 @@ fn download_with_fallbacks(
 
     var node_name_buffer = try ctx.acquire_path_buffer();
     defer node_name_buffer.reset();
-    var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(node_name_buffer.slice());
     try fbs.writer().print("download zig (official): {s}", .{tarball_url});
     const node_name = node_name_buffer.used_slice();
 
@@ -473,7 +477,7 @@ fn download_from_mirrors(
     version_data: meta.Zig.VersionData,
     file_name: []const u8,
     root_node: Progress.Node,
-) !std.fs.File {
+) !std.Io.File {
     assert(version_data.tarball().len > 0);
     assert(file_name.len > 0);
 
@@ -492,7 +496,7 @@ fn download_from_mirrors(
 
         var node_name_buffer = try ctx.acquire_path_buffer();
         defer node_name_buffer.reset();
-        var fbs = std.Io.fixedBufferStream(node_name_buffer.slice());
+        var fbs = @import("compat").fixedBufferStream(node_name_buffer.slice());
         try fbs.writer().print("download zig (mirror {d}): {s}", .{ i, mirror_url });
         const node_name = node_name_buffer.used_slice();
 
@@ -518,7 +522,7 @@ fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8
     assert(file_name.len > 0);
     assert(file_name.len < limits.limits.path_length_maximum);
 
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     if (mirror_url[mirror_url.len - 1] == '/') {
         try fbs.writer().print("{s}{s}", .{ mirror_url, file_name });
@@ -555,14 +559,14 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     var extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const extract_path = try std.fmt.bufPrint(&extract_path_storage, "{s}/{s}", .{ version_path, version });
 
-    if (util_tool.does_path_exist(extract_path)) {
+    if (util_tool.does_path_exist(ctx.io, extract_path)) {
         try alias.set_version(ctx, version, true);
         return;
     }
 
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
     const tarball_file = try download_zls(ctx, version_data, root_node);
-    defer tarball_file.close();
+    defer tarball_file.close(ctx.io);
 
     try extract_zls(ctx, extract_path, tarball_file, root_node);
     try util_data.write_version_manifest(extract_path, version_data.version());
@@ -613,7 +617,7 @@ fn download_zls(
     ctx: *context.CliContext,
     version_data: meta.Zls.VersionData,
     root_node: Progress.Node,
-) !std.fs.File {
+) !std.Io.File {
     assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
 
@@ -636,20 +640,21 @@ fn download_zls(
 fn extract_zls(
     ctx: *context.CliContext,
     extract_path: []const u8,
-    tarball_file: std.fs.File,
+    tarball_file: std.Io.File,
     root_node: Progress.Node,
 ) !void {
     assert(extract_path.len > 0);
 
-    try util_tool.try_create_path(extract_path);
-    var extract_dir = try std.fs.openDirAbsolute(extract_path, .{});
-    defer extract_dir.close();
+    try util_tool.try_create_path(ctx.io, extract_path);
+    var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
+    defer extract_dir.close(ctx.io);
 
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
     // ZLS uses .tar.xz format for non-Windows platforms
     try util_extract.extract_static(
+        ctx.io,
         extract_op,
         extract_dir,
         tarball_file,

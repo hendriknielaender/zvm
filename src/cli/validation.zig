@@ -342,7 +342,7 @@ fn validate_install(raw: raw_args.RawArgs.InstallArgs) !ValidatedCommand.Install
             util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.15.1'", .{});
+            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 
@@ -403,7 +403,7 @@ fn validate_remove(raw: raw_args.RawArgs.RemoveArgs) !ValidatedCommand.RemoveCom
             util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.15.1'", .{});
+            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 
@@ -454,7 +454,7 @@ fn validate_use(raw: raw_args.RawArgs.UseArgs) !ValidatedCommand.UseCommand {
             util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.15.1'", .{});
+            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 

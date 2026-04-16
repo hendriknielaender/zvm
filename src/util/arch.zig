@@ -89,7 +89,7 @@ pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParam
             return error.UnsupportedSystem;
         };
 
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
     if (params.reverse) {
         try fbs.writer().print("{s}-{s}", .{ arch_str, os_str });
     } else {

@@ -22,7 +22,7 @@ pub const zvm_logo =
 /// Get zvm path segment - uses path buffer from context.
 pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     // Follow XDG Base Directory specification
     const home_dir = ctx.get_home_dir();
@@ -39,7 +39,7 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 /// Get zvm/current/zig path.
 pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -55,7 +55,7 @@ pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/current/zls path.
 pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -76,7 +76,7 @@ pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/version/zig path.
 pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -92,7 +92,7 @@ pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
 /// Get zvm/version/zls path.
 pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
     const ctx = try context.CliContext.get();
-    var fbs = std.Io.fixedBufferStream(buffer.slice());
+    var fbs = @import("compat").fixedBufferStream(buffer.slice());
 
     const home_dir = ctx.get_home_dir();
     if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
@@ -117,10 +117,11 @@ pub fn write_version_manifest(install_path: []const u8, version: []const u8) !vo
         .{ install_path, version_manifest_name },
     );
 
-    const manifest_file = try std.fs.cwd().createFile(manifest_path, .{});
-    defer manifest_file.close();
+    const io = @import("compat").io();
+    const manifest_file = try std.Io.Dir.cwd().createFile(io, manifest_path, .{});
+    defer manifest_file.close(io);
 
-    try manifest_file.writeAll(version);
+    try manifest_file.writeStreamingAll(io, version);
 }
 
 fn build_manifest_path(
@@ -146,10 +147,13 @@ fn read_version_manifest_absolute(
     assert(output_buffer.len > 0);
 
     const manifest_path = try build_manifest_path(path_buffer, install_path);
-    const manifest_file = try std.fs.openFileAbsolute(manifest_path, .{ .mode = .read_only });
-    defer manifest_file.close();
+    const io = @import("compat").io();
+    const manifest_file = try std.Io.Dir.openFileAbsolute(io, manifest_path, .{ .mode = .read_only });
+    defer manifest_file.close(io);
 
-    const bytes_read = try manifest_file.readAll(output_buffer);
+    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var manifest_reader = manifest_file.reader(io, &reader_buffer);
+    const bytes_read = try manifest_reader.interface.readSliceShort(output_buffer);
     if (bytes_read == 0) return error.EmptyVersion;
 
     const version = std.mem.trim(u8, output_buffer[0..bytes_read], " \t\r\n");
