@@ -1,4 +1,3 @@
-const std = @import("std");
 const util_tool = @import("../util/tool.zig");
 
 pub fn has_env_var(var_name: []const u8) bool {
