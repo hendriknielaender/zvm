@@ -6,37 +6,44 @@ const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
 const builtin = @import("builtin");
 const log = std.log.scoped(.extract);
+const assert = std.debug.assert;
 
 const tar = std.tar;
 
 /// Extract file to out_dir using static allocation.
+/// archive_path is the on-disk path to the tarball, used by the tarxz path.
+/// file is used by the tar_gz and zip paths for streaming decompression.
+pub const ExtractFileType = enum { tarxz, zip, tar_gz };
+
 pub fn extract_static(
     io: std.Io,
     extract_op: *object_pools.ExtractOperation,
     out_dir: std.Io.Dir,
     file: std.Io.File,
-    file_type: enum { tarxz, zip, tar_gz },
+    file_type: ExtractFileType,
     is_zls: bool,
     root_node: std.Progress.Node,
+    archive_path: []const u8,
 ) !void {
     switch (file_type) {
         .zip => try extract_zip_dir_static(io, extract_op, out_dir, file, root_node),
-        .tarxz => try extract_tarxz_to_dir(io, extract_op, out_dir, file, is_zls, root_node),
+        .tarxz => try extract_tarxz_to_dir(io, extract_op, out_dir, archive_path, is_zls, root_node),
         .tar_gz => try extract_targz_to_dir(io, out_dir, file, is_zls, root_node),
     }
 }
 
-/// Extract tar.xz to dir
+/// Extract tar.xz to dir using the system tar binary.
+/// The tarball must already be on disk at archive_path.
 fn extract_tarxz_to_dir(
     io: std.Io,
     extract_op: *object_pools.ExtractOperation,
     out_dir: std.Io.Dir,
-    file: std.Io.File,
+    archive_path: []const u8,
     is_zls: bool,
     root_node: std.Progress.Node,
 ) !void {
     root_node.setEstimatedTotalItems(0);
-    try extract_tarxz_with_system_tar(io, extract_op, out_dir, file, is_zls);
+    try extract_tarxz_with_system_tar(io, extract_op, out_dir, archive_path, is_zls);
     root_node.setCompletedItems(1);
 }
 
@@ -44,22 +51,20 @@ fn extract_tarxz_with_system_tar(
     io: std.Io,
     extract_op: *object_pools.ExtractOperation,
     out_dir: std.Io.Dir,
-    file: std.Io.File,
+    archive_path: []const u8,
     is_zls: bool,
 ) !void {
     if (builtin.os.tag == .windows) return error.UnsupportedPlatform;
 
-    var archive_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const archive_path = try std.fmt.bufPrint(&archive_path_buffer, "/dev/fd/{d}", .{file.handle});
+    assert(archive_path.len > 0);
 
     var out_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const out_path_len = try out_dir.realPath(io, &out_path_buffer);
     const out_path = out_path_buffer[0..out_path_len];
 
     const strip_components = if (is_zls) "0" else "1";
-    const tar_executable = "/usr/bin/tar";
     const argv = [_][]const u8{
-        tar_executable,
+        "tar",
         "-xJf",
         archive_path,
         "-C",

@@ -176,7 +176,14 @@ fn install_zig(
 
     try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
-    try extract_and_install(ctx, extract_path, tarball_file, &items_done, root_node);
+    var tarball_path_buffer = try ctx.acquire_path_buffer();
+    defer tarball_path_buffer.reset();
+    const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
+    const tarball_file_name = std.fs.path.basename(version_data.tarball());
+    var tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const tarball_path_slice = try std.fmt.bufPrint(&tarball_path_storage, "{s}/{s}", .{ zvm_store_path, tarball_file_name });
+
+    try extract_and_install(ctx, extract_path, tarball_file, tarball_path_slice, false, &items_done, root_node);
     try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, false);
@@ -344,10 +351,13 @@ fn extract_and_install(
     ctx: *context.CliContext,
     extract_path: []const u8,
     tarball_file: std.Io.File,
+    tarball_path: []const u8,
+    is_zls: bool,
     items_done: *u32,
     root_node: Progress.Node,
 ) !void {
     assert(extract_path.len > 0);
+    assert(tarball_path.len > 0);
     assert(items_done.* >= 0);
 
     const extract_node = root_node.start("extracting zig", 0);
@@ -363,14 +373,17 @@ fn extract_and_install(
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
+    const file_type: @import("../io/extract.zig").ExtractFileType = if (builtin.os.tag == .windows) .zip else .tarxz;
+
     util_extract.extract_static(
         ctx.io,
         extract_op,
         extract_dir,
         tarball_file,
-        if (builtin.os.tag == .windows) .zip else .tarxz,
-        false,
+        file_type,
+        is_zls,
         extract_node,
+        tarball_path,
     ) catch |err| {
         log.err("Extraction failed with error: {s} for path: {s}", .{ @errorName(err), extract_path });
 
@@ -564,7 +577,14 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     const tarball_file = try download_zls(ctx, version_data, root_node);
     defer tarball_file.close(ctx.io);
 
-    try extract_zls(ctx, extract_path, tarball_file, root_node);
+    var tarball_path_buffer = try ctx.acquire_path_buffer();
+    defer tarball_path_buffer.reset();
+    const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
+    const zls_tarball_name = std.fs.path.basename(version_data.tarball());
+    var zls_tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const zls_tarball_path = try std.fmt.bufPrint(&zls_tarball_path_storage, "{s}/{s}", .{ zvm_store_path, zls_tarball_name });
+
+    try extract_zls(ctx, extract_path, tarball_file, zls_tarball_path, root_node);
     try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, true);
@@ -637,9 +657,11 @@ fn extract_zls(
     ctx: *context.CliContext,
     extract_path: []const u8,
     tarball_file: std.Io.File,
-    root_node: Progress.Node,
+    tarball_path: []const u8,
+    root_node: std.Progress.Node,
 ) !void {
     assert(extract_path.len > 0);
+    assert(tarball_path.len > 0);
 
     try util_tool.try_create_path(ctx.io, extract_path);
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
@@ -648,14 +670,16 @@ fn extract_zls(
     var extract_op = try ctx.acquire_extract_operation();
     defer extract_op.release();
 
-    // ZLS uses .tar.xz format for non-Windows platforms
+    const file_type: util_extract.ExtractFileType = if (builtin.os.tag == .windows) .zip else .tarxz;
+
     try util_extract.extract_static(
         ctx.io,
         extract_op,
         extract_dir,
         tarball_file,
-        if (builtin.os.tag == .windows) .zip else .tarxz,
+        file_type,
         true,
         root_node,
+        tarball_path,
     );
 }
