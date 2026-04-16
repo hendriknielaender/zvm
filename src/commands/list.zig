@@ -42,16 +42,16 @@ fn collect_versions(
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
         .zls => try util_data.get_zvm_zls_version(versions_path_buffer),
     };
-    var versions_dir = std.fs.openDirAbsolute(versions_path, .{ .iterate = true }) catch |err| {
+    var versions_dir = std.Io.Dir.openDirAbsolute(ctx.io, versions_path, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) return 0;
         return err;
     };
-    defer versions_dir.close();
+    defer versions_dir.close(ctx.io);
 
     var version_count: usize = 0;
     var iterator = versions_dir.iterate();
 
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(ctx.io)) |entry| {
         if (entry.kind != .directory) continue;
         if (entry.name[0] == '.') continue;
         if (version_count >= versions.len) break;

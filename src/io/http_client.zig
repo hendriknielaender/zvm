@@ -39,19 +39,15 @@ pub const HttpClient = struct {
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{
             .allocator = scratch_fba.allocator(),
+            .io = ctx.io,
             .connection_pool = .{ .free_size = 0 },
             .read_buffer_size = limits.limits.http_read_buffer_size,
             .write_buffer_size = limits.limits.http_write_buffer_size,
         };
         defer client.deinit();
 
-        var buffer_writer = std.Io.fixedBufferStream(&operation.response_buffer);
-        const old_writer = buffer_writer.writer();
-
-        // Adapt the old writer to the new API
-        var write_buffer: [4096]u8 = undefined;
-        var adapter = old_writer.adaptToNewApi(&write_buffer);
-        const writer = &adapter.new_interface;
+        var writer_state: std.Io.Writer = .fixed(&operation.response_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         // Use the simple fetch API that handles redirects, compression, etc. automatically
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
@@ -65,15 +61,12 @@ pub const HttpClient = struct {
         });
         try writer.flush();
 
-        // The adapter writer is buffered and must be flushed to commit trailing bytes.
-        try writer.flush();
-
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
             return error.HttpRequestFailed;
         }
 
-        const bytes_read = buffer_writer.pos;
+        const bytes_read = writer_state.buffered().len;
         if (bytes_read == 0) {
             log.err("HTTP response is empty for URL: {any}", .{uri});
             return error.EmptyResponse;
@@ -95,7 +88,7 @@ pub const HttpClient = struct {
         ctx: *context.CliContext,
         uri: std.Uri,
         headers: std.http.Client.Request.Headers,
-        dest_file: std.fs.File,
+        dest_file: std.Io.File,
         progress_node: std.Progress.Node,
     ) !void {
         _ = progress_node;
@@ -106,6 +99,7 @@ pub const HttpClient = struct {
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{
             .allocator = scratch_fba.allocator(),
+            .io = ctx.io,
             .connection_pool = .{ .free_size = 0 },
             .read_buffer_size = limits.limits.http_read_buffer_size,
             .write_buffer_size = limits.limits.http_write_buffer_size,
@@ -114,7 +108,7 @@ pub const HttpClient = struct {
 
         // Create a writer that writes directly to the file
         var writer_buffer: [8192]u8 = undefined;
-        var writer = dest_file.writer(&writer_buffer);
+        var writer = dest_file.writer(ctx.io, &writer_buffer);
 
         // Use the simple fetch API that handles redirects, compression, etc. automatically
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
@@ -139,16 +133,12 @@ pub const HttpClient = struct {
 
 test "adapted fixed buffer writer flushes into the backing stream" {
     var response_buffer: [64]u8 = undefined;
-    var stream = std.Io.fixedBufferStream(&response_buffer);
-    const old_writer = stream.writer();
-
-    var write_buffer: [8]u8 = undefined;
-    var adapter = old_writer.adaptToNewApi(&write_buffer);
-    const writer = &adapter.new_interface;
+    var writer_state: std.Io.Writer = .fixed(&response_buffer);
+    const writer: *std.Io.Writer = &writer_state;
 
     try writer.writeAll("hello");
     try writer.flush();
 
-    try std.testing.expectEqual(@as(usize, 5), stream.pos);
-    try std.testing.expectEqualStrings("hello", response_buffer[0..stream.pos]);
+    try std.testing.expectEqual(@as(usize, 5), writer_state.buffered().len);
+    try std.testing.expectEqualStrings("hello", writer_state.buffered());
 }

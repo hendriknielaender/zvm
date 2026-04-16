@@ -94,16 +94,16 @@ fn log_message(
 
 fn has_windows_env_var(comptime var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
-    return std.process.hasNonEmptyEnvVarConstant(var_name);
+    const value = util_tool.getenv_cross_platform(var_name) orelse return false;
+    return value.len > 0;
 }
 
 fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
-    const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(var_name);
-    const result_w = std.process.getenvW(key_w) orelse return null;
-    const result_len = std.unicode.wtf16LeToWtf8(buffer, result_w);
-    if (result_len > buffer.len) return error.BufferTooSmall;
-    return buffer[0..result_len];
+    const value = util_tool.getenv_cross_platform(var_name) orelse return null;
+    if (value.len > buffer.len) return error.BufferTooSmall;
+    @memcpy(buffer[0..value.len], value);
+    return buffer[0..value.len];
 }
 
 fn append_argument_to_static_storage(
@@ -128,73 +128,43 @@ fn append_argument_to_static_storage(
     assert(arguments_storage_offset.* == argument_start + argument.len);
 }
 
-pub fn main() !void {
+pub fn main(process_init: std.process.Init) !void {
+    util_tool.set_environment_map(process_init.environ_map);
+
     var arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
     var arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
     var arguments_count: u32 = 0;
     var arguments_storage_offset: usize = 0;
 
-    if (builtin.os.tag == .windows) {
-        var arguments_iterator_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
-        var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
-        var arguments_iterator = try std.process.argsWithAllocator(arguments_iterator_fba.allocator());
-        defer arguments_iterator.deinit();
+    var arguments_iterator_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
+    var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
+    var arguments_iterator = try process_init.minimal.args.iterateAllocator(arguments_iterator_fba.allocator());
+    defer arguments_iterator.deinit();
 
-        while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
-            if (arguments_count >= arguments_buffer.len) {
-                log.err("Too many arguments: got {d}, maximum is {d}", .{
-                    arguments_count + 1,
-                    arguments_buffer.len,
-                });
-                return error.TooManyArguments;
-            }
-
-            append_argument_to_static_storage(
-                &arguments_buffer,
-                &arguments_storage,
-                arguments_count,
-                &arguments_storage_offset,
-                argument,
-            ) catch |err| switch (err) {
-                error.ArgumentStorageFull => {
-                    log.err(
-                        "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
-                        .{ arguments_storage_offset + argument.len, arguments_storage.len },
-                    );
-                    return err;
-                },
-                else => return err,
-            };
+    while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
+        if (arguments_count >= arguments_buffer.len) {
+            log.err("Too many arguments: got {d}, maximum is {d}", .{
+                arguments_count + 1,
+                arguments_buffer.len,
+            });
+            return error.TooManyArguments;
         }
-    } else {
-        var arguments_iterator = std.process.args();
 
-        while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
-            if (arguments_count >= arguments_buffer.len) {
-                log.err("Too many arguments: got {d}, maximum is {d}", .{
-                    arguments_count + 1,
-                    arguments_buffer.len,
-                });
-                return error.TooManyArguments;
-            }
-
-            append_argument_to_static_storage(
-                &arguments_buffer,
-                &arguments_storage,
-                arguments_count,
-                &arguments_storage_offset,
-                argument,
-            ) catch |err| switch (err) {
-                error.ArgumentStorageFull => {
-                    log.err(
-                        "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
-                        .{ arguments_storage_offset + argument.len, arguments_storage.len },
-                    );
-                    return err;
-                },
-                else => return err,
-            };
-        }
+        append_argument_to_static_storage(
+            &arguments_buffer,
+            &arguments_storage,
+            arguments_count,
+            &arguments_storage_offset,
+            argument,
+        ) catch |err| switch (err) {
+            error.ArgumentStorageFull => {
+                log.err(
+                    "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
+                    .{ arguments_storage_offset + argument.len, arguments_storage.len },
+                );
+                return err;
+            },
+        };
     }
 
     const arguments = arguments_buffer[0..arguments_count];
@@ -211,7 +181,7 @@ pub fn main() !void {
 
     const is_alias = util_tool.eql_str(basename, "zig") or util_tool.eql_str(basename, "zls");
     if (is_alias) {
-        try handle_alias(basename, arguments[1..]);
+        try handle_alias(process_init.io, basename, arguments[1..]);
         unreachable;
     }
 
@@ -235,6 +205,7 @@ pub fn main() !void {
         &global_context,
         &global_static_buffer,
         arguments,
+        process_init.io,
     ) catch |err| {
         util_output.fatal(
             util_output.ExitCode.from_error(err),
@@ -245,19 +216,22 @@ pub fn main() !void {
     // Freeze startup allocation before command execution begins.
     context_instance.static_mem.lock();
 
-    const root_node = std.Progress.start(.{
+    const root_node = std.Progress.start(process_init.io, .{
         .root_name = "zvm",
         .estimated_total_items = get_progress_item_count(parsed_command_line.command),
         .disable_printing = final_output_config.mode != .human_readable,
     });
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
+        root_node.end();
         util_output.fatal(
             util_output.ExitCode.from_error(err),
             "Command failed: {s}",
             .{@errorName(err)},
         );
     };
+
+    root_node.end();
 
     const has_debug = if (builtin.os.tag == .windows) blk: {
         break :blk has_windows_env_var("ZVM_DEBUG");
@@ -276,7 +250,7 @@ const AutoInstallError = error{
     InstallationFailed,
 };
 
-pub fn auto_install_version(version: []const u8) AutoInstallError!void {
+pub fn auto_install_version(io: std.Io, version: []const u8) AutoInstallError!void {
     // Pair assertion: Validate input bounds
     assert(version.len > 0);
     assert(version.len < 64); // Reasonable version length limit
@@ -296,7 +270,12 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
     const install_args = &[_][]const u8{ "zvm", "install", version };
 
     // Initialize context
-    const ctx = Context.CliContext.init(&install_context, &install_static_buffer, install_args) catch return error.ContextInitFailed;
+    const ctx = Context.CliContext.init(
+        &install_context,
+        &install_static_buffer,
+        install_args,
+        io,
+    ) catch return error.ContextInitFailed;
 
     // Pair assertion: Validate context initialization
     assert(ctx == &install_context);
@@ -304,7 +283,7 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
     ctx.static_mem.lock();
 
     // Create a minimal progress node
-    const progress_node = std.Progress.start(.{
+    const progress_node = std.Progress.start(io, .{
         .root_name = "auto-install",
         .estimated_total_items = 5,
     });
@@ -313,37 +292,37 @@ pub fn auto_install_version(version: []const u8) AutoInstallError!void {
     install.install(ctx, version, false, progress_node) catch return error.InstallationFailed;
 }
 
-fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+fn handle_alias(io: std.Io, program_name: []const u8, remaining_arguments: []const []const u8) !void {
     var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
 
     // Simple version detection without full context
     const version_result =
-        detect_version_for_alias(remaining_arguments, &version_buffer) catch |err| switch (err) {
+        detect_version_for_alias(io, remaining_arguments, &version_buffer) catch |err| switch (err) {
             error.OutOfMemory => {
                 // OutOfMemory should kill process
                 @panic("Out of memory in version detection");
             },
             else => {
                 log.err("Failed to detect version: {s}", .{@errorName(err)});
-                return handle_alias_fallback(program_name, remaining_arguments);
+                return handle_alias_fallback(io, program_name, remaining_arguments);
             },
         };
 
     // Check if the detected version is available
-    const version_available = ensure_version_available(version_result) catch false;
+    const version_available = ensure_version_available(io, version_result) catch false;
     if (!version_available and !std.mem.eql(u8, version_result, "current")) {
         // Try to auto-install the missing version
-        if (auto_install_version_gracefully(version_result)) {
+        if (auto_install_version_gracefully(io, version_result)) {
             // Installation successful, proceed with the version
         } else {
             // Installation failed, fall back to current version
-            return handle_alias_fallback(program_name, remaining_arguments);
+            return handle_alias_fallback(io, program_name, remaining_arguments);
         }
     }
 
     // If we're using current version or version is available, proceed with smart tool path
     if (std.mem.eql(u8, version_result, "current")) {
-        return handle_alias_fallback(program_name, remaining_arguments);
+        return handle_alias_fallback(io, program_name, remaining_arguments);
     }
 
     // Build adjusted arguments (remove version if it was the first argument)
@@ -385,24 +364,19 @@ fn handle_alias(program_name: []const u8, remaining_arguments: []const []const u
         }
         const argv_slice = argv_list[0..i];
 
-        var process_fba = std.heap.FixedBufferAllocator.init(&alias_buffers.process_scratch);
-        var process = std.process.Child.init(argv_slice, process_fba.allocator());
-        process.spawn() catch |err| {
-            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
-            return err;
-        };
-        const term = try process.wait();
-        std.process.exit(term.Exited);
+        const err = std.process.replace(io, .{ .argv = argv_slice });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+        return err;
     } else {
-        const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
-        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
+        var argv_list: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+        const argv_slice = build_exec_arguments_slice(&alias_buffers, &argv_list);
 
-        const result = std.posix.execveZ(argv[0].?, argv, envp);
-        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
-        return result;
+        const err = std.process.replace(io, .{ .argv = argv_slice });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+        return err;
     }
 }
-fn detect_version_for_alias(args: []const []const u8, version_buffer: []u8) ![]const u8 {
+fn detect_version_for_alias(io: std.Io, args: []const []const u8, version_buffer: []u8) ![]const u8 {
     assert(version_buffer.len > 0);
 
     if (args.len > 0 and is_version_string(args[0])) {
@@ -411,23 +385,26 @@ fn detect_version_for_alias(args: []const []const u8, version_buffer: []u8) ![]c
 
     // Try to find build.zig.zon and extract minimum_zig_version
     var current_dir_buf: [1024]u8 = undefined;
-    const current_dir = std.process.getCwd(&current_dir_buf) catch return "current";
+    const current_dir_len = std.process.currentPath(io, &current_dir_buf) catch return "current";
+    const current_dir = current_dir_buf[0..current_dir_len];
 
     var search_dir: []const u8 = current_dir;
     while (true) {
         var path_buf: [2048]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buf, "{s}/build.zig.zon", .{search_dir}) catch break;
 
-        const file = std.fs.cwd().openFile(path, .{}) catch {
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch {
             const parent = std.fs.path.dirname(search_dir) orelse break;
             if (std.mem.eql(u8, parent, search_dir)) break;
             search_dir = parent;
             continue;
         };
-        defer file.close();
+        defer file.close(io);
 
         var content_buf: [8192]u8 = undefined;
-        const bytes_read = file.readAll(&content_buf) catch break;
+        var reader_buffer: [8192]u8 = undefined;
+        var file_reader = file.reader(io, &reader_buffer);
+        const bytes_read = file_reader.interface.readSliceShort(&content_buf) catch break;
         if (bytes_read == 0) break;
 
         if (extract_minimum_zig_version_from_zon(
@@ -520,10 +497,10 @@ pub fn extract_minimum_zig_version_from_zon(content: []const u8, version_buffer:
 
 test "detect_version_for_alias prefers explicit version argument" {
     var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
-    const arguments = &[_][]const u8{ "0.15.1", "build" };
+    const arguments = &[_][]const u8{ "0.16.0", "build" };
 
-    const detected = try detect_version_for_alias(arguments, &version_buffer);
-    try std.testing.expectEqualStrings("0.15.1", detected);
+    const detected = try detect_version_for_alias(std.testing.io, arguments, &version_buffer);
+    try std.testing.expectEqualStrings("0.16.0", detected);
 }
 
 test "extract_minimum_zig_version_from_zon parses zon source without allocation" {
@@ -543,7 +520,7 @@ test "extract_minimum_zig_version_from_zon parses zon source without allocation"
     try std.testing.expectEqualStrings("0.14.1", detected);
 }
 
-fn ensure_version_available(version: []const u8) !bool {
+fn ensure_version_available(io: std.Io, version: []const u8) !bool {
     if (std.mem.eql(u8, version, "current")) return true;
 
     // Get home directory
@@ -554,13 +531,13 @@ fn ensure_version_available(version: []const u8) !bool {
     const version_path = std.fmt.bufPrint(&version_path_buf, "{s}/.local/share/.zm/version/zig/{s}", .{ home, version }) catch return false;
 
     // Check if directory exists
-    var dir = std.fs.cwd().openDir(version_path, .{}) catch return false;
-    defer dir.close();
+    var dir = std.Io.Dir.cwd().openDir(io, version_path, .{}) catch return false;
+    defer dir.close(io);
 
     // Check if zig executable exists with separate buffer
     var zig_path_buf: [1024]u8 = undefined;
     const zig_path = std.fmt.bufPrint(&zig_path_buf, "{s}/zig", .{version_path}) catch return false;
-    dir.access(zig_path, .{}) catch return false;
+    dir.access(io, zig_path, .{}) catch return false;
 
     return true;
 }
@@ -594,17 +571,17 @@ fn is_version_string(str: []const u8) bool {
     return has_digit and (dot_count > 0 or std.mem.eql(u8, str, "master"));
 }
 
-fn auto_install_version_gracefully(version: []const u8) bool {
+fn auto_install_version_gracefully(io: std.Io, version: []const u8) bool {
     // Pair assertion: Validate input bounds
     assert(version.len > 0);
     assert(version.len < 64); // Reasonable version length limit
 
     // Use the existing auto_install_version function but handle errors gracefully
-    auto_install_version(version) catch return false;
+    auto_install_version(io, version) catch return false;
     return true;
 }
 
-fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const []const u8) !void {
+fn handle_alias_fallback(io: std.Io, program_name: []const u8, remaining_arguments: []const []const u8) !void {
     // SAFETY: All undefined fields are initialized by subsequent function calls before use
     var alias_buffers: AliasBuffers = .{
         .home = undefined,
@@ -629,21 +606,16 @@ fn handle_alias_fallback(program_name: []const u8, remaining_arguments: []const 
         }
         const argv_slice = argv_list[0..i];
 
-        var process_fba = std.heap.FixedBufferAllocator.init(&alias_buffers.process_scratch);
-        var process = std.process.Child.init(argv_slice, process_fba.allocator());
-        process.spawn() catch |err| {
-            log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
-            return err;
-        };
-        const term = try process.wait();
-        std.process.exit(term.Exited);
+        const err = std.process.replace(io, .{ .argv = argv_slice });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+        return err;
     } else {
-        const argv: [*:null]?[*:0]const u8 = @ptrCast(&alias_buffers.exec_arguments_ptrs[0]);
-        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.os.environ.ptr);
+        var argv_list: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+        const argv_slice = build_exec_arguments_slice(&alias_buffers, &argv_list);
 
-        const result = std.posix.execveZ(argv[0].?, argv, envp);
-        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(result) });
-        return result;
+        const err = std.process.replace(io, .{ .argv = argv_slice });
+        log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
+        return err;
     }
 }
 
@@ -684,19 +656,13 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
         if (get_windows_env_var("ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
             return zvm_home;
         } else {
-            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}\\.zm", .{home_slice});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}\\.zm", .{home_slice});
         }
     } else {
         if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}/.zm", .{xdg_data});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.zm", .{xdg_data});
         } else {
-            var stream = std.Io.fixedBufferStream(&alias_buffers.zvm_home);
-            try stream.writer().print("{s}/.local/share/.zm", .{home_slice});
-            return stream.getWritten();
+            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.local/share/.zm", .{home_slice});
         }
     }
 }
@@ -704,22 +670,16 @@ fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]co
 fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
-    try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
-    return stream.getWritten();
+    return try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
 }
 
 fn build_smart_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8, version: []const u8) ![]const u8 {
     const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
 
-    var stream = std.Io.fixedBufferStream(&alias_buffers.tool_path);
-    if (util_tool.eql_str(version, "current")) {
-        try stream.writer().print("{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name });
-    } else {
-        const tool_prefix = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
-        try stream.writer().print("{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_prefix, version, tool_name });
-    }
-    return stream.getWritten();
+    return if (util_tool.eql_str(version, "current"))
+        try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/current/{s}/{s}", .{ zvm_home, tool_name, tool_name })
+    else
+        try std.fmt.bufPrint(&alias_buffers.tool_path, "{s}/version/{s}/{s}/{s}", .{ zvm_home, tool_name, version, tool_name });
 }
 
 fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, remaining_arguments: []const []const u8) !void {
@@ -753,6 +713,21 @@ fn build_exec_arguments(alias_buffers: *AliasBuffers, tool_path: []const u8, rem
 
     alias_buffers.exec_arguments_ptrs[exec_arguments_count] = null;
     alias_buffers.exec_arguments_count = exec_arguments_count;
+}
+
+fn build_exec_arguments_slice(
+    alias_buffers: *const AliasBuffers,
+    argv_list: *[memory_limits.limits.arguments_maximum][]const u8,
+) []const []const u8 {
+    assert(alias_buffers.exec_arguments_count > 0);
+    assert(alias_buffers.exec_arguments_count < alias_buffers.exec_arguments_ptrs.len);
+
+    for (0..alias_buffers.exec_arguments_count) |index| {
+        const argument = alias_buffers.exec_arguments_ptrs[index].?;
+        argv_list[index] = std.mem.sliceTo(argument, 0);
+    }
+
+    return argv_list[0..alias_buffers.exec_arguments_count];
 }
 
 fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedCommand) u16 {

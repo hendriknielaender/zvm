@@ -212,8 +212,8 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll("{\"") catch return;
         writer.writeAll(field_name) catch return;
@@ -232,7 +232,7 @@ pub const OutputEmitter = struct {
         writer.writeAll("]}\n") catch return;
 
         // Flush to stdout
-        self.flush_stdout_buffer(stream.getWritten());
+        self.flush_stdout_buffer(writer_state.buffered());
     }
 
     /// Emit JSON key-value pairs
@@ -242,8 +242,8 @@ pub const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll("{") catch return;
 
@@ -287,7 +287,7 @@ pub const OutputEmitter = struct {
 
         writer.writeAll("}\n") catch return;
 
-        self.flush_stdout_buffer(stream.getWritten());
+        self.flush_stdout_buffer(writer_state.buffered());
     }
 
     pub fn emit_text(self: *OutputEmitter, text: []const u8) void {
@@ -364,8 +364,8 @@ pub const OutputEmitter = struct {
     fn emit_json_message(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
 
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll("{\"level\":") catch return;
         write_json_string(writer, level.to_string()) catch return;
@@ -373,7 +373,7 @@ pub const OutputEmitter = struct {
         write_json_string(writer, formatted) catch return;
         writer.writeAll("}\n") catch return;
 
-        self.flush_stdout_buffer(stream.getWritten());
+        self.flush_stdout_buffer(writer_state.buffered());
     }
 
     /// Format message with arguments into fixed buffer
@@ -399,50 +399,50 @@ pub const OutputEmitter = struct {
 
     /// Write colored text to stdout
     fn write_colored_to_stdout(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(color_code) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
-        self.flush_stdout_buffer(stream.getWritten());
+        self.flush_stdout_buffer(writer_state.buffered());
     }
 
     /// Write colored text to stderr
     fn write_colored_to_stderr(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(color_code) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
-        self.flush_stderr_buffer(stream.getWritten());
+        self.flush_stderr_buffer(writer_state.buffered());
     }
 
     /// Write plain text to stdout
     fn write_plain_to_stdout(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stdout_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(text) catch return;
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
-        self.flush_stdout_buffer(stream.getWritten());
+        self.flush_stdout_buffer(writer_state.buffered());
     }
 
     /// Write plain text to stderr
     fn write_plain_to_stderr(self: *OutputEmitter, text: []const u8) void {
-        var stream = std.Io.fixedBufferStream(&self.stderr_buffer);
-        const writer = stream.writer();
+        var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
+        const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(text) catch return;
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
-        self.flush_stderr_buffer(stream.getWritten());
+        self.flush_stderr_buffer(writer_state.buffered());
     }
 
     /// Flush stdout buffer to system
@@ -450,8 +450,7 @@ pub const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
-        const stdout = std.fs.File.stdout();
-        stdout.writeAll(content) catch return;
+        std.Io.File.stdout().writeStreamingAll(std.Io.Threaded.global_single_threaded.io(), content) catch return;
     }
 
     /// Flush stderr buffer to system
@@ -459,8 +458,7 @@ pub const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
-        const stderr = std.fs.File.stderr();
-        stderr.writeAll(content) catch return;
+        std.Io.File.stderr().writeStreamingAll(std.Io.Threaded.global_single_threaded.io(), content) catch return;
     }
 
     comptime {
@@ -642,21 +640,23 @@ pub fn print_text(message: []const u8) void {
 test "write_json_string escapes control characters" {
     const testing = std.testing;
     var buffer: [256]u8 = undefined;
-    var stream = std.Io.fixedBufferStream(&buffer);
+    var writer_state: std.Io.Writer = .fixed(&buffer);
+    const writer: *std.Io.Writer = &writer_state;
 
-    try write_json_string(stream.writer(), "quote: \" newline: \n slash: \\");
+    try write_json_string(writer, "quote: \" newline: \n slash: \\");
 
     const expected = "\"quote: \\\" newline: \\n slash: \\\\\"";
-    try testing.expectEqualStrings(expected, stream.getWritten());
+    try testing.expectEqualStrings(expected, writer_state.buffered());
 }
 
 test "write_json_string_array escapes nested strings" {
     const testing = std.testing;
     var buffer: [256]u8 = undefined;
-    var stream = std.Io.fixedBufferStream(&buffer);
+    var writer_state: std.Io.Writer = .fixed(&buffer);
+    const writer: *std.Io.Writer = &writer_state;
 
-    try write_json_string_array(stream.writer(), &.{ "a\"b", "c\\d" });
+    try write_json_string_array(writer, &.{ "a\"b", "c\\d" });
 
     const expected = "[\"a\\\"b\",\"c\\\\d\"]";
-    try testing.expectEqualStrings(expected, stream.getWritten());
+    try testing.expectEqualStrings(expected, writer_state.buffered());
 }

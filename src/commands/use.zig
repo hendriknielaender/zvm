@@ -24,9 +24,9 @@ test "use command converts version to string correctly" {
     const master_str = try master_version.to_string(&version_buffer);
     try testing.expectEqualStrings("master", master_str);
 
-    const specific_version = validation.VersionSpec{ .specific = .{ .major = 0, .minor = 15, .patch = 1 } };
+    const specific_version = validation.VersionSpec{ .specific = .{ .major = 0, .minor = 16, .patch = 0 } };
     const specific_str = try specific_version.to_string(&version_buffer);
-    try testing.expectEqualStrings("0.15.1", specific_str);
+    try testing.expectEqualStrings("0.16.0", specific_str);
 }
 
 test "use command validates tool types" {

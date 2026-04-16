@@ -21,7 +21,7 @@ pub const Color = struct {
             defer self.remove_all();
             const formatted_text = self.format(text);
             var buffer: [io_buffer_size]u8 = undefined;
-            var stdout_writer = std.fs.File.stdout().writer(&buffer);
+            var stdout_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
             const stdout = &stdout_writer.interface;
             try stdout.print("{s}", .{formatted_text});
             try stdout.flush();
@@ -31,7 +31,7 @@ pub const Color = struct {
             defer self.remove_all();
             const formatted_text = self.format(text);
             var buffer: [io_buffer_size]u8 = undefined;
-            var stderr_writer = std.fs.File.stderr().writer(&buffer);
+            var stderr_writer = std.Io.File.stderr().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
             const stderr = &stderr_writer.interface;
             try stderr.print("{s}", .{formatted_text});
             try stderr.flush();
@@ -161,7 +161,7 @@ pub const Color = struct {
         pub fn print(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
             const formatted_text = try self.format(format_string, args);
             var buffer: [io_buffer_size]u8 = undefined;
-            var stdout_writer = std.fs.File.stdout().writer(&buffer);
+            var stdout_writer = std.Io.File.stdout().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
             const stdout = &stdout_writer.interface;
             try stdout.print("{s}", .{formatted_text});
             try stdout.flush();
@@ -171,7 +171,7 @@ pub const Color = struct {
         pub fn print_err(self: *RuntimeStyle, comptime format_string: []const u8, args: anytype) !void {
             const formatted_text = try self.format(format_string, args);
             var buffer: [io_buffer_size]u8 = undefined;
-            var stderr_writer = std.fs.File.stderr().writer(&buffer);
+            var stderr_writer = std.Io.File.stderr().writer(std.Io.Threaded.global_single_threaded.io(), &buffer);
             const stderr = &stderr_writer.interface;
             try stderr.print("{s}", .{formatted_text});
             try stderr.flush();

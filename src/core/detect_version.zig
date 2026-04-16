@@ -1,6 +1,7 @@
 const std = @import("std");
 const util_tool = @import("../util/tool.zig");
 const Context = @import("../Context.zig");
+const limits = @import("../memory/limits.zig");
 const assert = std.debug.assert;
 
 const log = std.log.scoped(.detect_version);
@@ -87,17 +88,18 @@ pub fn is_version_string(arg: []const u8) bool {
 }
 
 fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
-    var current_dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const current_dir = std.process.getCwd(&current_dir_buf) catch return null;
+    var current_dir_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const current_dir_len = std.process.currentPath(ctx.io, &current_dir_buf) catch return null;
+    const current_dir = current_dir_buf[0..current_dir_len];
 
     var search_dir: []const u8 = current_dir;
     while (true) {
         var path_buf = try ctx.acquire_path_buffer();
         defer path_buf.reset();
 
-        var stream = std.Io.fixedBufferStream(path_buf.slice());
-        try stream.writer().print("{s}/build.zig.zon", .{search_dir});
-        const build_zon_path = try path_buf.set(stream.getWritten());
+        const build_zon_path = try path_buf.set(
+            try std.fmt.bufPrint(path_buf.slice(), "{s}/build.zig.zon", .{search_dir}),
+        );
 
         if (try parse_build_zig_zon(ctx, build_zon_path)) |version| {
             return version;
@@ -112,12 +114,14 @@ fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
 }
 
 pub fn parse_build_zig_zon(ctx: *Context.CliContext, path: []const u8) !?[]const u8 {
-    const file = std.fs.cwd().openFile(path, .{}) catch return null;
-    defer file.close();
+    const file = std.Io.Dir.cwd().openFile(ctx.io, path, .{}) catch return null;
+    defer file.close(ctx.io);
 
     // Use a local buffer instead of the JSON buffer to avoid potential corruption
     var buffer: [8192]u8 = undefined;
-    const bytes_read = file.readAll(&buffer) catch return null;
+    var reader_buffer: [8192]u8 = undefined;
+    var file_reader = file.reader(ctx.io, &reader_buffer);
+    const bytes_read = file_reader.interface.readSliceShort(&buffer) catch return null;
 
     // Ensure we have space for null termination
     if (bytes_read >= buffer.len - 1) return null;
@@ -207,7 +211,7 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     defer ctx.get_allocator().free(version_path);
 
     // Check if the directory exists first
-    if (!util_tool.does_path_exist(version_path)) {
+    if (!util_tool.does_path_exist(ctx.io, version_path)) {
         return false;
     }
 
@@ -215,18 +219,18 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     var zig_path_buffer = try ctx.acquire_path_buffer();
     defer zig_path_buffer.reset();
 
-    var stream = std.Io.fixedBufferStream(zig_path_buffer.slice());
-    try stream.writer().print("{s}/zig", .{version_path});
-    const zig_path = try zig_path_buffer.set(stream.getWritten());
+    const zig_path = try zig_path_buffer.set(
+        try std.fmt.bufPrint(zig_path_buffer.slice(), "{s}/zig", .{version_path}),
+    );
 
-    return util_tool.does_path_exist(zig_path);
+    return util_tool.does_path_exist(ctx.io, zig_path);
 }
 
 pub fn auto_install_version(ctx: *Context.CliContext, version: []const u8) !void {
     if (util_tool.eql_str(version, "current")) return;
 
     const install = @import("install.zig");
-    const progress = std.Progress.start(.{
+    const progress = std.Progress.start(ctx.io, .{
         .root_name = "auto-install",
         .estimated_total_items = 5,
     });
@@ -239,16 +243,13 @@ fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8
     var buffer = try ctx.acquire_path_buffer();
     defer buffer.reset();
 
-    var stream = std.Io.fixedBufferStream(buffer.slice());
     const home_dir = ctx.get_home_dir();
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/version/zig/{s}", .{ xdg_data, version });
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/version/zig/{s}", .{ home_dir, version });
-    }
-
-    const path = try buffer.set(stream.getWritten());
+    const path = try buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/version/zig/{s}", .{ xdg_data, version })
+        else
+            try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/version/zig/{s}", .{ home_dir, version }),
+    );
 
     // Always duplicate the path using the allocator
     return ctx.get_allocator().dupe(u8, path) catch error.OutOfMemory;
@@ -289,20 +290,19 @@ pub fn find_default_version_in_buffer(
     defer config_path_buffer.reset();
 
     const home_dir = ctx.get_home_dir();
-    var stream = std.Io.fixedBufferStream(config_path_buffer.slice());
+    const config_path = try config_path_buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.zm/default_version", .{xdg_data})
+        else
+            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.local/share/.zm/default_version", .{home_dir}),
+    );
 
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/default_version", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/default_version", .{home_dir});
-    }
+    const file = std.Io.Dir.cwd().openFile(ctx.io, config_path, .{}) catch return null;
+    defer file.close(ctx.io);
 
-    const config_path = try config_path_buffer.set(stream.getWritten());
-
-    const file = std.fs.cwd().openFile(config_path, .{}) catch return null;
-    defer file.close();
-
-    const bytes_read = file.readAll(version_buffer) catch return null;
+    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var file_reader = file.reader(ctx.io, &reader_buffer);
+    const bytes_read = file_reader.interface.readSliceShort(version_buffer) catch return null;
     if (bytes_read == 0) return null;
 
     // Trim whitespace
@@ -320,23 +320,21 @@ fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
     var current_zig_path_buffer = try ctx.acquire_path_buffer();
     defer current_zig_path_buffer.reset();
 
-    var stream = std.Io.fixedBufferStream(current_zig_path_buffer.slice());
     const home_dir = ctx.get_home_dir();
-
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/current/zig", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/current/zig", .{home_dir});
-    }
-
-    const current_zig_path = try current_zig_path_buffer.set(stream.getWritten());
+    const current_zig_path = try current_zig_path_buffer.set(
+        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.zm/current/zig", .{xdg_data})
+        else
+            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.local/share/.zm/current/zig", .{home_dir}),
+    );
 
     // Check if symlink exists and where it points
-    var link_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const link_target = std.fs.readLinkAbsolute(current_zig_path, &link_buffer) catch |err| switch (err) {
+    var link_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const link_target_len = std.Io.Dir.readLinkAbsolute(ctx.io, current_zig_path, &link_buffer) catch |err| switch (err) {
         error.FileNotFound => return true, // No default set
         else => return false, // Any other error means it's probably not a symlink to zvm
     };
+    const link_target = link_buffer[0..link_target_len];
 
     // Check if it points to zvm binary (indicates smart detection mode without default)
     return std.mem.endsWith(u8, link_target, "/zvm") or std.mem.endsWith(u8, link_target, "\\zvm");
@@ -354,7 +352,7 @@ test "is_version_string - valid versions" {
         "latest",
         "0.14.0-dev.3028+cdc9d65b0",
         "0.13.0",
-        "0.15.1",
+        "0.16.0",
     };
 
     for (valid_versions) |version| {
@@ -519,7 +517,7 @@ test "parse_build_zig_zon - valid minimum_zig_version" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -558,7 +556,7 @@ test "parse_build_zig_zon - no minimum_zig_version" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -592,7 +590,7 @@ test "parse_build_zig_zon - invalid version format" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -626,7 +624,7 @@ test "parse_build_zig_zon - master version" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -665,7 +663,7 @@ test "parse_build_zig_zon - empty file" {
     defer test_file.close();
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -699,7 +697,7 @@ test "parse_build_zig_zon - complex version with dev suffix" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function
@@ -758,7 +756,7 @@ test "parse_build_zig_zon - real world complex file" {
     try test_file.writeAll(test_content);
 
     // Get the full path to the test file
-    var test_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var test_path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const test_path = try std.fmt.bufPrint(&test_path_buf, "{s}/build.zig.zon", .{tmp_dir.dir.path});
 
     // Test the parsing function

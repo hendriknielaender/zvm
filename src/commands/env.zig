@@ -37,16 +37,12 @@ pub fn execute(
 }
 
 fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
-    var stream = std.Io.fixedBufferStream(buffer);
     const home_dir = ctx.get_home_dir();
 
-    if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-        try stream.writer().print("{s}/.zm/bin", .{xdg_data});
-    } else {
-        try stream.writer().print("{s}/.local/share/.zm/bin", .{home_dir});
-    }
-
-    return stream.getWritten();
+    return if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
+        try std.fmt.bufPrint(buffer, "{s}/.zm/bin", .{xdg_data})
+    else
+        try std.fmt.bufPrint(buffer, "{s}/.local/share/.zm/bin", .{home_dir});
 }
 
 fn detect_shell_name(shell: ?validation.ShellType, buffer: []u8) ![]const u8 {
@@ -78,8 +74,8 @@ fn detect_windows_shell(buffer: []u8) ![]const u8 {
 }
 
 fn build_env_text(shell_name: []const u8, zvm_bin_path: []const u8, buffer: []u8) ![]const u8 {
-    var stream = std.Io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer_state: std.Io.Writer = .fixed(buffer);
+    const writer: *std.Io.Writer = &writer_state;
 
     if (std.mem.indexOf(u8, shell_name, "fish") != null) {
         try writer.print("# Add this to your ~/.config/fish/config.fish:\n", .{});
@@ -107,14 +103,13 @@ fn build_env_text(shell_name: []const u8, zvm_bin_path: []const u8, buffer: []u8
         try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
     }
 
-    return stream.getWritten();
+    return writer_state.buffered();
 }
 
 fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
     if (builtin.os.tag != .windows) return null;
-    const key_w = comptime std.unicode.wtf8ToWtf16LeStringLiteral(var_name);
-    const result_w = std.process.getenvW(key_w) orelse return null;
-    const result_len = std.unicode.wtf16LeToWtf8(buffer, result_w);
-    if (result_len > buffer.len) return error.BufferTooSmall;
-    return buffer[0..result_len];
+    const value = util_tool.getenv_cross_platform(var_name) orelse return null;
+    if (value.len > buffer.len) return error.BufferTooSmall;
+    @memcpy(buffer[0..value.len], value);
+    return buffer[0..value.len];
 }

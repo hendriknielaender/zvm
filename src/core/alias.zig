@@ -21,7 +21,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     var current_dir_buffer = try ctx.acquire_path_buffer();
     defer current_dir_buffer.reset();
     const current_dir = try util_data.get_zvm_path_segment(current_dir_buffer, "current");
-    try util_tool.try_create_path(current_dir);
+    try util_tool.try_create_path(ctx.io, current_dir);
 
     // Get version path.
     var base_path_buffer = try ctx.acquire_path_buffer();
@@ -33,11 +33,11 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
 
     var version_path_buffer = try ctx.acquire_path_buffer();
     defer version_path_buffer.reset();
-    var fbs = std.Io.fixedBufferStream(version_path_buffer.slice());
-    try fbs.writer().print("{s}/{s}", .{ base_path, version });
-    const version_path = try version_path_buffer.set(fbs.getWritten());
+    const version_path = try version_path_buffer.set(
+        try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
+    );
 
-    std.fs.accessAbsolute(version_path, .{}) catch |err| {
+    std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
         if (err != error.FileNotFound)
             return err;
 
@@ -48,7 +48,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         );
     };
 
-    ensure_version_manifest(version_path, version) catch |err| switch (err) {
+    ensure_version_manifest(ctx, version_path, version) catch |err| switch (err) {
         error.PathAlreadyExists => unreachable,
         else => return err,
     };
@@ -61,7 +61,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
-    try update_current(version_path, symlink_path);
+    try update_current(ctx.io, version_path, symlink_path);
 
     if (is_zls) {
         try verify_zls_version(ctx, version);
@@ -72,7 +72,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     }
 }
 
-fn ensure_version_manifest(version_path: []const u8, version: []const u8) !void {
+fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, version: []const u8) !void {
     assert(version_path.len > 0);
     assert(version.len > 0);
 
@@ -83,7 +83,7 @@ fn ensure_version_manifest(version_path: []const u8, version: []const u8) !void 
         .{ version_path, util_data.version_manifest_name },
     );
 
-    if (util_tool.does_path_exist(manifest_path)) {
+    if (util_tool.does_path_exist(ctx.io, manifest_path)) {
         return;
     }
 
@@ -103,26 +103,28 @@ fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
         return error.InvalidDefaultVersionPath;
     };
 
-    try util_tool.try_create_path(zvm_dir);
+    try util_tool.try_create_path(ctx.io, zvm_dir);
 
-    const file = try std.fs.cwd().createFile(default_version_path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(ctx.io, default_version_path, .{});
+    defer file.close(ctx.io);
 
-    try file.writeAll(version);
+    try file.writeStreamingAll(ctx.io, version);
 }
 
-fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
+fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !void {
     assert(zig_path.len > 0);
     assert(symlink_path.len > 0);
 
     if (builtin.os.tag == .windows) {
-        if (util_tool.does_path_exist(symlink_path)) try std.fs.deleteTreeAbsolute(symlink_path);
+        if (util_tool.does_path_exist(io, symlink_path)) {
+            try std.Io.Dir.cwd().deleteTree(io, symlink_path);
+        }
         // For Windows, use temporary buffers for copying directories.
         // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
         var source_buffer: object_pools.PathBuffer = .{ .data = undefined };
         // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
         var dest_buffer: object_pools.PathBuffer = .{ .data = undefined };
-        try util_tool.copy_dir_static(zig_path, symlink_path, &source_buffer, &dest_buffer);
+        try util_tool.copy_dir_static(io, zig_path, symlink_path, &source_buffer, &dest_buffer);
         return;
     }
 
@@ -132,32 +134,10 @@ fn update_current(zig_path: []const u8, symlink_path: []const u8) !void {
     };
     const symlink_basename = std.fs.path.basename(symlink_path);
 
-    var current_dir = try std.fs.openDirAbsolute(symlink_dirname, .{});
-    defer current_dir.close();
+    var current_dir = try std.Io.Dir.openDirAbsolute(io, symlink_dirname, .{});
+    defer current_dir.close(io);
 
-    var temp_name_buffer: [64]u8 = undefined;
-    while (true) {
-        const temp_name = try std.fmt.bufPrint(
-            &temp_name_buffer,
-            "{s}.tmp.{x}",
-            .{ symlink_basename, std.crypto.random.int(u64) },
-        );
-
-        current_dir.symLink(zig_path, temp_name, .{ .is_directory = true }) catch |err| switch (err) {
-            error.PathAlreadyExists => continue,
-            else => return err,
-        };
-        errdefer current_dir.deleteFile(temp_name) catch |delete_err| switch (delete_err) {
-            error.FileNotFound => {},
-            else => log.warn("Failed to remove temporary symlink '{s}': {s}", .{
-                temp_name,
-                @errorName(delete_err),
-            }),
-        };
-
-        try current_dir.rename(temp_name, symlink_basename);
-        break;
-    }
+    try current_dir.symLinkAtomic(io, zig_path, symlink_basename, .{ .is_directory = true });
 }
 
 /// Verify the current Zig version.

@@ -53,7 +53,7 @@ fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanu
     defer store_buffer.reset();
 
     const store_path = try util_data.get_zvm_store(store_buffer);
-    var store_dir = std.fs.openDirAbsolute(store_path, .{ .iterate = true }) catch |err| {
+    var store_dir = std.Io.Dir.openDirAbsolute(ctx.io, store_path, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) {
             if (emit_human) {
                 util_output.info("No old download artifacts found to clean.", .{});
@@ -63,9 +63,9 @@ fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanu
 
         return err;
     };
-    defer store_dir.close();
+    defer store_dir.close(ctx.io);
 
-    const cleanup = try remove_download_artifacts(&store_dir);
+    const cleanup = try remove_download_artifacts(ctx.io, &store_dir);
     if (!emit_human) return cleanup;
 
     if (cleanup.files_removed == 0) {
@@ -81,18 +81,18 @@ fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanu
     return cleanup;
 }
 
-fn remove_download_artifacts(store_dir: *std.fs.Dir) !StoreCleanup {
+fn remove_download_artifacts(io: std.Io, store_dir: *std.Io.Dir) !StoreCleanup {
     var iterator = store_dir.iterate();
     var cleanup = StoreCleanup{};
 
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(io)) |entry| {
         if (entry.kind != .file) continue;
 
-        const file = try store_dir.openFile(entry.name, .{});
-        const file_info = try file.stat();
-        file.close();
+        const file = try store_dir.openFile(io, entry.name, .{});
+        const file_info = try file.stat(io);
+        file.close(io);
 
-        try store_dir.deleteFile(entry.name);
+        try store_dir.deleteFile(io, entry.name);
         cleanup.files_removed += 1;
         cleanup.bytes_freed += file_info.size;
     }
@@ -147,7 +147,7 @@ fn read_current_version(
         .zig => try util_data.get_zvm_current_zig(current_path_buffer),
         .zls => try util_data.get_zvm_current_zls(current_path_buffer),
     };
-    if (!util_tool.does_path_exist(current_path)) return null;
+    if (!util_tool.does_path_exist(ctx.io, current_path)) return null;
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
     const version_output = util_data.get_current_version(
@@ -180,16 +180,16 @@ fn clean_versions_for_tool(
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
         .zls => try util_data.get_zvm_zls_version(versions_path_buffer),
     };
-    var versions_dir = std.fs.openDirAbsolute(versions_path, .{ .iterate = true }) catch |err| {
+    var versions_dir = std.Io.Dir.openDirAbsolute(ctx.io, versions_path, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) return 0;
         return err;
     };
-    defer versions_dir.close();
+    defer versions_dir.close(ctx.io);
 
     var iterator = versions_dir.iterate();
     var versions_removed: usize = 0;
 
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(ctx.io)) |entry| {
         if (entry.kind != .directory) continue;
 
         if (current_version) |current| {
@@ -208,7 +208,7 @@ fn clean_versions_for_tool(
             util_output.info("  Removing {s} {s}", .{ tool.to_string(), entry.name });
         }
 
-        try versions_dir.deleteTree(entry.name);
+        try versions_dir.deleteTree(ctx.io, entry.name);
         versions_removed += 1;
     }
 
@@ -218,18 +218,19 @@ fn clean_versions_for_tool(
 test "remove_download_artifacts deletes only files" {
     var tmp_dir = std.testing.tmpDir(.{});
     defer tmp_dir.cleanup();
+    const io = std.testing.io;
 
-    const artifact = try tmp_dir.dir.createFile("artifact.tar.xz", .{});
-    try artifact.writeAll("artifact");
-    artifact.close();
+    const artifact = try tmp_dir.dir.createFile(io, "artifact.tar.xz", .{});
+    try artifact.writeStreamingAll(io, "artifact");
+    artifact.close(io);
 
-    try tmp_dir.dir.makeDir("versions");
+    try tmp_dir.dir.createDir(io, "versions", .default_dir);
 
     var dir = tmp_dir.dir;
-    const cleanup = try remove_download_artifacts(&dir);
+    const cleanup = try remove_download_artifacts(io, &dir);
 
     try std.testing.expectEqual(@as(usize, 1), cleanup.files_removed);
     try std.testing.expectEqual(@as(u64, 8), cleanup.bytes_freed);
-    try std.testing.expectError(error.FileNotFound, dir.access("artifact.tar.xz", .{}));
-    try dir.access("versions", .{});
+    try std.testing.expectError(error.FileNotFound, dir.access(io, "artifact.tar.xz", .{}));
+    try dir.access(io, "versions", .{});
 }
