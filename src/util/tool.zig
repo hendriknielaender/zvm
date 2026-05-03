@@ -1,5 +1,6 @@
 const std = @import("std");
 const object_pools = @import("../memory/object_pools.zig");
+const assert = std.debug.assert;
 
 var environment_map: ?*const std.process.Environ.Map = null;
 
@@ -20,6 +21,25 @@ pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
 /// eql str
 pub fn eql_str(str1: []const u8, str2: []const u8) bool {
     return std.mem.eql(u8, str1, str2);
+}
+
+/// Detects a pinned Zig dev build such as `0.16.0-dev.2973+06b85a4fd`.
+/// Dev builds are only published under the `master` key in `index.json`,
+/// so callers must resolve them via the master entry and verify that the
+/// entry's `version` field matches exactly.
+pub fn is_dev_version(version: []const u8) bool {
+    assert(version.len > 0);
+    assert(version.len < 128);
+    return std.mem.indexOf(u8, version, "-dev.") != null;
+}
+
+/// Detects any version that lives under the `master` index entry: the
+/// literal `master` alias and pinned dev builds. Used to pick master-style
+/// arch naming and the master lookup path during install.
+pub fn is_master_like_version(version: []const u8) bool {
+    assert(version.len > 0);
+    assert(version.len < 128);
+    return eql_str(version, "master") or is_dev_version(version);
 }
 
 /// try to create path

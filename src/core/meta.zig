@@ -54,13 +54,30 @@ pub const Zig = struct {
         version: []const u8,
         platform_str: []const u8,
     ) !?VersionData {
+        assert(raw.len > 0);
+        assert(version.len > 0);
+        assert(version.len <= limits.limits.version_string_length_maximum);
+        assert(platform_str.len > 0);
+
+        // Pinned dev builds (e.g. 0.16.0-dev.2973+06b85a4fd) are not present
+        // as top-level keys; they live under `master`. The master entry's
+        // inner `version` field must equal the requested version, otherwise
+        // master has moved on and the requested dev build can no longer be
+        // installed via the index.
+        const is_dev = util_tool.is_dev_version(version);
+        const lookup_key: []const u8 = if (is_dev) "master" else version;
+        assert(lookup_key.len > 0);
+
         // SAFETY: init() writes every TokenScanner field before any read occurs.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
 
         try scanner.expect_object_begin();
-        while (true) {
+        // Bound the scan: index.json has hundreds of entries, never thousands.
+        const entries_max: u32 = 4096;
+        var entries_seen: u32 = 0;
+        while (entries_seen < entries_max) : (entries_seen += 1) {
             switch (try scanner.peek_token_type()) {
                 .object_end => {
                     try scanner.expect_object_end();
@@ -69,14 +86,19 @@ pub const Zig = struct {
                 .string => {
                     var version_key_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
                     const version_key = try scanner.next_string(version_key_buffer[0..]);
-                    if (util_tool.eql_str(version_key, version)) {
-                        return try parse_zig_version_entry(&scanner, version, platform_str);
+                    if (!util_tool.eql_str(version_key, lookup_key)) {
+                        try scanner.skip_value();
+                        continue;
                     }
-                    try scanner.skip_value();
+                    const data = try parse_zig_version_entry(&scanner, version, platform_str) orelse
+                        return null;
+                    if (is_dev and !util_tool.eql_str(data.version(), version)) return null;
+                    return data;
                 },
                 else => return error.UnexpectedToken,
             }
         }
+        return error.IndexEntryLimitExceeded;
     }
 
     pub fn get_version_list(
@@ -540,6 +562,57 @@ test "zig metadata parser extracts a version entry without heap allocation" {
         version_data.tarball(),
     );
     try std.testing.expectEqual(@as(u64, 12345), version_data.size);
+}
+
+test "zig metadata parser resolves dev versions via the master entry" {
+    const raw =
+        \\{
+        \\  "master": {
+        \\    "version": "0.16.0-dev.2973+06b85a4fd",
+        \\    "date": "2026-04-22",
+        \\    "aarch64-macos": {
+        \\      "tarball": "https://ziglang.org/builds/zig-aarch64-macos-0.16.0-dev.2973+06b85a4fd.tar.xz",
+        \\      "shasum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        \\      "size": "12345"
+        \\    }
+        \\  }
+        \\}
+    ;
+
+    const version_data = try Zig.get_version_data(
+        raw,
+        "0.16.0-dev.2973+06b85a4fd",
+        "aarch64-macos",
+    ) orelse return error.ExpectedVersionData;
+
+    try std.testing.expectEqualStrings("0.16.0-dev.2973+06b85a4fd", version_data.version());
+    try std.testing.expectEqualStrings(
+        "https://ziglang.org/builds/zig-aarch64-macos-0.16.0-dev.2973+06b85a4fd.tar.xz",
+        version_data.tarball(),
+    );
+}
+
+test "zig metadata parser rejects stale dev version when master has moved on" {
+    const raw =
+        \\{
+        \\  "master": {
+        \\    "version": "0.16.0-dev.3000+aaaaaaaaa",
+        \\    "date": "2026-05-01",
+        \\    "aarch64-macos": {
+        \\      "tarball": "https://ziglang.org/builds/zig-aarch64-macos-0.16.0-dev.3000+aaaaaaaaa.tar.xz",
+        \\      "shasum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        \\      "size": "12345"
+        \\    }
+        \\  }
+        \\}
+    ;
+
+    const version_data = try Zig.get_version_data(
+        raw,
+        "0.16.0-dev.2973+06b85a4fd",
+        "aarch64-macos",
+    );
+    try std.testing.expect(version_data == null);
 }
 
 test "zls metadata parser handles assets before tag names" {

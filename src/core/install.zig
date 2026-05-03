@@ -128,7 +128,9 @@ fn install_zig(
     assert(version.len > 0);
     assert(version.len < 100);
 
-    const is_master = std.mem.eql(u8, version, "master");
+    // Dev builds (e.g. 0.16.0-dev.2973+06b85a4fd) are only published under
+    // the `master` key in index.json and use master-style arch naming.
+    const is_master = util_tool.is_master_like_version(version);
 
     // Get platform string and store it in a persistent buffer
     const platform_buffer = try ctx.acquire_path_buffer();
@@ -136,38 +138,37 @@ fn install_zig(
 
     var items_done: u32 = 0;
 
-    // Get paths and store them locally to avoid lifetime issues
+    // Copy paths into local storage so they outlive the temporary path buffers.
     var version_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     var extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
-
-    const version_path = blk: {
-        const version_path_buffer = try ctx.acquire_path_buffer();
-        defer version_path_buffer.reset();
-        const path = try util_data.get_zvm_zig_version(version_path_buffer);
-        @memcpy(version_path_storage[0..path.len], path);
-        break :blk version_path_storage[0..path.len];
-    };
+    const version_path = try resolve_zig_version_root(ctx, &version_path_storage);
+    items_done += 1;
+    root_node.setCompletedItems(items_done);
+    const extract_path = try compose_extract_path(ctx, version_path, version, &extract_path_storage);
     items_done += 1;
     root_node.setCompletedItems(items_done);
 
-    const extract_path = blk: {
-        const extract_path_buffer = try ctx.acquire_path_buffer();
-        defer extract_path_buffer.reset();
-        const path = try extract_path_buffer.set(
-            try std.fmt.bufPrint(extract_path_buffer.slice(), "{s}/{s}", .{ version_path, version }),
-        );
-        @memcpy(extract_path_storage[0..path.len], path);
-        break :blk extract_path_storage[0..path.len];
-    };
-    items_done += 1;
-    root_node.setCompletedItems(items_done);
-
-    if (util_tool.does_path_exist(ctx.io, extract_path)) {
+    // The `master` install lives at a fixed directory name, so its path
+    // does not encode the underlying version. We must consult the index to
+    // discover the current master version and re-extract on mismatch.
+    // Pinned dev builds and stable releases short-circuit safely: their
+    // directory name already encodes the exact version.
+    const is_master_alias = util_tool.eql_str(version, "master");
+    const extract_path_exists = util_tool.does_path_exist(ctx.io, extract_path);
+    if (extract_path_exists and !is_master_alias) {
         try alias.set_version(ctx, version, false);
         return;
     }
 
     const version_data = try fetch_version_data(ctx, platform_str, version, &items_done, root_node);
+
+    if (extract_path_exists) {
+        const refresh_needed = try refresh_master_install(ctx, extract_path, version_data.version());
+        if (!refresh_needed) {
+            try alias.set_version(ctx, version, false);
+            return;
+        }
+    }
 
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
     defer tarball_file.close(ctx.io);
@@ -187,6 +188,90 @@ fn install_zig(
     try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, false);
+}
+
+fn resolve_zig_version_root(
+    ctx: *context.CliContext,
+    storage: *[limits.limits.path_length_maximum]u8,
+) ![]const u8 {
+    assert(storage.len > 0);
+
+    const path_buffer = try ctx.acquire_path_buffer();
+    defer path_buffer.reset();
+    const path = try util_data.get_zvm_zig_version(path_buffer);
+    assert(path.len > 0);
+    assert(path.len <= storage.len);
+    @memcpy(storage[0..path.len], path);
+    return storage[0..path.len];
+}
+
+fn compose_extract_path(
+    ctx: *context.CliContext,
+    version_path: []const u8,
+    version: []const u8,
+    storage: *[limits.limits.path_length_maximum]u8,
+) ![]const u8 {
+    assert(version_path.len > 0);
+    assert(version.len > 0);
+    assert(storage.len > 0);
+
+    const path_buffer = try ctx.acquire_path_buffer();
+    defer path_buffer.reset();
+    const path = try path_buffer.set(
+        try std.fmt.bufPrint(path_buffer.slice(), "{s}/{s}", .{ version_path, version }),
+    );
+    assert(path.len > version_path.len);
+    assert(path.len <= storage.len);
+    @memcpy(storage[0..path.len], path);
+    return storage[0..path.len];
+}
+
+/// Decides whether an existing `master` install needs to be replaced.
+/// Returns `true` when the on-disk install is stale and has been removed
+/// (caller must re-download). Returns `false` when the install already
+/// matches the upstream version and the caller can skip the download.
+fn refresh_master_install(
+    ctx: *context.CliContext,
+    extract_path: []const u8,
+    upstream_version: []const u8,
+) !bool {
+    assert(extract_path.len > 0);
+    assert(extract_path.len <= limits.limits.path_length_maximum);
+    assert(upstream_version.len > 0);
+    assert(upstream_version.len <= limits.limits.version_string_length_maximum);
+
+    if (installed_version_matches(extract_path, upstream_version)) return false;
+
+    // Remove the directory so the new tarball extracts cleanly without
+    // leaving files from the previous build behind.
+    std.Io.Dir.cwd().deleteTree(ctx.io, extract_path) catch |err| {
+        log.err("Failed to remove stale master install at {s}: {s}", .{
+            extract_path,
+            @errorName(err),
+        });
+        return err;
+    };
+    return true;
+}
+
+/// Reads `.zvm-version` from `extract_path` and compares it to the
+/// expected version. Returns `false` when the manifest is missing or
+/// cannot be read; the caller must treat such installs as stale.
+fn installed_version_matches(extract_path: []const u8, expected_version: []const u8) bool {
+    assert(extract_path.len > 0);
+    assert(extract_path.len <= limits.limits.path_length_maximum);
+    assert(expected_version.len > 0);
+    assert(expected_version.len <= limits.limits.version_string_length_maximum);
+
+    var path_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    var manifest_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    const installed = util_data.read_version_manifest_absolute(
+        &path_buffer,
+        extract_path,
+        &manifest_buffer,
+    ) catch return false;
+    assert(installed.len > 0);
+    return util_tool.eql_str(installed, expected_version);
 }
 
 fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {

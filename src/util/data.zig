@@ -116,7 +116,7 @@ fn build_manifest_path(
     return try path_buffer.set(manifest_path);
 }
 
-fn read_version_manifest_absolute(
+pub fn read_version_manifest_absolute(
     path_buffer: *object_pools.PathBuffer,
     install_path: []const u8,
     output_buffer: []u8,
