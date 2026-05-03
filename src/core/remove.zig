@@ -5,6 +5,7 @@ const config = @import("../metadata.zig");
 const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const context = @import("../Context.zig");
+const paths = @import("../platform/paths.zig");
 const limits = @import("../memory/limits.zig");
 const detect_version = @import("detect_version.zig");
 const assert = std.debug.assert;
@@ -130,7 +131,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
     // Try remove version path.
     if (util_tool.does_path_exist(ctx.io, version_path)) {
-        assert(std.mem.indexOf(u8, version_path, ".zm") != null);
+        assert(std.mem.indexOf(u8, version_path, paths.zvm_dir_name) != null);
 
         try std.Io.Dir.cwd().deleteTree(ctx.io, version_path);
 

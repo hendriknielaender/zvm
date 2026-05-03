@@ -1,14 +1,11 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
 const object_pools = @import("../memory/object_pools.zig");
-const context = @import("../Context.zig");
-const util_tool = @import("tool.zig");
+const paths = @import("../platform/paths.zig");
 const assert = std.debug.assert;
 
 pub const version_manifest_name = ".zvm-version";
 
-/// Cross-platform environment variable getter
-/// Returns null if variable doesn't exist, slice if it does
 pub const zvm_logo =
     \\⠀⢸⣾⣷⣿⣾⣷⣿⣾⡷⠃⠀⠀⠀⠀⠀⣴⡷⠞⠀⠀⠀⠀⠀⣼⣾⡂
     \\⠀⠈⠉⠉⠉⠉⣹⣿⡿⠁⢠⡄⠀⠀⢀⣼⢯⠏⠀⢀⡄⠀⢀⣾⣿⣿⡂
@@ -19,67 +16,50 @@ pub const zvm_logo =
     \\⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⡧⠀⠀⠀⠀⠀⠀⣿⣿⠃⠀⠀⠀⠀⣿⣿⠂
 ;
 
-/// Get zvm path segment - uses path buffer from context.
+/// Resolve the ZVM root directory into a stack buffer.
+/// This is a private helper used by all path-builder functions
+/// to avoid duplicating home and root resolution.
+fn resolve_zvm_root(out_buffer: []u8) ![]const u8 {
+    assert(out_buffer.len > 0);
+
+    var home_buf: [limits.limits.home_dir_length_maximum]u8 = undefined;
+    const home = try paths.get_home_path(&home_buf);
+    return try paths.get_zvm_root(out_buffer, home);
+}
+
+/// Get ZVM path segment relative to the ZVM root.
 pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
-    const ctx = try context.CliContext.get();
+    assert(segment.len > 0);
 
-    // Follow XDG Base Directory specification
-    const home_dir = ctx.get_home_dir();
-    const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/{s}", .{ xdg_data, segment })
-    else
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/{s}", .{ home_dir, segment });
-
+    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try resolve_zvm_root(&zvm_root_buf);
+    const result = try std.fmt.bufPrint(buffer.slice(), "{s}/{s}", .{ zvm_root, segment });
     return try buffer.set(result);
 }
 
-/// Get zvm/current/zig path.
+/// Get the ZVM current/zig directory path.
 pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
-    const ctx = try context.CliContext.get();
-    const home_dir = ctx.get_home_dir();
-    const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/current/zig", .{xdg_data})
-    else
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/current/zig", .{home_dir});
-    return try buffer.set(result);
+    return get_zvm_path_segment(buffer, "current/zig");
 }
 
-/// Get zvm/current/zls path.
+/// Get the ZVM current/zls directory path.
 pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
-    const ctx = try context.CliContext.get();
-    const home_dir = ctx.get_home_dir();
-    const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/current/zls", .{xdg_data})
-    else
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/current/zls", .{home_dir});
-    return try buffer.set(result);
+    return get_zvm_path_segment(buffer, "current/zls");
 }
 
-/// Get zvm/store path.
+/// Get the ZVM store directory path.
 pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
     return get_zvm_path_segment(buffer, "store");
 }
 
-/// Get zvm/version/zig path.
+/// Get the ZVM version/zig directory path.
 pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
-    const ctx = try context.CliContext.get();
-    const home_dir = ctx.get_home_dir();
-    const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/version/zig", .{xdg_data})
-    else
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/version/zig", .{home_dir});
-    return try buffer.set(result);
+    return get_zvm_path_segment(buffer, "version/zig");
 }
 
-/// Get zvm/version/zls path.
+/// Get the ZVM version/zls directory path.
 pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
-    const ctx = try context.CliContext.get();
-    const home_dir = ctx.get_home_dir();
-    const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/version/zls", .{xdg_data})
-    else
-        try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/version/zls", .{home_dir});
-    return try buffer.set(result);
+    return get_zvm_path_segment(buffer, "version/zls");
 }
 
 pub fn write_version_manifest(install_path: []const u8, version: []const u8) !void {
@@ -138,7 +118,7 @@ pub fn read_version_manifest_absolute(
     return version;
 }
 
-/// Try to get zig/zls version using a manifest within the active installation.
+/// Get the version from the manifest within the active installation.
 pub fn get_current_version(
     path_buffer: *object_pools.PathBuffer,
     output_buffer: []u8,

@@ -4,6 +4,7 @@ const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
 const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
+const paths = @import("../platform/paths.zig");
 const limits = @import("../memory/limits.zig");
 
 pub fn execute(
@@ -38,11 +39,10 @@ pub fn execute(
 
 fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     const home_dir = ctx.get_home_dir();
-
-    return if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-        try std.fmt.bufPrint(buffer, "{s}/.zm/bin", .{xdg_data})
-    else
-        try std.fmt.bufPrint(buffer, "{s}/.local/share/.zm/bin", .{home_dir});
+    // Resolve zvm_root into a separate stack buffer to avoid aliasing with the output buffer.
+    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_buf, home_dir);
+    return try std.fmt.bufPrint(buffer, "{s}/bin", .{zvm_root});
 }
 
 fn detect_shell_name(shell: ?validation.ShellType, buffer: []u8) ![]const u8 {

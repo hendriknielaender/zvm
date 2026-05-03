@@ -1,6 +1,7 @@
 const std = @import("std");
 const util_tool = @import("../util/tool.zig");
 const Context = @import("../Context.zig");
+const paths = @import("../platform/paths.zig");
 const limits = @import("../memory/limits.zig");
 const assert = std.debug.assert;
 
@@ -240,18 +241,19 @@ pub fn auto_install_version(ctx: *Context.CliContext, version: []const u8) !void
 }
 
 fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8 {
+    assert(version.len > 0);
+
+    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
+
     var buffer = try ctx.acquire_path_buffer();
     defer buffer.reset();
 
-    const home_dir = ctx.get_home_dir();
     const path = try buffer.set(
-        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-            try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/version/zig/{s}", .{ xdg_data, version })
-        else
-            try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/version/zig/{s}", .{ home_dir, version }),
+        try std.fmt.bufPrint(buffer.slice(), "{s}/version/zig/{s}", .{ zvm_root, version }),
     );
 
-    // Always duplicate the path using the allocator
+    // Duplicate the path using the allocator so the caller owns the memory.
     return ctx.get_allocator().dupe(u8, path) catch error.OutOfMemory;
 }
 
@@ -285,16 +287,14 @@ pub fn find_default_version_in_buffer(
 ) !?[]const u8 {
     assert(version_buffer.len > 0);
 
-    // Look for a default version config file
+    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
+
     var config_path_buffer = try ctx.acquire_path_buffer();
     defer config_path_buffer.reset();
 
-    const home_dir = ctx.get_home_dir();
     const config_path = try config_path_buffer.set(
-        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.zm/default_version", .{xdg_data})
-        else
-            try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/.local/share/.zm/default_version", .{home_dir}),
+        try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/default_version", .{zvm_root}),
     );
 
     const file = std.Io.Dir.cwd().openFile(ctx.io, config_path, .{}) catch return null;
@@ -305,7 +305,6 @@ pub fn find_default_version_in_buffer(
     const bytes_read = file_reader.interface.readSliceShort(version_buffer) catch return null;
     if (bytes_read == 0) return null;
 
-    // Trim whitespace
     const content = std.mem.trim(u8, version_buffer[0..bytes_read], " \t\n\r");
     if (content.len == 0) return null;
     return content;
@@ -316,27 +315,23 @@ fn log_version_suggestion() void {
 }
 
 fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
-    // Check if current/zig symlink points to zvm binary (which would cause infinite loop)
+    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
+
     var current_zig_path_buffer = try ctx.acquire_path_buffer();
     defer current_zig_path_buffer.reset();
 
-    const home_dir = ctx.get_home_dir();
     const current_zig_path = try current_zig_path_buffer.set(
-        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.zm/current/zig", .{xdg_data})
-        else
-            try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/.local/share/.zm/current/zig", .{home_dir}),
+        try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/current/zig", .{zvm_root}),
     );
 
-    // Check if symlink exists and where it points
     var link_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const link_target_len = std.Io.Dir.readLinkAbsolute(ctx.io, current_zig_path, &link_buffer) catch |err| switch (err) {
-        error.FileNotFound => return true, // No default set
-        else => return false, // Any other error means it's probably not a symlink to zvm
+        error.FileNotFound => return true,
+        else => return false,
     };
     const link_target = link_buffer[0..link_target_len];
 
-    // Check if it points to zvm binary (indicates smart detection mode without default)
     return std.mem.endsWith(u8, link_target, "/zvm") or std.mem.endsWith(u8, link_target, "\\zvm");
 }
 

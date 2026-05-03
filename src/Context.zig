@@ -1,9 +1,8 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const limits = @import("memory/limits.zig");
 const object_pools = @import("memory/object_pools.zig");
 const static_memory = @import("memory/static_memory.zig");
-const util_tool = @import("util/tool.zig");
+const paths = @import("platform/paths.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.context);
 
@@ -115,32 +114,20 @@ pub const CliContext = struct {
         assert(context_storage.arguments_count == arguments_count);
     }
 
-    /// Initialize home directory
+    /// Initialize home directory using the canonical path resolver.
+    /// get_home_path falls back to "." when HOME/USERPROFILE is unset,
+    /// so this call succeeds in all reasonable environments.
     fn init_home_directory(context_storage: *CliContext) !void {
-        const home = blk: {
-            if (builtin.os.tag == .windows) {
-                break :blk util_tool.getenv_cross_platform("USERPROFILE") orelse "./";
-            }
-
-            break :blk util_tool.getenv_cross_platform("HOME") orelse "./";
+        const home = paths.get_home_path(&context_storage.home_dir_buffer) catch {
+            // Unreachable in practice: paths.get_home_path only fails on
+            // HomePathTooLong, which requires >256-byte env var.
+            log.err("Failed to resolve home directory", .{});
+            return error.HomeDirectoryTooLong;
         };
 
-        // Validate home directory
         assert(home.len > 0);
         assert(home.len <= limits.limits.home_dir_length_maximum);
 
-        // Copy home directory into our buffer
-        if (home.len > context_storage.home_dir_buffer.len) {
-            log.err("Home directory path too long: got {d} bytes, maximum is {d} bytes. Path: '{s}'", .{
-                home.len,
-                context_storage.home_dir_buffer.len,
-                home,
-            });
-            return error.HomeDirectoryTooLong;
-        }
-        if (builtin.os.tag != .windows) {
-            @memcpy(context_storage.home_dir_buffer[0..home.len], home);
-        }
         context_storage.home_dir_length = @intCast(home.len);
 
         assert(context_storage.home_dir_length > 0);
@@ -203,25 +190,24 @@ pub const CliContext = struct {
     }
 
     /// Build a ZVM path using a path buffer.
+    /// Delegates to the canonical path resolver in platform/paths.zig.
     pub fn build_zvm_path(self: *CliContext, segment: []const u8) ![]const u8 {
         assert(segment.len > 0);
-        assert(segment.len < limits.limits.path_length_maximum / 2); // Leave room for home dir
+        assert(segment.len < limits.limits.path_length_maximum / 2);
 
-        var buffer = try self.acquire_path_buffer();
-        defer buffer.reset();
+        // Resolve zvm_root into a stack buffer to avoid aliasing with path_buffer.
+        var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+        const zvm_root = try paths.get_zvm_root(&zvm_root_buf, self.get_home_dir());
 
-        // buffer is a pointer, not optional - no need for null check
+        var path_buffer = try self.acquire_path_buffer();
+        defer path_buffer.reset();
 
-        const home_dir = self.get_home_dir();
-        assert(home_dir.len > 0);
-
-        // Follow XDG Base Directory specification
-        const result = if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data|
-            try std.fmt.bufPrint(buffer.slice(), "{s}/.zm/{s}", .{ xdg_data, segment })
-        else
-            try std.fmt.bufPrint(buffer.slice(), "{s}/.local/share/.zm/{s}", .{ home_dir, segment });
-
-        const path = try buffer.set(result);
+        const result = try std.fmt.bufPrint(
+            path_buffer.slice(),
+            "{s}/{s}",
+            .{ zvm_root, segment },
+        );
+        const path = try path_buffer.set(result);
 
         assert(path.len > 0);
         assert(path.len <= limits.limits.path_length_maximum);
