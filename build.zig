@@ -1,16 +1,18 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const zon = @import("build.zig.zon");
 
 const Build = std.Build;
 
-const min_zig_string = "0.16.0";
-const semver = std.SemanticVersion{ .major = 0, .minor = 18, .patch = 0 };
-const semver_string = "0.18.0";
+// Version metadata is sourced from build.zig.zon so the manifest and the
+// embedded `--version` string stay in sync automatically.
+const semver = std.SemanticVersion.parse(zon.version) catch
+    @panic("Invalid version in build.zig.zon");
 
-// comptime detect the zig version
 comptime {
     const current_zig = builtin.zig_version;
-    const min_zig = std.SemanticVersion.parse(min_zig_string) catch @panic("Invalid version string");
+    const min_zig = std.SemanticVersion.parse(zon.minimum_zig_version) catch
+        @panic("Invalid minimum_zig_version in build.zig.zon");
     if (current_zig.order(min_zig) == .lt) {
         const error_msg = std.fmt.comptimePrint(
             "Your Zig version v{} does not meet the minimum build requirement of v{}",
@@ -27,7 +29,7 @@ pub fn build(b: *Build) void {
     // Add a global option for versioning
     const options = b.addOptions();
     options.addOption(std.log.Level, "log_level", b.option(std.log.Level, "log_level", "The Log Level to be used.") orelse .info);
-    options.addOption([]const u8, "version", semver_string);
+    options.addOption([]const u8, "version", zon.version);
 
     const exe = b.addExecutable(.{
         .name = "zvm",

@@ -1,0 +1,14 @@
+.{
+    .name = .zvm,
+    .version = "0.19.0",
+    .fingerprint = 0xec41f701eac68f7f,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+        "README.md",
+    },
+}
