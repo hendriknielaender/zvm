@@ -1,8 +1,9 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
+const paths = @import("platform/paths.zig");
 const metadata = @import("metadata.zig");
+const assert = std.debug.assert;
 
 zvm_home: []const u8,
 verify_signatures: bool,
@@ -38,8 +39,11 @@ pub fn init() Self {
 }
 
 fn load_from_env(self: *Self) void {
-    const home = self.get_home_path() catch return;
-    self.zvm_home = self.get_zvm_home_path(home) catch return;
+    const home = paths.get_home_path(&self.home_buffer) catch return;
+    self.zvm_home = paths.get_zvm_root(&self.zvm_home_buffer, home) catch return;
+
+    assert(self.zvm_home.len > 0);
+    assert(self.zvm_home.len <= self.zvm_home_buffer.len);
 
     if (self.get_env_var("ZVM_VERIFY_SIGNATURES")) |verify_str| {
         self.verify_signatures = std.mem.eql(u8, verify_str, "true");
@@ -48,46 +52,11 @@ fn load_from_env(self: *Self) void {
     self.preferred_mirror = metadata.preferred_mirror;
 }
 
-fn get_home_path(self: *Self) ![]const u8 {
-    const env_var = if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
-
-    if (self.get_env_var_to_buffer(env_var, &self.env_buffer)) |home| {
-        if (home.len >= self.home_buffer.len) return error.HomePathTooLong;
-        @memcpy(self.home_buffer[0..home.len], home);
-        return self.home_buffer[0..home.len];
-    } else {
-        return error.HomeNotFound;
-    }
-}
-
-fn get_zvm_home_path(self: *Self, home: []const u8) ![]const u8 {
-    if (builtin.os.tag == .windows) {
-        if (self.get_env_var("ZVM_HOME")) |zvm_home| {
-            if (zvm_home.len >= self.zvm_home_buffer.len) return error.HomePathTooLong;
-            @memcpy(self.zvm_home_buffer[0..zvm_home.len], zvm_home);
-            return self.zvm_home_buffer[0..zvm_home.len];
-        } else {
-            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}\\.zm", .{home});
-        }
-    } else {
-        if (self.get_env_var_to_buffer("XDG_DATA_HOME", &self.env_buffer)) |xdg_data| {
-            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}/.zm", .{xdg_data});
-        } else {
-            return try std.fmt.bufPrint(&self.zvm_home_buffer, "{s}/.local/share/.zm", .{home});
-        }
-    }
-}
-
 fn get_env_var(self: *Self, name: []const u8) ?[]const u8 {
-    return self.get_env_var_to_buffer(name, &self.env_buffer);
-}
-
-fn get_env_var_to_buffer(self: *Self, name: []const u8, buffer: []u8) ?[]const u8 {
-    _ = self;
     const value = util_tool.getenv_cross_platform(name) orelse return null;
-    if (value.len > buffer.len) return null;
-    @memcpy(buffer[0..value.len], value);
-    return buffer[0..value.len];
+    if (value.len > self.env_buffer.len) return null;
+    @memcpy(self.env_buffer[0..value.len], value);
+    return self.env_buffer[0..value.len];
 }
 
 pub fn validate(self: Self) !void {

@@ -7,6 +7,7 @@ const memory_limits = @import("memory/limits.zig");
 const memory_static = @import("memory/static_memory.zig");
 const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
+const paths = @import("platform/paths.zig");
 const Config = @import("config.zig");
 const metadata = @import("metadata.zig");
 const build_options = @import("options");
@@ -96,14 +97,6 @@ fn has_windows_env_var(comptime var_name: []const u8) bool {
     if (builtin.os.tag != .windows) return false;
     const value = util_tool.getenv_cross_platform(var_name) orelse return false;
     return value.len > 0;
-}
-
-fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
-    if (builtin.os.tag != .windows) return null;
-    const value = util_tool.getenv_cross_platform(var_name) orelse return null;
-    if (value.len > buffer.len) return error.BufferTooSmall;
-    @memcpy(buffer[0..value.len], value);
-    return buffer[0..value.len];
 }
 
 fn append_argument_to_static_storage(
@@ -521,22 +514,28 @@ test "extract_minimum_zig_version_from_zon parses zon source without allocation"
 }
 
 fn ensure_version_available(io: std.Io, version: []const u8) !bool {
+    assert(version.len > 0);
+
     if (std.mem.eql(u8, version, "current")) return true;
 
-    // Get home directory
-    const home = util_tool.getenv_cross_platform("HOME") orelse return error.HomeNotFound;
+    var home_buf: [memory_limits.limits.home_dir_length_maximum]u8 = undefined;
+    const home = try paths.get_home_path(&home_buf);
 
-    // Build version path with separate buffers
-    var version_path_buf: [1024]u8 = undefined;
-    const version_path = std.fmt.bufPrint(&version_path_buf, "{s}/.local/share/.zm/version/zig/{s}", .{ home, version }) catch return false;
+    var zvm_root_buf: [memory_limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_buf, home);
 
-    // Check if directory exists
+    var version_path_buf: [memory_limits.limits.path_length_maximum]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(
+        &version_path_buf,
+        "{s}/version/zig/{s}",
+        .{ zvm_root, version },
+    );
+
     var dir = std.Io.Dir.cwd().openDir(io, version_path, .{}) catch return false;
     defer dir.close(io);
 
-    // Check if zig executable exists with separate buffer
-    var zig_path_buf: [1024]u8 = undefined;
-    const zig_path = std.fmt.bufPrint(&zig_path_buf, "{s}/zig", .{version_path}) catch return false;
+    var zig_path_buf: [memory_limits.limits.path_length_maximum]u8 = undefined;
+    const zig_path = try std.fmt.bufPrint(&zig_path_buf, "{s}/zig", .{version_path});
     dir.access(io, zig_path, .{}) catch return false;
 
     return true;
@@ -620,51 +619,17 @@ fn handle_alias_fallback(io: std.Io, program_name: []const u8, remaining_argumen
 }
 
 fn get_home_path(alias_buffers: *AliasBuffers) ![]const u8 {
-    if (builtin.os.tag == .windows) {
-        const home = get_windows_env_var("USERPROFILE", &alias_buffers.home) catch |err| {
-            log.err("Error reading USERPROFILE: {}", .{err});
-            return error.HomeNotFound;
-        } orelse {
-            log.err("USERPROFILE environment variable not set. Please set USERPROFILE to your home directory", .{});
-            return error.HomeNotFound;
-        };
-
-        if (home.len >= alias_buffers.home.len) {
-            log.err("Home path too long for buffer", .{});
-            return error.HomePathTooLong;
-        }
-
-        return alias_buffers.home[0..home.len];
-    } else {
-        const home = util_tool.getenv_cross_platform("HOME") orelse {
-            log.err("HOME environment variable not set. Please set HOME to your home directory", .{});
-            return error.HomeNotFound;
-        };
-
-        if (home.len >= alias_buffers.home.len) {
-            log.err("Home path too long for buffer", .{});
-            return error.HomePathTooLong;
-        }
-
-        @memcpy(alias_buffers.home[0..home.len], home);
-        return alias_buffers.home[0..home.len];
-    }
+    const home = try paths.get_home_path(&alias_buffers.home);
+    assert(home.len > 0);
+    assert(home.len <= alias_buffers.home.len);
+    return home;
 }
 
 fn get_zvm_home_path(alias_buffers: *AliasBuffers, home_slice: []const u8) ![]const u8 {
-    if (builtin.os.tag == .windows) {
-        if (get_windows_env_var("ZVM_HOME", &alias_buffers.zvm_home) catch null) |zvm_home| {
-            return zvm_home;
-        } else {
-            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}\\.zm", .{home_slice});
-        }
-    } else {
-        if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
-            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.zm", .{xdg_data});
-        } else {
-            return try std.fmt.bufPrint(&alias_buffers.zvm_home, "{s}/.local/share/.zm", .{home_slice});
-        }
-    }
+    const zvm_home = try paths.get_zvm_root(&alias_buffers.zvm_home, home_slice);
+    assert(zvm_home.len > 0);
+    assert(zvm_home.len <= alias_buffers.zvm_home.len);
+    return zvm_home;
 }
 
 fn build_tool_path(alias_buffers: *AliasBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
