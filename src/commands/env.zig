@@ -72,7 +72,6 @@ fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     // Resolve zvm_root into a separate stack buffer to avoid aliasing with the output buffer.
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, home_dir);
-    assert(zvm_root.len > 0);
     return try std.fmt.bufPrint(buffer, "{s}/bin", .{zvm_root});
 }
 
