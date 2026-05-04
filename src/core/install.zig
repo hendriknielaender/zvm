@@ -19,7 +19,7 @@ const Progress = std.Progress;
 
 /// Helper function to download a file with hash verification
 /// This wraps HttpClient.downloadFile to provide the same interface as the old download_static
-fn download_file_with_verification(
+pub fn download_file_with_verification(
     ctx: *context.CliContext,
     uri: std.Uri,
     file_name: []const u8,
@@ -274,7 +274,7 @@ fn installed_version_matches(extract_path: []const u8, expected_version: []const
     return util_tool.eql_str(installed, expected_version);
 }
 
-fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
     const platform_str = try util_arch.platform_str_static(
         platform_buffer,
         .{

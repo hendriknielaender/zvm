@@ -46,6 +46,7 @@ const commands = struct {
     pub const clean = @import("commands/clean.zig");
     pub const env = @import("commands/env.zig");
     pub const completions = @import("commands/completions.zig");
+    pub const upgrade = @import("commands/upgrade.zig");
 };
 
 const install = @import("core/install.zig");
@@ -708,6 +709,7 @@ fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedComma
         .clean => |opts| if (opts.remove_all) 10 else 5,
         .env => 1,
         .completions => 1,
+        .upgrade => 4,
     };
 }
 
@@ -728,6 +730,7 @@ fn execute_command(
         .clean => |opts| try commands.clean.execute(ctx, opts, progress_node),
         .env => |opts| try commands.env.execute(ctx, opts, progress_node),
         .completions => |opts| try commands.completions.execute(ctx, opts, progress_node),
+        .upgrade => |opts| try commands.upgrade.execute(ctx, opts, progress_node),
     }
 }
 

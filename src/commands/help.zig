@@ -29,6 +29,7 @@ const general_help_text =
     \\    clean                   Remove unused Zig versions
     \\    env                     Print shell setup instructions
     \\    completions [shell]     Generate shell completion scripts
+    \\    upgrade                 Upgrade zvm to the latest released version
     \\    help [command]          Show help
     \\    version                 Show ZVM version
     \\
@@ -208,6 +209,19 @@ const version_help_text =
     \\
 ;
 
+const upgrade_help_text =
+    \\USAGE:
+    \\    zvm [GLOBAL_OPTIONS] upgrade
+    \\
+    \\DESCRIPTION:
+    \\    Download and install the latest stable release of zvm,
+    \\    replacing the currently installed binary in place.
+    \\
+    \\EXAMPLES:
+    \\    zvm upgrade
+    \\
+;
+
 const help_help_text =
     \\USAGE:
     \\    zvm [GLOBAL_OPTIONS] help [command]
@@ -237,6 +251,7 @@ fn topic_name(topic: validation.HelpTopic) []const u8 {
         .completions => "completions",
         .version => "version",
         .help => "help",
+        .upgrade => "upgrade",
     };
 }
 
@@ -254,6 +269,7 @@ fn topic_text(topic: validation.HelpTopic) []const u8 {
         .completions => completions_help_text,
         .version => version_help_text,
         .help => help_help_text,
+        .upgrade => upgrade_help_text,
     };
 }
 
