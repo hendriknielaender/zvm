@@ -115,21 +115,21 @@ pub const CliContext = struct {
     }
 
     /// Initialize home directory using the canonical path resolver.
-    /// get_home_path falls back to "." when HOME/USERPROFILE is unset,
-    /// so this call succeeds in all reasonable environments.
+    /// get_home_path falls back to "." when HOME/USERPROFILE is unset, so the
+    /// only failure modes here are an empty env var or one exceeding the buffer.
     fn init_home_directory(context_storage: *CliContext) !void {
-        const home = paths.get_home_path(&context_storage.home_dir_buffer) catch {
-            // Unreachable in practice: paths.get_home_path only fails on
-            // HomePathTooLong, which requires >256-byte env var.
-            log.err("Failed to resolve home directory", .{});
-            return error.HomeDirectoryTooLong;
+        const home = paths.get_home_path(&context_storage.home_dir_buffer) catch |err| {
+            log.err("Failed to resolve home directory: {s}", .{@errorName(err)});
+            return err;
         };
 
         assert(home.len > 0);
+        assert(home.len <= context_storage.home_dir_buffer.len);
         assert(home.len <= limits.limits.home_dir_length_maximum);
 
         context_storage.home_dir_length = @intCast(home.len);
 
+        assert(context_storage.home_dir_length == home.len);
         assert(context_storage.home_dir_length > 0);
         assert(context_storage.home_dir_length <= context_storage.home_dir_buffer.len);
     }

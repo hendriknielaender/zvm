@@ -10,23 +10,29 @@ pub const zvm_dir_name = ".zm";
 
 /// Get the user's home directory path.
 /// Uses `USERPROFILE` on Windows, `HOME` on Unix.
-/// Falls back to `"."` (current directory) when the environment variable is unset,
-/// matching `Context.init_home_directory` behavior for graceful degradation.
+/// Falls back to `"."` (current directory) when the environment variable is unset.
+/// The fallback keeps zvm runnable in minimal environments (containers, CI sandboxes,
+/// init scripts) where `HOME` may legitimately be absent. An empty environment variable
+/// is treated as misconfiguration and returns `error.HomeNotFound`.
 pub fn get_home_path(buffer: []u8) ![]const u8 {
     assert(buffer.len > 0);
 
     const env_var = if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
     const home = util_tool.getenv_cross_platform(env_var) orelse {
-        // Environment variable not set. Fall back to current working directory.
         const fallback = ".";
+        assert(fallback.len > 0);
         assert(fallback.len <= buffer.len);
         @memcpy(buffer[0..fallback.len], fallback);
+        assert(buffer[0] == '.');
         return buffer[0..fallback.len];
     };
 
     if (home.len == 0) return error.HomeNotFound;
     if (home.len > buffer.len) return error.HomePathTooLong;
     @memcpy(buffer[0..home.len], home);
+
+    assert(home.len > 0);
+    assert(home.len <= buffer.len);
     return buffer[0..home.len];
 }
 
@@ -44,9 +50,15 @@ pub fn get_zvm_root(buffer: []u8, home: []const u8) ![]const u8 {
     assert(home.len > 0);
 
     // 1. ZVM_HOME takes priority on all platforms.
+    // An empty value is rejected: an exported-but-empty variable is misconfiguration,
+    // not opt-out. Callers should unset the variable to use the platform default.
     if (util_tool.getenv_cross_platform("ZVM_HOME")) |zvm_home| {
+        if (zvm_home.len == 0) return error.HomeNotFound;
         if (zvm_home.len > buffer.len) return error.HomePathTooLong;
         @memcpy(buffer[0..zvm_home.len], zvm_home);
+
+        assert(zvm_home.len > 0);
+        assert(zvm_home.len <= buffer.len);
         return buffer[0..zvm_home.len];
     }
 
@@ -54,16 +66,22 @@ pub fn get_zvm_root(buffer: []u8, home: []const u8) ![]const u8 {
     if (builtin.os.tag != .windows) {
         if (util_tool.getenv_cross_platform("XDG_DATA_HOME")) |xdg_data| {
             if (xdg_data.len == 0) return error.HomeNotFound;
-            return try std.fmt.bufPrint(buffer, "{s}/" ++ zvm_dir_name, .{xdg_data});
+            const result = try std.fmt.bufPrint(buffer, "{s}/" ++ zvm_dir_name, .{xdg_data});
+            assert(result.len > xdg_data.len);
+            assert(std.mem.endsWith(u8, result, "/" ++ zvm_dir_name));
+            return result;
         }
     }
 
     // 3. Platform default.
-    if (builtin.os.tag == .windows) {
-        return try std.fmt.bufPrint(buffer, "{s}\\" ++ zvm_dir_name, .{home});
-    } else {
-        return try std.fmt.bufPrint(buffer, "{s}/.local/share/" ++ zvm_dir_name, .{home});
-    }
+    const result = if (builtin.os.tag == .windows)
+        try std.fmt.bufPrint(buffer, "{s}\\" ++ zvm_dir_name, .{home})
+    else
+        try std.fmt.bufPrint(buffer, "{s}/.local/share/" ++ zvm_dir_name, .{home});
+
+    assert(result.len > home.len);
+    assert(std.mem.endsWith(u8, result, zvm_dir_name));
+    return result;
 }
 
 test "get_home_path returns HOME on Unix" {
@@ -107,4 +125,29 @@ test "get_zvm_root respects ZVM_HOME override" {
     const result = try get_zvm_root(&buffer, home);
     const zvm_home = util_tool.getenv_cross_platform("ZVM_HOME").?;
     try std.testing.expectEqualStrings(zvm_home, result);
+}
+
+test "get_zvm_root rejects oversized ZVM_HOME" {
+    if (util_tool.getenv_cross_platform("ZVM_HOME") == null) return error.SkipZigTest;
+    const zvm_home = util_tool.getenv_cross_platform("ZVM_HOME").?;
+    if (zvm_home.len == 0) return error.SkipZigTest;
+
+    // Buffer one byte smaller than the ZVM_HOME value forces HomePathTooLong.
+    const undersized_len = zvm_home.len - 1;
+    const buffer = try std.testing.allocator.alloc(u8, undersized_len);
+    defer std.testing.allocator.free(buffer);
+
+    const home = "/tmp";
+    const err = get_zvm_root(buffer, home);
+    try std.testing.expectError(error.HomePathTooLong, err);
+}
+
+test "get_home_path falls back to '.' when HOME is unset" {
+    // This test only runs in environments where HOME/USERPROFILE is genuinely unset.
+    const env_var = if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
+    if (util_tool.getenv_cross_platform(env_var) != null) return error.SkipZigTest;
+
+    var buffer: [16]u8 = undefined;
+    const result = try get_home_path(&buffer);
+    try std.testing.expectEqualStrings(".", result);
 }
