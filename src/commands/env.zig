@@ -7,6 +7,32 @@ const util_tool = @import("../util/tool.zig");
 const paths = @import("../platform/paths.zig");
 const limits = @import("../memory/limits.zig");
 
+const assert = std.debug.assert;
+
+/// Shell families recognised when emitting `zvm env` text. We dispatch on
+/// this enum rather than on substring matches against the shell name —
+/// e.g. "powershell" contains the substring "sh", which previously caused
+/// PowerShell to be misclassified as a POSIX shell.
+const ShellKind = enum {
+    bash,
+    zsh,
+    fish,
+    sh,
+    powershell,
+    cmd,
+
+    fn display_name(kind: ShellKind) []const u8 {
+        return switch (kind) {
+            .bash => "bash",
+            .zsh => "zsh",
+            .fish => "fish",
+            .sh => "sh",
+            .powershell => "powershell",
+            .cmd => "cmd",
+        };
+    }
+};
+
 pub fn execute(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.EnvCommand,
@@ -17,12 +43,15 @@ pub fn execute(
     var path_buffer = try ctx.acquire_path_buffer();
     defer path_buffer.reset();
     const zvm_bin_path = try build_zvm_bin_path(ctx, path_buffer.slice());
+    assert(zvm_bin_path.len > 0);
 
-    var shell_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-    const shell_name = try detect_shell_name(command.shell, &shell_buffer);
+    const shell_kind = detect_shell_kind(command.shell);
+    const shell_name = shell_kind.display_name();
+    assert(shell_name.len > 0);
 
     var text_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
-    const text = try build_env_text(shell_name, zvm_bin_path, &text_buffer);
+    const text = try build_env_text(shell_kind, zvm_bin_path, &text_buffer);
+    assert(text.len > 0);
 
     const emitter = util_output.get_global();
     if (emitter.config.mode == .machine_json) {
@@ -38,6 +67,7 @@ pub fn execute(
 }
 
 fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
+    assert(buffer.len > 0);
     const home_dir = ctx.get_home_dir();
     // Resolve zvm_root into a separate stack buffer to avoid aliasing with the output buffer.
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
@@ -45,71 +75,94 @@ fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     return try std.fmt.bufPrint(buffer, "{s}/bin", .{zvm_root});
 }
 
-fn detect_shell_name(shell: ?validation.ShellType, buffer: []u8) ![]const u8 {
-    if (shell) |explicit_shell| {
-        return @tagName(explicit_shell);
+fn detect_shell_kind(shell: ?validation.ShellType) ShellKind {
+    if (shell) |explicit| {
+        return switch (explicit) {
+            .bash => .bash,
+            .zsh => .zsh,
+            .fish => .fish,
+            .powershell => .powershell,
+        };
     }
 
     if (builtin.os.tag == .windows) {
-        return try detect_windows_shell(buffer);
+        return detect_windows_shell_kind();
     }
 
     if (util_tool.getenv_cross_platform("SHELL")) |shell_path| {
-        return std.fs.path.basename(shell_path);
+        const basename = std.fs.path.basename(shell_path);
+        return classify_shell_basename(basename);
     }
 
-    return "bash";
+    return .bash;
 }
 
-fn detect_windows_shell(buffer: []u8) ![]const u8 {
-    const shell_path = try get_windows_env_var("COMSPEC", buffer);
-    if (shell_path) |value| {
-        const shell_name = std.fs.path.basename(value);
+fn classify_shell_basename(basename: []const u8) ShellKind {
+    if (std.mem.eql(u8, basename, "bash")) return .bash;
+    if (std.mem.eql(u8, basename, "zsh")) return .zsh;
+    if (std.mem.eql(u8, basename, "fish")) return .fish;
+    if (std.mem.eql(u8, basename, "sh")) return .sh;
+    if (std.mem.eql(u8, basename, "powershell")) return .powershell;
+    if (std.mem.eql(u8, basename, "powershell.exe")) return .powershell;
+    if (std.mem.eql(u8, basename, "pwsh")) return .powershell;
+    if (std.mem.eql(u8, basename, "pwsh.exe")) return .powershell;
+    if (std.mem.eql(u8, basename, "cmd")) return .cmd;
+    if (std.mem.eql(u8, basename, "cmd.exe")) return .cmd;
+    return .bash;
+}
 
-        if (std.mem.indexOf(u8, shell_name, "powershell") != null) return "powershell";
-        if (std.mem.indexOf(u8, shell_name, "cmd") != null) return "cmd";
+fn detect_windows_shell_kind() ShellKind {
+    if (builtin.os.tag != .windows) return .bash;
+
+    if (util_tool.getenv_cross_platform("PSModulePath") != null) return .powershell;
+
+    if (util_tool.getenv_cross_platform("COMSPEC")) |comspec| {
+        const basename = std.fs.path.basename(comspec);
+        return classify_shell_basename(basename);
     }
 
-    return "cmd";
+    return .cmd;
 }
 
-fn build_env_text(shell_name: []const u8, zvm_bin_path: []const u8, buffer: []u8) ![]const u8 {
+fn build_env_text(
+    shell_kind: ShellKind,
+    zvm_bin_path: []const u8,
+    buffer: []u8,
+) ![]const u8 {
+    assert(zvm_bin_path.len > 0);
+    assert(buffer.len > 0);
+
     var writer_state: std.Io.Writer = .fixed(buffer);
     const writer: *std.Io.Writer = &writer_state;
 
-    if (std.mem.indexOf(u8, shell_name, "fish") != null) {
-        try writer.print("# Add this to your ~/.config/fish/config.fish:\n", .{});
-        try writer.print("set -gx PATH {s} $PATH\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "zsh") != null) {
-        try writer.print("# Add this to your ~/.zshrc:\n", .{});
-        try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "bash") != null) {
-        try writer.print("# Add this to your ~/.bashrc:\n", .{});
-        try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "sh") != null) {
-        try writer.print("# Add this to your shell configuration:\n", .{});
-        try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "powershell") != null) {
-        try writer.print("# Add this to your PowerShell profile:\n", .{});
-        try writer.print("$env:Path = \"{s};$env:Path\"\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "pwsh") != null) {
-        try writer.print("# Add this to your PowerShell profile:\n", .{});
-        try writer.print("$env:Path = \"{s};$env:Path\"\n", .{zvm_bin_path});
-    } else if (std.mem.indexOf(u8, shell_name, "cmd") != null) {
-        try writer.print("REM Add this to your environment variables:\n", .{});
-        try writer.print("SET PATH={s};%PATH%\n", .{zvm_bin_path});
-    } else {
-        try writer.print("# Add this to your shell configuration:\n", .{});
-        try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
+    switch (shell_kind) {
+        .fish => {
+            try writer.print("# Add this to your ~/.config/fish/config.fish:\n", .{});
+            try writer.print("set -gx PATH {s} $PATH\n", .{zvm_bin_path});
+        },
+        .zsh => {
+            try writer.print("# Add this to your ~/.zshrc:\n", .{});
+            try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
+        },
+        .bash => {
+            try writer.print("# Add this to your ~/.bashrc:\n", .{});
+            try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
+        },
+        .sh => {
+            try writer.print("# Add this to your shell configuration:\n", .{});
+            try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
+        },
+        .powershell => {
+            try writer.print("# Add this to your PowerShell profile:\n", .{});
+            try writer.print("$env:Path = \"{s};$env:Path\"\n", .{zvm_bin_path});
+        },
+        .cmd => {
+            try writer.print("REM Add this to your environment variables:\n", .{});
+            try writer.print("SET PATH={s};%PATH%\n", .{zvm_bin_path});
+        },
     }
 
-    return writer_state.buffered();
-}
-
-fn get_windows_env_var(comptime var_name: []const u8, buffer: []u8) !?[]const u8 {
-    if (builtin.os.tag != .windows) return null;
-    const value = util_tool.getenv_cross_platform(var_name) orelse return null;
-    if (value.len > buffer.len) return error.BufferTooSmall;
-    @memcpy(buffer[0..value.len], value);
-    return buffer[0..value.len];
+    const text = writer_state.buffered();
+    assert(text.len > 0);
+    return text;
 }
