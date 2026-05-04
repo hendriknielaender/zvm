@@ -119,6 +119,7 @@ pub const RawArgs = union(enum) {
     version: VersionArgs,
     help: HelpArgs,
     list_mirrors: ListMirrorsArgs,
+    upgrade: UpgradeArgs,
 
     pub const InstallArgs = struct {
         version: [max_version_string_length]u8,
@@ -238,6 +239,9 @@ pub const RawArgs = union(enum) {
 
     /// Raw list-mirrors command arguments
     pub const ListMirrorsArgs = struct {};
+
+    /// Raw upgrade command arguments
+    pub const UpgradeArgs = struct {};
 };
 
 pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawArgs {
@@ -281,6 +285,9 @@ pub fn parse_raw_args(command_name: []const u8, args: []const []const u8) !RawAr
     }
     if (std.mem.eql(u8, command_name, "list-mirrors")) {
         return .{ .list_mirrors = try parse_list_mirrors_args(args) };
+    }
+    if (std.mem.eql(u8, command_name, "upgrade")) {
+        return .{ .upgrade = try parse_upgrade_args(args) };
     }
 
     return error.UnknownCommand;
@@ -548,6 +555,16 @@ fn parse_list_mirrors_args(args: []const []const u8) !RawArgs.ListMirrorsArgs {
     return RawArgs.ListMirrorsArgs{};
 }
 
+fn parse_upgrade_args(args: []const []const u8) !RawArgs.UpgradeArgs {
+    if (args.len == 1 and is_option_terminator(args[0])) {
+        return RawArgs.UpgradeArgs{};
+    }
+    if (args.len > 0) {
+        return error.UnexpectedArguments;
+    }
+    return RawArgs.UpgradeArgs{};
+}
+
 comptime {
     assert(@sizeOf(RawArgs) <= 512);
     assert(@sizeOf(RawArgs) > 0);
@@ -560,7 +577,7 @@ comptime {
     assert(@sizeOf(RawArgs.CompletionsArgs) <= 64);
     assert(@sizeOf(RawArgs.CompletionsArgs) > 0);
 
-    assert(@typeInfo(RawArgs).@"union".fields.len == 11);
+    assert(@typeInfo(RawArgs).@"union".fields.len == 12);
     assert(max_version_string_length == limits.limits.version_string_length_maximum);
     assert(max_shell_name_length == 32);
     assert(max_help_topic_length == 32);

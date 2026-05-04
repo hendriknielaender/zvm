@@ -134,6 +134,7 @@ pub const HelpTopic = enum {
     completions,
     version,
     help,
+    upgrade,
 
     pub fn parse(topic_str: []const u8) !HelpTopic {
         assert(topic_str.len > 0);
@@ -149,6 +150,7 @@ pub const HelpTopic = enum {
         if (std.mem.eql(u8, topic_str, "completions")) return .completions;
         if (std.mem.eql(u8, topic_str, "version")) return .version;
         if (std.mem.eql(u8, topic_str, "help")) return .help;
+        if (std.mem.eql(u8, topic_str, "upgrade")) return .upgrade;
 
         return error.UnknownHelpTopic;
     }
@@ -187,6 +189,7 @@ pub const ValidatedCommand = union(enum) {
     completions: CompletionsCommand,
     version: VersionCommand,
     help: HelpCommand,
+    upgrade: UpgradeCommand,
 
     /// Validated install command
     pub const InstallCommand = struct {
@@ -287,6 +290,9 @@ pub const ValidatedCommand = union(enum) {
     pub const HelpCommand = struct {
         topic: HelpTopic = .general,
     };
+
+    /// Validated upgrade command
+    pub const UpgradeCommand = struct {};
 };
 
 /// Transform raw arguments into validated command with semantic validation
@@ -303,7 +309,13 @@ pub fn validate_command(raw_command: raw_args.RawArgs) !ValidatedCommand {
         .completions => |raw| .{ .completions = try validate_completions(raw) },
         .version => |raw| .{ .version = try validate_version(raw) },
         .help => |raw| .{ .help = try validate_help(raw) },
+        .upgrade => |raw| .{ .upgrade = try validate_upgrade(raw) },
     };
+}
+
+fn validate_upgrade(raw: raw_args.RawArgs.UpgradeArgs) !ValidatedCommand.UpgradeCommand {
+    _ = raw;
+    return ValidatedCommand.UpgradeCommand{};
 }
 
 fn validate_install(raw: raw_args.RawArgs.InstallArgs) !ValidatedCommand.InstallCommand {
