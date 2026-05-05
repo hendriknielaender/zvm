@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const limits = @import("../memory/limits.zig");
 const assert = std.debug.assert;
 
@@ -74,22 +75,80 @@ pub const OutputMode = enum {
     }
 };
 
-/// Color mode for terminal output
+/// Color mode for terminal output.
+/// .auto defers the decision to environment and terminal inspection at startup.
 pub const ColorMode = enum {
     never_use_color,
     always_use_color,
+    auto,
 
     pub fn should_use_color(self: ColorMode) bool {
         return switch (self) {
             .never_use_color => false,
             .always_use_color => true,
+            .auto => false,
         };
     }
 
     comptime {
-        assert(@typeInfo(ColorMode).@"enum".fields.len == 2);
+        assert(@typeInfo(ColorMode).@"enum".fields.len == 3);
     }
 };
+
+/// Resolve .auto to a concrete color mode using the standard precedence:
+/// 1. Explicit --color / --no-color flags.
+/// 2. NO_COLOR environment variable (any non-empty value).
+/// 3. TERM=dumb.
+/// 4. stdout is not a TTY.
+/// 5. Otherwise, use color.
+///
+/// Precedence matters because explicit user intent must always override
+/// automatic detection. Environment checks (NO_COLOR, TERM) are the
+/// cross-tool standard; isatty is the last line of defense against
+/// writing ANSI escape codes into files and pipes.
+pub fn resolve_color_mode(
+    flag: ColorMode,
+    no_color_env_set: bool,
+    is_terminal: bool,
+    term_is_dumb: bool,
+) ColorMode {
+    // Pair assertion: flag is one of the three defined enum variants.
+    assert(@intFromEnum(flag) < 3);
+
+    if (flag == .always_use_color) return .always_use_color;
+    if (flag == .never_use_color) return .never_use_color;
+
+    if (no_color_env_set) return .never_use_color;
+    if (term_is_dumb) return .never_use_color;
+    if (!is_terminal) return .never_use_color;
+
+    const result: ColorMode = .always_use_color;
+    // Pair assertion: the resolved result is never .auto.
+    assert(result != .auto);
+    assert(@intFromEnum(result) < 2);
+    return result;
+}
+
+/// Detect whether stdout is connected to a terminal.
+/// Returns false when piped, redirected, or no console is attached.
+/// Why: ANSI escape codes corrupt binary output; detecting the sink
+/// avoids writing color sequences into files and pipes.
+pub fn stdout_is_terminal() bool {
+    if (builtin.os.tag == .windows) {
+        const windows = std.os.windows;
+        const stdout_handle = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
+        if (stdout_handle == windows.INVALID_HANDLE_VALUE) return false;
+        var mode: windows.DWORD = 0;
+        const is_console = windows.GetConsoleMode(stdout_handle, &mode) != 0;
+        if (is_console) {
+            assert(mode != 0);
+        }
+        return is_console;
+    }
+    // Unix: tcgetattr fails with ENOTTY if the fd is not a terminal.
+    _ = std.posix.tcgetattr(std.posix.STDOUT_FILENO) catch return false;
+    return true;
+}
 
 /// Configuration for output behavior
 pub const OutputConfig = struct {
@@ -103,6 +162,9 @@ pub const OutputConfig = struct {
             self.mode == .silent_errors_only);
         assert(self.color == .never_use_color or
             self.color == .always_use_color);
+
+        // Negative assertion: .auto must be resolved before reaching OutputConfig.
+        assert(self.color != .auto);
 
         // Negative assertions - invalid combinations
         if (self.mode == .machine_json) {
@@ -549,10 +611,12 @@ comptime {
     }
 }
 
-/// Global output emitter instance
+/// Global output emitter instance.
+/// The color default is never_use_color — init_global() must be called
+/// before any output to resolve the actual color mode.
 var global_emitter_storage: OutputEmitter = OutputEmitter.init(.{
     .mode = .human_readable,
-    .color = .always_use_color,
+    .color = .never_use_color,
 });
 var global_emitter_initialized: bool = false;
 var global_emitter: ?*OutputEmitter = null;
@@ -659,4 +723,56 @@ test "write_json_string_array escapes nested strings" {
 
     const expected = "[\"a\\\"b\",\"c\\\\d\"]";
     try testing.expectEqualStrings(expected, writer_state.buffered());
+}
+
+// --- resolve_color_mode unit tests ---
+
+test "resolve_color_mode: explicit always_use_color flag overrides everything" {
+    const testing = std.testing;
+    // Even with NO_COLOR, dumb term, no TTY — explicit flag wins.
+    try testing.expectEqual(ColorMode.always_use_color, resolve_color_mode(.always_use_color, true, false, true));
+    try testing.expectEqual(ColorMode.always_use_color, resolve_color_mode(.always_use_color, false, true, false));
+}
+
+test "resolve_color_mode: explicit never_use_color flag overrides everything" {
+    const testing = std.testing;
+    // Even with NO_COLOR unset, real terminal, TERM not dumb — explicit flag wins.
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.never_use_color, false, true, false));
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.never_use_color, true, false, true));
+}
+
+test "resolve_color_mode: auto with NO_COLOR set disables color" {
+    const testing = std.testing;
+    // NO_COLOR is set (any non-empty value) — color disabled.
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.auto, true, true, false));
+}
+
+test "resolve_color_mode: auto with TERM=dumb disables color" {
+    const testing = std.testing;
+    // TERM=dumb — color disabled.
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.auto, false, true, true));
+}
+
+test "resolve_color_mode: auto with stdout not a TTY disables color" {
+    const testing = std.testing;
+    // Piped/redirected output — color disabled.
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.auto, false, false, false));
+}
+
+test "resolve_color_mode: auto with all clear enables color" {
+    const testing = std.testing;
+    // No NO_COLOR, TERM is not dumb, stdout is a TTY — color enabled.
+    try testing.expectEqual(ColorMode.always_use_color, resolve_color_mode(.auto, false, true, false));
+}
+
+test "resolve_color_mode: precedence: never flag wins over auto conditions" {
+    const testing = std.testing;
+    // never_use_color flag must override all auto-friendly conditions.
+    try testing.expectEqual(ColorMode.never_use_color, resolve_color_mode(.never_use_color, false, true, false));
+}
+
+test "resolve_color_mode: precedence: always flag wins over auto conditions" {
+    const testing = std.testing;
+    // always_use_color flag must override all auto-unfriendly conditions.
+    try testing.expectEqual(ColorMode.always_use_color, resolve_color_mode(.always_use_color, true, false, true));
 }

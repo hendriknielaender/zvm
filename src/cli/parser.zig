@@ -29,7 +29,8 @@ pub const GlobalConfig = struct {
             self.output_mode == .machine_json or
             self.output_mode == .silent_errors_only);
         assert(self.color_mode == .never_use_color or
-            self.color_mode == .always_use_color);
+            self.color_mode == .always_use_color or
+            self.color_mode == .auto);
 
         // Negative assertions: invalid combinations
         if (self.output_mode == .machine_json) {
@@ -37,10 +38,10 @@ pub const GlobalConfig = struct {
         }
     }
 
-    /// Default configuration for human users
+    /// Default configuration defers color mode to environment/terminal detection.
     pub const default = GlobalConfig{
         .output_mode = .human_readable,
-        .color_mode = .always_use_color,
+        .color_mode = .auto,
     };
 
     comptime {
@@ -92,9 +93,20 @@ const StandardCommand = enum {
     version,
 };
 
+/// Tracks which global option groups have already been set.
+/// Why: silently accepting repeated or conflicting options (e.g.
+/// --color --no-color) produces surprising behavior. Rejecting them
+/// makes operator errors harder to commit.
+const GlobalOptionTracker = struct {
+    output_mode_set: bool = false,
+    color_mode_set: bool = false,
+    standard_command_set: bool = false,
+};
+
 fn apply_long_global_option(
     global_config: *GlobalConfig,
     standard_command: *?StandardCommand,
+    tracker: *GlobalOptionTracker,
     arg: []const u8,
 ) !void {
     assert(arg.len >= 2);
@@ -102,28 +114,39 @@ fn apply_long_global_option(
     assert(arg[1] == '-');
 
     if (std.mem.eql(u8, arg, "--json")) {
+        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        tracker.output_mode_set = true;
+        tracker.color_mode_set = true;
         global_config.output_mode = .machine_json;
         global_config.color_mode = .never_use_color;
         return;
     }
-    if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
+    if (std.mem.eql(u8, arg, "--quiet")) {
+        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
+        tracker.output_mode_set = true;
         global_config.output_mode = .silent_errors_only;
         return;
     }
     if (std.mem.eql(u8, arg, "--color")) {
+        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        tracker.color_mode_set = true;
         global_config.color_mode = .always_use_color;
         return;
     }
-    if (is_help_option(arg)) {
-        standard_command.* = .help;
-        return;
-    }
-    if (is_version_option(arg)) {
-        standard_command.* = .version;
-        return;
-    }
     if (std.mem.eql(u8, arg, "--no-color")) {
+        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        tracker.color_mode_set = true;
         global_config.color_mode = .never_use_color;
+        return;
+    }
+    const is_help = is_help_option(arg);
+    const is_version = is_version_option(arg);
+    if (is_help or is_version) {
+        if (tracker.standard_command_set) return error.DuplicateGlobalOption;
+        tracker.standard_command_set = true;
+        assert(is_help != is_version); // Cannot be both help and version.
+        standard_command.* = if (is_help) .help else .version;
         return;
     }
 
@@ -133,16 +156,23 @@ fn apply_long_global_option(
 fn apply_short_global_option(
     global_config: *GlobalConfig,
     standard_command: *?StandardCommand,
+    tracker: *GlobalOptionTracker,
     option: u8,
 ) !void {
     switch (option) {
         'q' => {
+            if (tracker.output_mode_set) return error.DuplicateGlobalOption;
+            tracker.output_mode_set = true;
             global_config.output_mode = .silent_errors_only;
         },
         'h' => {
+            if (tracker.standard_command_set) return error.DuplicateGlobalOption;
+            tracker.standard_command_set = true;
             standard_command.* = .help;
         },
         'V' => {
+            if (tracker.standard_command_set) return error.DuplicateGlobalOption;
+            tracker.standard_command_set = true;
             standard_command.* = .version;
         },
         else => return error.UnknownGlobalShortOption,
@@ -152,12 +182,13 @@ fn apply_short_global_option(
 fn apply_short_global_options(
     global_config: *GlobalConfig,
     standard_command: *?StandardCommand,
+    tracker: *GlobalOptionTracker,
     arg: []const u8,
 ) !void {
     assert(is_short_option_cluster(arg));
 
     for (arg[1..]) |option| {
-        try apply_short_global_option(global_config, standard_command, option);
+        try apply_short_global_option(global_config, standard_command, tracker, option);
     }
 }
 
@@ -186,6 +217,7 @@ fn parse_global_prefix(arguments: []const []const u8) !GlobalPrefix {
     var global_config = GlobalConfig.default;
     var command_index: usize = 1;
     var standard_command: ?StandardCommand = null;
+    var tracker = GlobalOptionTracker{};
 
     while (command_index < arguments.len) {
         const arg = arguments[command_index];
@@ -198,9 +230,9 @@ fn parse_global_prefix(arguments: []const []const u8) !GlobalPrefix {
             break;
         }
         if (is_short_option_cluster(arg)) {
-            try apply_short_global_options(&global_config, &standard_command, arg);
+            try apply_short_global_options(&global_config, &standard_command, &tracker, arg);
         } else if (is_long_option(arg)) {
-            try apply_long_global_option(&global_config, &standard_command, arg);
+            try apply_long_global_option(&global_config, &standard_command, &tracker, arg);
         } else {
             return error.UnknownGlobalOption;
         }
@@ -219,6 +251,7 @@ fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
 
     var global_config = GlobalConfig.default;
     var standard_command: ?StandardCommand = null;
+    var tracker = GlobalOptionTracker{};
     var index: usize = 1;
 
     while (index < arguments.len) : (index += 1) {
@@ -228,9 +261,9 @@ fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
         if (!is_prefixed_option(arg)) break;
 
         if (is_short_option_cluster(arg)) {
-            apply_short_global_options(&global_config, &standard_command, arg) catch return arg;
+            apply_short_global_options(&global_config, &standard_command, &tracker, arg) catch return arg;
         } else if (is_long_option(arg)) {
-            apply_long_global_option(&global_config, &standard_command, arg) catch return arg;
+            apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch return arg;
         } else {
             return arg;
         }
@@ -308,6 +341,9 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         },
         error.UnknownGlobalShortOption => {
             util_output.fatal(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
+        },
+        error.DuplicateGlobalOption => {
+            util_output.fatal(.invalid_arguments, "duplicate global option: '{s}'", .{find_invalid_global_option(arguments)});
         },
     };
 
@@ -433,7 +469,7 @@ test "parse_command_line accepts commands after the double dash terminator" {
 
     try testing.expect(std.meta.activeTag(parsed.command) == .list);
     try testing.expectEqual(util_output.OutputMode.human_readable, parsed.global_config.output_mode);
-    try testing.expectEqual(util_output.ColorMode.always_use_color, parsed.global_config.color_mode);
+    try testing.expectEqual(util_output.ColorMode.auto, parsed.global_config.color_mode);
 }
 
 test "parse_command_line routes command help to the matching topic" {
@@ -461,4 +497,75 @@ test "parse_command_line accepts subcommand options before operands" {
 test "parse_global_prefix rejects unknown clustered short options" {
     const testing = std.testing;
     try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-qx" }));
+}
+
+test "parse_global_prefix rejects duplicate --color" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--color", "--color" }));
+}
+
+test "parse_global_prefix rejects duplicate --no-color" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--no-color", "--no-color" }));
+}
+
+test "parse_global_prefix rejects conflicting --color and --no-color" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--color", "--no-color" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--no-color", "--color" }));
+}
+
+test "parse_global_prefix rejects duplicate --json" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--json", "--json" }));
+}
+
+test "parse_global_prefix rejects duplicate --quiet" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--quiet", "--quiet" }));
+}
+
+test "parse_global_prefix rejects --json --color conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--json", "--color" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--color", "--json" }));
+}
+
+test "parse_global_prefix rejects --json --no-color (both set never, still duplicate)" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--json", "--no-color" }));
+}
+
+test "parse_global_prefix rejects duplicate --help" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--help", "--help" }));
+}
+
+test "parse_global_prefix rejects duplicate --version" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--version", "--version" }));
+}
+
+test "parse_global_prefix rejects --help --version conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--help", "--version" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--version", "--help" }));
+}
+
+test "parse_global_prefix rejects duplicate -q" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-q", "-q" }));
+}
+
+test "parse_global_prefix rejects -q and --quiet as duplicate" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-q", "--quiet" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--quiet", "-q" }));
+}
+
+test "parse_global_prefix rejects duplicate short standard commands" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-h", "-h" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-V", "-V" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-h", "-V" }));
 }

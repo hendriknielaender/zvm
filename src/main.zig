@@ -8,7 +8,6 @@ const memory_static = @import("memory/static_memory.zig");
 const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
 const paths = @import("platform/paths.zig");
-const Config = @import("config.zig");
 const metadata = @import("metadata.zig");
 const build_options = @import("options");
 
@@ -59,8 +58,6 @@ var global_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8
 var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
 // SAFETY: global_context is initialized in main() before being accessed
 var global_context: Context.CliContext = undefined;
-// SAFETY: global_config is initialized in main() with Config.init() before being used
-var global_config: Config = undefined;
 
 const AliasBuffers = struct {
     home: [memory_limits.limits.home_dir_length_maximum]u8,
@@ -171,7 +168,6 @@ pub fn main(process_init: std.process.Init) !void {
     const basename = std.fs.path.basename(program_name);
 
     metadata.init_config();
-    global_config = Config.init();
 
     const is_alias = util_tool.eql_str(basename, "zig") or util_tool.eql_str(basename, "zls");
     if (is_alias) {
@@ -179,9 +175,29 @@ pub fn main(process_init: std.process.Init) !void {
         unreachable;
     }
 
+    // Inspect environment for color-mode resolution before any output is emitted.
+    // Color must be resolved before the first emitter is created so that even
+    // error messages during parsing respect the terminal and environment.
+    const no_color_env = if (util_tool.getenv_cross_platform("NO_COLOR")) |val|
+        val.len > 0
+    else
+        false;
+    const term_is_dumb = if (util_tool.getenv_cross_platform("TERM")) |val|
+        std.mem.eql(u8, val, "dumb")
+    else
+        false;
+    const is_tty = util_output.stdout_is_terminal();
+
+    const initial_color = util_output.resolve_color_mode(
+        .auto,
+        no_color_env,
+        is_tty,
+        term_is_dumb,
+    );
+
     const default_output_config = util_output.OutputConfig{
         .mode = .human_readable,
-        .color = .always_use_color,
+        .color = initial_color,
     };
     _ = try util_output.init_global(default_output_config);
 
@@ -189,9 +205,17 @@ pub fn main(process_init: std.process.Init) !void {
         util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
 
+    // Resolve final color mode from parsed flags (which may override environment).
+    const final_color = util_output.resolve_color_mode(
+        parsed_command_line.global_config.color_mode,
+        no_color_env,
+        is_tty,
+        term_is_dumb,
+    );
+
     const final_output_config = util_output.OutputConfig{
         .mode = parsed_command_line.global_config.output_mode,
-        .color = parsed_command_line.global_config.color_mode,
+        .color = final_color,
     };
     _ = try util_output.update_global(final_output_config);
 
