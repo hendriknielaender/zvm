@@ -135,19 +135,9 @@ pub fn resolve_color_mode(
 /// avoids writing color sequences into files and pipes.
 pub fn stdout_is_terminal() bool {
     if (builtin.os.tag == .windows) {
-        const windows = std.os.windows;
-        const stdout_handle = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
-        if (stdout_handle == windows.INVALID_HANDLE_VALUE) return false;
-        var mode: windows.DWORD = 0;
-        const is_console = windows.GetConsoleMode(stdout_handle, &mode) != 0;
-        if (is_console) {
-            assert(mode != 0);
-        }
-        return is_console;
+        return is_windows_console_handle(std_windows_output_handle);
     }
-    // Unix: tcgetattr fails with ENOTTY if the fd is not a terminal.
-    _ = std.posix.tcgetattr(std.posix.STDOUT_FILENO) catch return false;
-    return true;
+    return is_posix_fd_terminal(std.posix.STDOUT_FILENO);
 }
 
 /// Detect whether stderr is connected to a terminal.
@@ -156,19 +146,48 @@ pub fn stdout_is_terminal() bool {
 /// sequences corrupt output when stderr is piped to a file or `tee`.
 pub fn stderr_is_terminal() bool {
     if (builtin.os.tag == .windows) {
-        const windows = std.os.windows;
-        const stderr_handle = windows.GetStdHandle(windows.STD_ERROR_HANDLE);
-        if (stderr_handle == windows.INVALID_HANDLE_VALUE) return false;
-        var mode: windows.DWORD = 0;
-        const is_console = windows.GetConsoleMode(stderr_handle, &mode) != 0;
-        if (is_console) {
-            assert(mode != 0);
-        }
-        return is_console;
+        return is_windows_console_handle(std_windows_error_handle);
     }
-    // Unix: tcgetattr fails with ENOTTY if the fd is not a terminal.
-    _ = std.posix.tcgetattr(std.posix.STDERR_FILENO) catch return false;
+    return is_posix_fd_terminal(std.posix.STDERR_FILENO);
+}
+
+fn is_posix_fd_terminal(fd: std.posix.fd_t) bool {
+    assert(fd >= 0);
+    // tcgetattr fails with ENOTTY when fd is not a terminal.
+    _ = std.posix.tcgetattr(fd) catch return false;
     return true;
+}
+
+/// Windows standard device handles. Values from winbase.h:
+/// STD_OUTPUT_HANDLE = (DWORD)-11, STD_ERROR_HANDLE = (DWORD)-12.
+/// Why: Zig 0.16.0 removed the GetStdHandle / GetConsoleMode wrappers
+/// from std.os.windows; we declare them directly against kernel32.dll.
+const std_windows_output_handle: std.os.windows.DWORD = @bitCast(@as(i32, -11));
+const std_windows_error_handle: std.os.windows.DWORD = @bitCast(@as(i32, -12));
+
+comptime {
+    // Pair assertion: the two standard-device handles must be distinct.
+    assert(std_windows_output_handle != std_windows_error_handle);
+}
+
+extern "kernel32" fn GetStdHandle(nStdHandle: std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
+extern "kernel32" fn GetConsoleMode(
+    hConsoleHandle: ?std.os.windows.HANDLE,
+    lpMode: *std.os.windows.DWORD,
+) callconv(.winapi) std.os.windows.BOOL;
+
+fn is_windows_console_handle(n_std_handle: std.os.windows.DWORD) bool {
+    const handle = GetStdHandle(n_std_handle) orelse return false;
+    // Pair assertion: the handle pointer must be non-null.
+    assert(@intFromPtr(handle) != 0);
+    if (@intFromPtr(handle) == @intFromPtr(std.os.windows.INVALID_HANDLE_VALUE)) return false;
+    var mode: std.os.windows.DWORD = 0;
+    const is_console = GetConsoleMode(handle, &mode) != 0;
+    if (is_console) {
+        // Pair assertion: mode set by GetConsoleMode must be non-zero.
+        assert(mode != 0);
+    }
+    return is_console;
 }
 
 /// Configuration for output behavior
