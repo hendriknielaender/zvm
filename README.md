@@ -49,6 +49,15 @@ The installer will download the appropriate binary for your platform and install
 irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
 ```
 
+**Install specific version or rollback:**
+```powershell
+# Pass a version through the script block
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1))) -Version "v0.15.0"
+
+# Or set ZVM_VERSION before piping to iex
+$env:ZVM_VERSION = "v0.15.0"; irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
+```
+
 #### Manual Installation
 Download the latest binary from our [releases page](https://github.com/hendriknielaender/zvm/releases).
 

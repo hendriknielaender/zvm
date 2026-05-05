@@ -1,5 +1,18 @@
-# Define constants and variables
-$zvmBaseUrl = "https://github.com/hendriknielaender/zvm/releases/latest/download"
+[CmdletBinding()]
+param(
+    # Optional release tag to install (e.g. "v0.15.0" or "zvm-v0.15.0").
+    # When omitted, the latest release is installed. Falls back to $env:ZVM_VERSION
+    # so users piping through `iex` can still pin a version via an env var.
+    [string]$Version = $env:ZVM_VERSION
+)
+
+# Resolve version. Strip any "zvm-" prefix so both "v0.15.0" and "zvm-v0.15.0" work.
+$useLatest = [string]::IsNullOrWhiteSpace($Version)
+if (-not $useLatest) {
+    $Version = $Version -replace '^zvm-', ''
+}
+
+$zvmRepoUrl = "https://github.com/hendriknielaender/zvm"
 $zvmInstallDir = "$HOME\.zm"
 $architecture = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "x86" }
 $zvmFileName = "$architecture-windows-zvm.zip"
@@ -7,7 +20,15 @@ $zvmExeFileName = "$architecture-windows-zvm.exe"
 $zvmZipPath = "$zvmInstallDir\$zvmFileName"
 $zvmExePath = "$zvmInstallDir\$zvmExeFileName"
 $zvmRenamedExePath = "$zvmInstallDir\zvm.exe"
-$zvmUrl = "$zvmBaseUrl/$zvmFileName"
+
+if ($useLatest) {
+    $zvmUrl = "$zvmRepoUrl/releases/latest/download/$zvmFileName"
+    $versionLabel = "zvm"
+} else {
+    $zvmUrl = "$zvmRepoUrl/releases/download/$Version/$zvmFileName"
+    $versionLabel = "zvm $Version"
+    Write-Output "Installing $versionLabel (rollback/specific version)..."
+}
 
 # Create the installation directory if it doesn't exist
 if (-not (Test-Path -Path $zvmInstallDir)) {
@@ -15,13 +36,13 @@ if (-not (Test-Path -Path $zvmInstallDir)) {
     New-Item -Path $zvmInstallDir -ItemType Directory | Out-Null
 }
 
-# Download the latest release
-Write-Output "Downloading zvm from $zvmUrl..."
+# Download the requested release
+Write-Output "Downloading $versionLabel from $zvmUrl..."
 try {
     Invoke-WebRequest -Uri $zvmUrl -OutFile $zvmZipPath
     Write-Output "Download complete."
 } catch {
-    Write-Output "Error: Failed to download zvm. Please check your internet connection and URL."
+    Write-Output "Error: Failed to download $versionLabel. Verify the version tag and your internet connection."
     exit 1
 }
 
@@ -73,4 +94,4 @@ if (Test-Path -Path $zvmExePath) {
     exit 1
 }
 
-Write-Output "Installation complete. Please restart your terminal or computer to apply changes."
+Write-Output "$versionLabel installation complete. Please restart your terminal or computer to apply changes."
