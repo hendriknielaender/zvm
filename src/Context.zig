@@ -25,6 +25,12 @@ pub const CliContext = struct {
     /// Process-owned I/O implementation.
     io: std.Io,
 
+    /// Global --yes flag: skip confirmation prompts for destructive operations.
+    assume_yes: bool = false,
+
+    /// Global --no-input flag: refuse to prompt; non-interactive runs fail fast.
+    no_input: bool = false,
+
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
 
