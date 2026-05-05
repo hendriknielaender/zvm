@@ -142,12 +142,12 @@ fn run_with_timeout(
     io: std.Io,
     total_seconds: u32,
     uri: std.Uri,
-) Task.Result {
+) anyerror!Task.Payload {
     assert(total_seconds >= timeout_total_minimum_seconds);
     assert(total_seconds <= timeout_total_maximum_seconds);
 
     const Outcome = union(enum) {
-        completed: Task.Result,
+        completed: anyerror!Task.Payload,
         timed_out: void,
     };
 
@@ -204,9 +204,9 @@ const FetchTask = struct {
     uri: std.Uri,
     headers: std.http.Client.Request.Headers,
 
-    const Result = anyerror![]const u8;
+    const Payload = []const u8;
 
-    fn run(self: FetchTask) Result {
+    fn run(self: FetchTask) anyerror!Payload {
         const operation = try self.ctx.acquire_http_operation();
         defer operation.release();
 
@@ -264,9 +264,9 @@ const DownloadTask = struct {
     dest_file: std.Io.File,
     progress_node: std.Progress.Node,
 
-    const Result = anyerror!void;
+    const Payload = void;
 
-    fn run(self: DownloadTask) Result {
+    fn run(self: DownloadTask) anyerror!Payload {
         _ = self.progress_node;
 
         const operation = try self.ctx.acquire_http_operation();

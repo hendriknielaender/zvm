@@ -87,7 +87,8 @@ pub fn main(process_init: std.process.Init) !u8 {
 
     var sandbox_root_buffer: [sandbox_path_max]u8 = undefined;
     const sandbox_root = try create_sandbox_root(process_init, &sandbox_root_buffer);
-    defer Io.Dir.cwd().deleteTree(process_init.io, sandbox_root) catch {};
+    defer Io.Dir.cwd().deleteTree(process_init.io, sandbox_root) catch |err|
+        std.debug.print("warning: failed to delete sandbox root {s}: {s}\n", .{ sandbox_root, @errorName(err) });
 
     const suite: Suite = .{
         .gpa = gpa,
@@ -309,7 +310,8 @@ fn run_case(
 ) !void {
     var sandbox_buffer: [sandbox_path_max]u8 = undefined;
     const sandbox = try fresh_sandbox(suite.process_init.io, sandbox_root, name, &sandbox_buffer);
-    defer Io.Dir.cwd().deleteTree(suite.process_init.io, sandbox) catch {};
+    defer Io.Dir.cwd().deleteTree(suite.process_init.io, sandbox) catch |err|
+        std.debug.print("warning: failed to delete sandbox {s}: {s}\n", .{ sandbox, @errorName(err) });
 
     test_fn(suite, sandbox) catch |err| {
         std.debug.print("    error: {s}\n", .{@errorName(err)});
@@ -653,7 +655,8 @@ fn run_online_suite(
         "online_cycle",
         &sandbox_buffer,
     );
-    defer Io.Dir.cwd().deleteTree(suite.process_init.io, sandbox) catch {};
+    defer Io.Dir.cwd().deleteTree(suite.process_init.io, sandbox) catch |err|
+        std.debug.print("warning: failed to delete sandbox {s}: {s}\n", .{ sandbox, @errorName(err) });
 
     online_cycle(suite, sandbox) catch |err| {
         std.debug.print("    error: {s}\n", .{@errorName(err)});

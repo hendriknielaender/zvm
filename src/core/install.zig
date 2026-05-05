@@ -263,7 +263,10 @@ fn installed_version_matches(extract_path: []const u8, expected_version: []const
     assert(expected_version.len > 0);
     assert(expected_version.len <= limits.limits.version_string_length_maximum);
 
+    // SAFETY: `data` is a write-then-read buffer; `used = 0` makes the unused
+    // tail unobservable until callers fill it.
     var path_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    // SAFETY: filled by `read_version_manifest_absolute` before any read.
     var manifest_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
     const installed = util_data.read_version_manifest_absolute(
         &path_buffer,
