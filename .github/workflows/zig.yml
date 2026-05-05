@@ -20,6 +20,29 @@ jobs:
         with:
           version: 0.16.0
       - run: zig build test
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Run e2e (offline)
+        run: zig build e2e
+  e2e-online:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Run e2e (online — downloads a Zig version)
+        run: zig build e2e -Donline=true
+        timeout-minutes: 10
   lint:
     runs-on: ubuntu-latest
     steps:

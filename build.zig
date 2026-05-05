@@ -126,6 +126,33 @@ pub fn build(b: *Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_staged_validation_tests.step);
-    // Additional build steps for different configurations or tasks
-    // Add here as needed (e.g., documentation generation, code linting)
+
+    // End-to-end harness. Builds the zvm binary and a separate driver
+    // executable that spawns it as a subprocess to verify user-facing
+    // workflows (version, list, env, completions, ZVM_HOME path handling,
+    // alias dispatch). Pass `-Donline=true` to additionally exercise the
+    // network-bound install/use/remove cycle against a small Zig version.
+    const online = b.option(
+        bool,
+        "online",
+        "Run online e2e tests (downloads a Zig version)",
+    ) orelse false;
+
+    const e2e_exe = b.addExecutable(.{
+        .name = "zvm-e2e",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/e2e.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_e2e = b.addRunArtifact(e2e_exe);
+    run_e2e.addArg("--zvm-bin");
+    run_e2e.addFileArg(exe.getEmittedBin());
+    if (online) run_e2e.addArg("--online");
+    run_e2e.step.dependOn(b.getInstallStep());
+
+    const e2e_step = b.step("e2e", "Run end-to-end tests against the built zvm binary");
+    e2e_step.dependOn(&run_e2e.step);
 }
