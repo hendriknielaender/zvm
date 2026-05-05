@@ -166,7 +166,7 @@ fn run_with_timeout(
         // Single-threaded builds are the only realistic path here.
         error.ConcurrencyUnavailable => {
             log.debug("Timer concurrency unavailable; awaiting fetch without timeout for {any}", .{uri});
-            const outcome = select.await() catch |await_err| switch (await_err) {
+            const outcome = select.@"await"() catch |await_err| switch (await_err) {
                 error.Canceled => return error.Canceled,
             };
             return switch (outcome) {
@@ -176,7 +176,7 @@ fn run_with_timeout(
         },
     };
 
-    const winner = select.await() catch |err| switch (err) {
+    const winner = select.@"await"() catch |err| switch (err) {
         error.Canceled => {
             _ = select.cancel();
             return error.Canceled;
