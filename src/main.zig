@@ -187,6 +187,7 @@ pub fn main(process_init: std.process.Init) !void {
     else
         false;
     const is_tty = util_output.stdout_is_terminal();
+    const stderr_is_tty = util_output.stderr_is_terminal();
 
     const initial_color = util_output.resolve_color_mode(
         .auto,
@@ -237,7 +238,7 @@ pub fn main(process_init: std.process.Init) !void {
     const root_node = std.Progress.start(process_init.io, .{
         .root_name = "zvm",
         .estimated_total_items = get_progress_item_count(parsed_command_line.command),
-        .disable_printing = final_output_config.mode != .human_readable,
+        .disable_printing = final_output_config.mode != .human_readable or !stderr_is_tty,
     });
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
