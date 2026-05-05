@@ -182,7 +182,7 @@ fn is_windows_console_handle(n_std_handle: std.os.windows.DWORD) bool {
     assert(@intFromPtr(handle) != 0);
     if (@intFromPtr(handle) == @intFromPtr(std.os.windows.INVALID_HANDLE_VALUE)) return false;
     var mode: std.os.windows.DWORD = 0;
-    const is_console = GetConsoleMode(handle, &mode) != 0;
+    const is_console = GetConsoleMode(handle, &mode) != .FALSE;
     if (is_console) {
         // Pair assertion: mode set by GetConsoleMode must be non-zero.
         assert(mode != 0);
