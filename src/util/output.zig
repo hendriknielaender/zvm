@@ -150,6 +150,27 @@ pub fn stdout_is_terminal() bool {
     return true;
 }
 
+/// Detect whether stderr is connected to a terminal.
+/// Returns false when piped, redirected, or no console is attached.
+/// Why: std.Progress writes ANSI cursor escapes to stderr; those
+/// sequences corrupt output when stderr is piped to a file or `tee`.
+pub fn stderr_is_terminal() bool {
+    if (builtin.os.tag == .windows) {
+        const windows = std.os.windows;
+        const stderr_handle = windows.GetStdHandle(windows.STD_ERROR_HANDLE);
+        if (stderr_handle == windows.INVALID_HANDLE_VALUE) return false;
+        var mode: windows.DWORD = 0;
+        const is_console = windows.GetConsoleMode(stderr_handle, &mode) != 0;
+        if (is_console) {
+            assert(mode != 0);
+        }
+        return is_console;
+    }
+    // Unix: tcgetattr fails with ENOTTY if the fd is not a terminal.
+    _ = std.posix.tcgetattr(std.posix.STDERR_FILENO) catch return false;
+    return true;
+}
+
 /// Configuration for output behavior
 pub const OutputConfig = struct {
     mode: OutputMode,
