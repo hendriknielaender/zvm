@@ -242,10 +242,20 @@ fn apply_sandbox_overrides(
 ) !void {
     assert(sandbox.len > 0);
 
-    // ZVM_HOME is the canonical override; HOME / USERPROFILE protect the
-    // get_home_path fallback path. XDG_DATA_HOME is removed so the resolved
-    // root is unambiguously sandbox on every platform.
-    try env_map.put("ZVM_HOME", sandbox);
+    // ZVM_HOME is the canonical override. We point it at `<sandbox>/.zm`
+    // rather than the bare sandbox so the resolved root contains the
+    // `.zm` segment that production code asserts on (see core/remove.zig).
+    var zvm_home_buffer: [sandbox_path_max]u8 = undefined;
+    const zvm_home = try std.fmt.bufPrint(
+        &zvm_home_buffer,
+        "{s}{c}.zm",
+        .{ sandbox, std.fs.path.sep },
+    );
+    try env_map.put("ZVM_HOME", zvm_home);
+
+    // HOME / USERPROFILE protect the get_home_path fallback path.
+    // XDG_DATA_HOME is removed so the resolved root is unambiguously
+    // ZVM_HOME on every platform.
     try env_map.put("HOME", sandbox);
     try env_map.put("USERPROFILE", sandbox);
     _ = env_map.array_hash_map.swapRemove("XDG_DATA_HOME");
@@ -330,6 +340,16 @@ fn fresh_sandbox(
         slug_buffer[0..slug_len],
     });
     try Io.Dir.cwd().createDirPath(io, path);
+    // Pre-create the resolved ZVM_HOME (`<sandbox>/.zm`) so commands that
+    // read the root before writing — list, env — don't trip on a missing
+    // directory.
+    var zvm_home_buffer: [sandbox_path_max]u8 = undefined;
+    const zvm_home = try std.fmt.bufPrint(
+        &zvm_home_buffer,
+        "{s}{c}.zm",
+        .{ path, std.fs.path.sep },
+    );
+    try Io.Dir.cwd().createDirPath(io, zvm_home);
     return path;
 }
 
@@ -489,11 +509,14 @@ fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_zero(outcome, "env bash override");
     try assert_contains(outcome.stdout, sandbox, "env bash uses ZVM_HOME");
 
-    // Make sure the resolved root is the override itself (no extra suffix).
+    // The override resolves to `<sandbox>{sep}.zm`; zvm appends `/bin`
+    // (forward slash regardless of platform). Check both pieces appear
+    // so we know the resolved root really is our override and not a
+    // default beneath the developer's real HOME.
     var bin_buffer: [sandbox_path_max]u8 = undefined;
     const expected_bin = try std.fmt.bufPrint(
         &bin_buffer,
-        "{s}{c}bin",
+        "{s}{c}.zm/bin",
         .{ sandbox, std.fs.path.sep },
     );
     try assert_contains(outcome.stdout, expected_bin, "env bash bin path matches override");
@@ -571,12 +594,12 @@ fn place_auto_detect_fixture(suite: *const Suite, sandbox: []const u8) !void {
         .data = zon,
     });
 
-    // Pre-create a fake zig binary at the path the alias logic expects.
+    // Pre-create a fake zig binary under the resolved ZVM_HOME root.
     // Without this, the alias would attempt auto-install, which needs the
     // network and triggers an unrelated assertion in the production code.
-    try sandbox_dir.createDirPath(suite.process_init.io, "version/zig/0.13.0");
+    try sandbox_dir.createDirPath(suite.process_init.io, ".zm/version/zig/0.13.0");
     try sandbox_dir.writeFile(suite.process_init.io, .{
-        .sub_path = "version/zig/0.13.0/zig",
+        .sub_path = ".zm/version/zig/0.13.0/zig",
         .data =
         \\#!/bin/sh
         \\echo "fake-zig 0.13.0 cwd=$PWD argv=$*"
