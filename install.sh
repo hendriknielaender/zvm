@@ -86,25 +86,24 @@ fi
 GITHUB=${GITHUB-"https://github.com"}
 github_repo="$GITHUB/hendriknielaender/zvm"
 
-# Handle version argument (for rollback/specific version install)
+# Resolve version. No argument selects the latest release; otherwise we install
+# the requested tag (e.g. v0.15.0 or zvm-v0.15.0) for rollback or pinning.
 if [[ $# = 0 ]]; then
     version="latest"
-    if [[ $target == *"windows"* ]]; then
-        zvm_uri=$github_repo/releases/latest/download/$target-zvm.zip
-    else
-        zvm_uri=$github_repo/releases/latest/download/$target-zvm.tar.gz
-    fi
+    release_path="releases/latest/download"
 else
-    version="$1"
-    # Strip 'zvm-' prefix if provided (allows both 'v0.15.0' and 'zvm-v0.15.0')
-    version="${version#zvm-}"
-    if [[ $target == *"windows"* ]]; then
-        zvm_uri=$github_repo/releases/download/$version/$target-zvm.zip
-    else
-        zvm_uri=$github_repo/releases/download/$version/$target-zvm.tar.gz
-    fi
+    # Strip 'zvm-' prefix if provided so both 'v0.15.0' and 'zvm-v0.15.0' work.
+    version="${1#zvm-}"
+    release_path="releases/download/$version"
     info "Installing zvm $version (rollback/specific version)"
 fi
+
+if [[ $target == *"windows"* ]]; then
+    archive_ext="zip"
+else
+    archive_ext="tar.gz"
+fi
+zvm_uri="$github_repo/$release_path/$target-zvm.$archive_ext"
 
 # macos/linux cross-compat mktemp
 # https://unix.stackexchange.com/questions/30091/fix-or-alternative-for-mktemp-in-os-x
@@ -127,27 +126,20 @@ chmod +x "$tmpdir/zvm"
 # Create install directory if it doesn't exist
 mkdir -p "$install_dir"
 
-# Check if user can write to install directory
-if [[ ! -w $install_dir ]]; then
-    if [[ $version = "latest" ]]; then
-        info "Saving zvm to $install_dir. You will be prompted for your password."
-    else
-        info "Installing zvm $version to $install_dir. You will be prompted for your password."
-    fi
-    sudo mv "$tmpdir/zvm" "$install_dir/zvm"
-    if [[ $version = "latest" ]]; then
-        success "zvm installed to $install_dir/zvm"
-    else
-        success "zvm $version installed to $install_dir/zvm"
-    fi
-else 
-    mv "$tmpdir/zvm" "$install_dir/zvm"
-    if [[ $version = "latest" ]]; then
-        success "zvm installed to $install_dir/zvm"
-    else
-        success "zvm $version installed to $install_dir/zvm"
-    fi
+# Build a single label so install/success messages share one source of truth.
+if [[ $version = "latest" ]]; then
+    version_label="zvm"
+else
+    version_label="zvm $version"
 fi
+
+if [[ ! -w $install_dir ]]; then
+    info "Installing $version_label to $install_dir. You will be prompted for your password."
+    sudo mv "$tmpdir/zvm" "$install_dir/zvm"
+else
+    mv "$tmpdir/zvm" "$install_dir/zvm"
+fi
+success "$version_label installed to $install_dir/zvm"
 
 # Check if install directory is in PATH
 if [[ ":$PATH:" != *":$install_dir:"* ]]; then
