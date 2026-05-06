@@ -79,6 +79,102 @@ pub const OutputMode = enum {
     }
 };
 
+/// Verbosity level for diagnostic output. Set once at startup from the
+/// `--verbose` / `-v` global flag (or `ZVM_DEBUG` env var, for backward
+/// compatibility) and read globally by `trace()` / `debug_enabled()`.
+///
+/// Why three levels: `none` is the operator default — keep stderr quiet.
+/// `debug` mirrors the legacy `ZVM_DEBUG=1` behavior (resource summary).
+/// `trace` adds per-operation detail (HTTP requests, file paths) for
+/// reproducing bugs without recompiling.
+pub const VerboseLevel = enum(u8) {
+    none = 0,
+    debug = 1,
+    trace = 2,
+
+    /// Promote one step toward `trace`, saturating at the maximum.
+    /// Why saturating: `-vvvv` should not be a parse error — operators
+    /// often add extra `v`s under stress, and the result should still be
+    /// the most verbose mode rather than a confusing failure.
+    pub fn promote(self: VerboseLevel) VerboseLevel {
+        return switch (self) {
+            .none => .debug,
+            .debug => .trace,
+            .trace => .trace,
+        };
+    }
+
+    pub fn at_least(self: VerboseLevel, threshold: VerboseLevel) bool {
+        return @intFromEnum(self) >= @intFromEnum(threshold);
+    }
+
+    comptime {
+        assert(@typeInfo(VerboseLevel).@"enum".fields.len == 3);
+        assert(@intFromEnum(VerboseLevel.none) == 0);
+        assert(@intFromEnum(VerboseLevel.trace) == 2);
+        assert(@intFromEnum(VerboseLevel.debug) > @intFromEnum(VerboseLevel.none));
+        assert(@intFromEnum(VerboseLevel.trace) > @intFromEnum(VerboseLevel.debug));
+    }
+};
+
+/// Process-wide verbose level. Set once after CLI parsing completes; read
+/// by trace/debug helpers and library code that wants to gate diagnostic
+/// output. Default `.none` keeps non-verbose runs quiet on stderr.
+var verbose_level_global: VerboseLevel = .none;
+
+pub fn set_verbose_level(level: VerboseLevel) void {
+    assert(@intFromEnum(level) <= @intFromEnum(VerboseLevel.trace));
+    verbose_level_global = level;
+}
+
+pub fn get_verbose_level() VerboseLevel {
+    return verbose_level_global;
+}
+
+pub fn debug_enabled() bool {
+    return verbose_level_global.at_least(.debug);
+}
+
+pub fn trace_enabled() bool {
+    return verbose_level_global.at_least(.trace);
+}
+
+/// Emit a trace line to stderr when `--verbose -v` (or higher) is active.
+/// No-op otherwise. Why stderr: keeps stdout reserved for command output
+/// so trace lines don't pollute pipelines (`zvm --plain -vv list | awk ...`).
+pub fn trace(comptime message: []const u8, args: anytype) void {
+    if (!trace_enabled()) return;
+    emit_diagnostic_line("trace: ", message, args);
+}
+
+/// Emit a debug line to stderr when `--verbose` (or higher) is active.
+pub fn debug(comptime message: []const u8, args: anytype) void {
+    if (!debug_enabled()) return;
+    emit_diagnostic_line("debug: ", message, args);
+}
+
+fn emit_diagnostic_line(
+    comptime prefix: []const u8,
+    comptime message: []const u8,
+    args: anytype,
+) void {
+    assert(prefix.len > 0);
+    assert(prefix.len < 16);
+    assert(message.len > 0);
+    assert(message.len < 1024);
+
+    var line_buffer: [max_message_length_bytes]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&line_buffer, prefix ++ message ++ "\n", args) catch
+        return;
+    assert(formatted.len > 0);
+    assert(formatted.len <= line_buffer.len);
+
+    std.Io.File.stderr().writeStreamingAll(
+        std.Io.Threaded.global_single_threaded.io(),
+        formatted,
+    ) catch return;
+}
+
 /// Color mode for terminal output.
 /// .auto defers the decision to environment and terminal inspection at startup.
 pub const ColorMode = enum {

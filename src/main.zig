@@ -220,6 +220,20 @@ pub fn main(process_init: std.process.Init) !void {
     };
     _ = try util_output.update_global(final_output_config);
 
+    // Resolve verbose level: explicit --verbose wins; otherwise honor the
+    // legacy ZVM_DEBUG env var as a single-step debug equivalence. Why
+    // env-var fallback: long-standing scripts and CI configs depend on it
+    // — silently dropping support would surprise operators on upgrade.
+    const verbose_from_env: util_output.VerboseLevel =
+        if (read_zvm_debug_env()) .debug else .none;
+    const verbose_from_flag = parsed_command_line.global_config.verbose;
+    const verbose_effective: util_output.VerboseLevel =
+        if (@intFromEnum(verbose_from_flag) >= @intFromEnum(verbose_from_env))
+            verbose_from_flag
+        else
+            verbose_from_env;
+    util_output.set_verbose_level(verbose_effective);
+
     const context_instance = Context.CliContext.init(
         &global_context,
         &global_static_buffer,
@@ -245,6 +259,11 @@ pub fn main(process_init: std.process.Init) !void {
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
         root_node.end();
+        // Surface a debugging hint only when verbose is off — otherwise the
+        // operator already has the trace lines and a second nudge is noise.
+        if (!util_output.debug_enabled()) {
+            util_output.err("Re-run with --verbose (-v) for debug output, -vv for trace.", .{});
+        }
         util_output.fatal(
             util_output.ExitCode.from_error(err),
             "Command failed: {s}",
@@ -254,15 +273,21 @@ pub fn main(process_init: std.process.Init) !void {
 
     root_node.end();
 
-    const has_debug = if (builtin.os.tag == .windows) blk: {
-        break :blk has_windows_env_var("ZVM_DEBUG");
-    } else blk: {
-        break :blk util_tool.getenv_cross_platform("ZVM_DEBUG") != null;
-    };
-
-    if (has_debug and final_output_config.mode == .human_readable) {
+    if (util_output.debug_enabled() and final_output_config.mode == .human_readable) {
         try context_instance.print_debug_info();
     }
+}
+
+/// Read the legacy `ZVM_DEBUG` env var. Any non-empty value enables
+/// debug-equivalent output; matches the documented behavior shown in
+/// `zvm help`. Trace level is only reachable through `-vv` / `--verbose
+/// --verbose` to keep the env-var path strictly backward-compatible.
+fn read_zvm_debug_env() bool {
+    if (builtin.os.tag == .windows) {
+        return has_windows_env_var("ZVM_DEBUG");
+    }
+    const value = util_tool.getenv_cross_platform("ZVM_DEBUG") orelse return false;
+    return value.len > 0;
 }
 
 const AutoInstallError = error{

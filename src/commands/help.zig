@@ -13,7 +13,10 @@ const general_help_text =
     \\
     \\GLOBAL OPTIONS:
     \\    --json              Output in JSON format (machine-readable)
+    \\    --plain             Tabular output for shell pipelines (no headers, no color)
     \\    --quiet, -q         Suppress non-error output
+    \\    --verbose, -v       Show debug output on stderr (repeat -vv for trace level
+    \\                        with HTTP request/response details and file paths)
     \\    --no-color          Disable colored output
     \\    --color             Force colored output
     \\    --yes               Skip confirmation prompts for destructive operations
@@ -42,7 +45,9 @@ const general_help_text =
     \\
     \\ENVIRONMENT VARIABLES:
     \\    ZVM_HOME                          Override the zvm install/data directory
-    \\    ZVM_DEBUG                         Enable debug logging when set to any value
+    \\    ZVM_DEBUG                         Legacy alias for --verbose (debug level).
+    \\                                      Prefer the flag; the env var is kept for
+    \\                                      backward compatibility with existing scripts.
     \\    NO_COLOR                          Disable colored output when set to any value
     \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 600,
     \\                                      range 5..86400). Connect target 10s,

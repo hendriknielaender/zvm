@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
 const util_tool = @import("../util/tool.zig");
+const util_output = @import("../util/output.zig");
 const log = std.log.scoped(.http);
 
 /// Name of the environment variable that overrides the per-request total
@@ -223,6 +224,11 @@ const FetchTask = struct {
         var writer_state: std.Io.Writer = .fixed(&operation.response_buffer);
         const writer: *std.Io.Writer = &writer_state;
 
+        // Trace the request before issuing it. Why pre-call: if the call
+        // hangs, the trace line is the only signal an operator gets that
+        // we even tried this URL.
+        util_output.trace("GET {any}", .{self.uri});
+
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
         const result = try client.fetch(.{
             .location = .{ .uri = self.uri },
@@ -233,6 +239,11 @@ const FetchTask = struct {
             .response_writer = writer,
         });
         try writer.flush();
+
+        util_output.trace("response status={d} bytes={d}", .{
+            @intFromEnum(result.status),
+            writer_state.buffered().len,
+        });
 
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
@@ -285,6 +296,8 @@ const DownloadTask = struct {
         var writer_buffer: [8192]u8 = undefined;
         var writer = self.dest_file.writer(self.ctx.io, &writer_buffer);
 
+        util_output.trace("GET {any} (download)", .{self.uri});
+
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
         const result = try client.fetch(.{
             .location = .{ .uri = self.uri },
@@ -294,6 +307,8 @@ const DownloadTask = struct {
             .decompress_buffer = operation.decompress_slice(),
             .response_writer = &writer.interface,
         });
+
+        util_output.trace("response status={d}", .{@intFromEnum(result.status)});
 
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
