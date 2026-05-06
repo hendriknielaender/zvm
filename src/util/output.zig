@@ -61,19 +61,119 @@ pub const ExitCode = enum(u8) {
     }
 };
 
-/// Output modes that determine formatting and destination
+/// Output modes that determine formatting and destination.
+/// `plain` is for shell pipelines: tabular records, no headers, no color,
+/// no progress. Why: human_readable decoration breaks `awk` / `grep`
+/// parsing, while machine_json is overkill for one-shot scripts.
 pub const OutputMode = enum {
     human_readable,
     machine_json,
     silent_errors_only,
+    plain,
 
     comptime {
         const mode_count = @typeInfo(OutputMode).@"enum".fields.len;
-        assert(mode_count == 3);
+        assert(mode_count == 4);
         assert(mode_count >= 2);
         assert(mode_count <= 8);
     }
 };
+
+/// Verbosity level for diagnostic output. Set once at startup from the
+/// `--verbose` / `-v` global flag (or `ZVM_DEBUG` env var, for backward
+/// compatibility) and read globally by `trace()` / `debug_enabled()`.
+///
+/// Why three levels: `none` is the operator default — keep stderr quiet.
+/// `debug` mirrors the legacy `ZVM_DEBUG=1` behavior (resource summary).
+/// `trace` adds per-operation detail (HTTP requests, file paths) for
+/// reproducing bugs without recompiling.
+pub const VerboseLevel = enum(u8) {
+    none = 0,
+    debug = 1,
+    trace = 2,
+
+    /// Promote one step toward `trace`, saturating at the maximum.
+    /// Why saturating: `-vvvv` should not be a parse error — operators
+    /// often add extra `v`s under stress, and the result should still be
+    /// the most verbose mode rather than a confusing failure.
+    pub fn promote(self: VerboseLevel) VerboseLevel {
+        return switch (self) {
+            .none => .debug,
+            .debug => .trace,
+            .trace => .trace,
+        };
+    }
+
+    pub fn at_least(self: VerboseLevel, threshold: VerboseLevel) bool {
+        return @intFromEnum(self) >= @intFromEnum(threshold);
+    }
+
+    comptime {
+        assert(@typeInfo(VerboseLevel).@"enum".fields.len == 3);
+        assert(@intFromEnum(VerboseLevel.none) == 0);
+        assert(@intFromEnum(VerboseLevel.trace) == 2);
+        assert(@intFromEnum(VerboseLevel.debug) > @intFromEnum(VerboseLevel.none));
+        assert(@intFromEnum(VerboseLevel.trace) > @intFromEnum(VerboseLevel.debug));
+    }
+};
+
+/// Process-wide verbose level. Set once after CLI parsing completes; read
+/// by trace/debug helpers and library code that wants to gate diagnostic
+/// output. Default `.none` keeps non-verbose runs quiet on stderr.
+var verbose_level_global: VerboseLevel = .none;
+
+pub fn set_verbose_level(level: VerboseLevel) void {
+    assert(@intFromEnum(level) <= @intFromEnum(VerboseLevel.trace));
+    verbose_level_global = level;
+}
+
+pub fn get_verbose_level() VerboseLevel {
+    return verbose_level_global;
+}
+
+pub fn debug_enabled() bool {
+    return verbose_level_global.at_least(.debug);
+}
+
+pub fn trace_enabled() bool {
+    return verbose_level_global.at_least(.trace);
+}
+
+/// Emit a trace line to stderr when `--verbose -v` (or higher) is active.
+/// No-op otherwise. Why stderr: keeps stdout reserved for command output
+/// so trace lines don't pollute pipelines (`zvm --plain -vv list | awk ...`).
+pub fn trace(comptime message: []const u8, args: anytype) void {
+    if (!trace_enabled()) return;
+    emit_diagnostic_line("trace: ", message, args);
+}
+
+/// Emit a debug line to stderr when `--verbose` (or higher) is active.
+pub fn debug(comptime message: []const u8, args: anytype) void {
+    if (!debug_enabled()) return;
+    emit_diagnostic_line("debug: ", message, args);
+}
+
+fn emit_diagnostic_line(
+    comptime prefix: []const u8,
+    comptime message: []const u8,
+    args: anytype,
+) void {
+    assert(prefix.len > 0);
+    assert(prefix.len < 16);
+    assert(message.len > 0);
+    assert(message.len < 1024);
+
+    var line_buffer: [max_message_length_bytes]u8 = undefined;
+    const formatted = std.fmt.bufPrint(&line_buffer, prefix ++ message ++ "\n", args) catch
+        return;
+    assert(formatted.len > 0);
+    assert(formatted.len <= line_buffer.len);
+
+    std.Io.File.stderr().writeStreamingAll(
+        std.Io.Threaded.global_single_threaded.io(),
+        formatted,
+    ) catch return;
+}
 
 /// Color mode for terminal output.
 /// .auto defers the decision to environment and terminal inspection at startup.
@@ -199,7 +299,8 @@ pub const OutputConfig = struct {
         // Positive assertions
         assert(self.mode == .human_readable or
             self.mode == .machine_json or
-            self.mode == .silent_errors_only);
+            self.mode == .silent_errors_only or
+            self.mode == .plain);
         assert(self.color == .never_use_color or
             self.color == .always_use_color);
 
@@ -209,6 +310,9 @@ pub const OutputConfig = struct {
         // Negative assertions - invalid combinations
         if (self.mode == .machine_json) {
             assert(self.color == .never_use_color); // JSON never uses colors
+        }
+        if (self.mode == .plain) {
+            assert(self.color == .never_use_color); // Plain mode never uses colors
         }
     }
 
@@ -399,6 +503,7 @@ pub const OutputEmitter = struct {
         switch (self.config.mode) {
             .silent_errors_only => return,
             .human_readable => self.write_plain_to_stdout(text),
+            .plain => self.write_plain_to_stdout(text),
             .machine_json => {
                 const fields = [_]JsonField{
                     .{ .key = "text", .value = .{ .string = text } },
@@ -416,7 +521,14 @@ pub const OutputEmitter = struct {
             .silent_errors_only => {
                 // Only emit errors in silent mode
                 if (level == .error_recoverable or level == .error_fatal) {
-                    self.emit_to_stderr_plain(message, args);
+                    self.emit_to_stderr_plain(level, message, args);
+                }
+            },
+            .plain => {
+                // Plain mode: only diagnostics on stderr, no decoration on stdout.
+                // Why: shell pipelines parse stdout; non-data lines must not appear there.
+                if (level == .warning or level == .error_recoverable or level == .error_fatal) {
+                    self.emit_to_stderr_plain(level, message, args);
                 }
             },
             .machine_json => {
@@ -447,19 +559,21 @@ pub const OutputEmitter = struct {
     /// Emit colored message to stderr
     fn emit_to_stderr_colored(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
+        const tag = stderr_level_tag(level);
 
         if (self.config.color.should_use_color()) {
             const color_code = get_color_code(level);
-            self.write_colored_to_stderr(color_code, formatted);
+            self.write_colored_to_stderr(color_code, tag, formatted);
         } else {
-            self.write_plain_to_stderr(formatted);
+            self.write_plain_to_stderr(tag, formatted);
         }
     }
 
     /// Emit plain message to stderr
-    fn emit_to_stderr_plain(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_to_stderr_plain(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
-        self.write_plain_to_stderr(formatted);
+        const tag = stderr_level_tag(level);
+        self.write_plain_to_stderr(tag, formatted);
     }
 
     /// Emit JSON structured message
@@ -512,12 +626,22 @@ pub const OutputEmitter = struct {
         self.flush_stdout_buffer(writer_state.buffered());
     }
 
-    /// Write colored text to stderr
-    fn write_colored_to_stderr(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
+    /// Write colored text to stderr.
+    /// `tag` is an optional prefix (empty when verbose is off); placed
+    /// inside the color span so the label inherits the level color.
+    fn write_colored_to_stderr(
+        self: *OutputEmitter,
+        color_code: []const u8,
+        tag: []const u8,
+        text: []const u8,
+    ) void {
+        assert(tag.len <= 16);
+
         var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
         const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(color_code) catch return;
+        if (tag.len > 0) writer.writeAll(tag) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
@@ -536,11 +660,15 @@ pub const OutputEmitter = struct {
         self.flush_stdout_buffer(writer_state.buffered());
     }
 
-    /// Write plain text to stderr
-    fn write_plain_to_stderr(self: *OutputEmitter, text: []const u8) void {
+    /// Write plain text to stderr.
+    /// `tag` is an optional prefix (empty when verbose is off).
+    fn write_plain_to_stderr(self: *OutputEmitter, tag: []const u8, text: []const u8) void {
+        assert(tag.len <= 16);
+
         var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
         const writer: *std.Io.Writer = &writer_state;
 
+        if (tag.len > 0) writer.writeAll(tag) catch return;
         writer.writeAll(text) catch return;
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
@@ -587,6 +715,30 @@ pub const JsonField = struct {
         assert(@alignOf(JsonField) >= 1); // Must be aligned
     }
 };
+
+/// Stderr label prefix for diagnostic messages.
+/// Why empty by default: the operator default is to rely on color alone
+/// (red ≡ error, yellow ≡ warn). Labels add visual noise that's only
+/// useful when reading logs without color, e.g. captured to a file. The
+/// label appears only when `--verbose` (or higher) is active, so it's an
+/// opt-in clarity aid for debugging — not a default decoration.
+fn stderr_level_tag(level: MessageLevel) []const u8 {
+    if (!debug_enabled()) return "";
+    return switch (level) {
+        .warning => "[warn] ",
+        .error_recoverable => "[error] ",
+        .error_fatal => "[fatal] ",
+        // success/info do not write to stderr from emit_message; defensive empty.
+        .success, .info => "",
+    };
+}
+
+comptime {
+    // Pair assertion: every tag fits the buffer slack used by callers.
+    assert("[warn] ".len <= 16);
+    assert("[error] ".len <= 16);
+    assert("[fatal] ".len <= 16);
+}
 
 /// Get ANSI color code for message level
 fn get_color_code(level: MessageLevel) []const u8 {
@@ -763,6 +915,45 @@ test "write_json_string_array escapes nested strings" {
 
     const expected = "[\"a\\\"b\",\"c\\\\d\"]";
     try testing.expectEqualStrings(expected, writer_state.buffered());
+}
+
+// --- stderr_level_tag unit tests ---
+
+test "stderr_level_tag: empty when verbose is none" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.none);
+    try testing.expectEqualStrings("", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("", stderr_level_tag(.error_fatal));
+}
+
+test "stderr_level_tag: labels appear at debug level and above" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.debug);
+    try testing.expectEqualStrings("[warn] ", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("[error] ", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("[fatal] ", stderr_level_tag(.error_fatal));
+
+    set_verbose_level(.trace);
+    try testing.expectEqualStrings("[warn] ", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("[error] ", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("[fatal] ", stderr_level_tag(.error_fatal));
+}
+
+test "stderr_level_tag: success and info never get a label" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.trace);
+    try testing.expectEqualStrings("", stderr_level_tag(.success));
+    try testing.expectEqualStrings("", stderr_level_tag(.info));
 }
 
 // --- resolve_color_mode unit tests ---
