@@ -120,7 +120,7 @@ pub fn set_verbose_level(level: VerboseLevel) void {
     verbose_level_global = level;
 }
 
-pub fn get_verbose_level() VerboseLevel {
+fn get_verbose_level() VerboseLevel {
     return verbose_level_global;
 }
 
@@ -128,7 +128,7 @@ pub fn debug_enabled() bool {
     return verbose_level_global.at_least(.debug);
 }
 
-pub fn trace_enabled() bool {
+fn trace_enabled() bool {
     return verbose_level_global.at_least(.trace);
 }
 
@@ -141,7 +141,7 @@ pub fn trace(comptime message: []const u8, args: anytype) void {
 }
 
 /// Emit a debug line to stderr when `--verbose` (or higher) is active.
-pub fn debug(comptime message: []const u8, args: anytype) void {
+fn debug(comptime message: []const u8, args: anytype) void {
     if (!debug_enabled()) return;
     emit_diagnostic_line("debug: ", message, args);
 }
