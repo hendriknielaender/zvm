@@ -313,7 +313,7 @@ fn run_offline_suite(
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
-        .{ .name = "list-remote stderr has no ANSI escapes when not a TTY", .run = test_list_remote_no_ansi },
+        .{ .name = "stderr has no ANSI escapes when not a TTY", .run = test_non_tty_stderr_no_ansi },
     };
 
     for (cases) |case| {
@@ -739,16 +739,14 @@ fn place_auto_detect_fixture(suite: *const Suite, sandbox: []const u8) !void {
     });
 }
 
-fn test_list_remote_no_ansi(suite: *const Suite, sandbox: []const u8) !void {
-    // list-remote is an offline command: it reads from the embedded cache
-    // and never hits the network.
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{"list-remote"});
+fn test_non_tty_stderr_no_ansi(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{"list"});
     defer outcome.deinit(suite.gpa);
-    try assert_exit_zero(outcome, "list-remote");
+    try assert_exit_zero(outcome, "list");
     // When stderr is not a terminal (piped, as in this subprocess),
     // std.Progress must not emit ANSI cursor escapes.
     // Escapes begin with 0x1B followed by '['.
-    try assert_not_contains(outcome.stderr, "\x1b[", "list-remote stderr ANSI escapes");
+    try assert_not_contains(outcome.stderr, "\x1b[", "non-TTY stderr ANSI escapes");
 }
 
 // ---------------------------------------------------------------------------
