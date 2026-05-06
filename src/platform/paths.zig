@@ -84,6 +84,59 @@ pub fn get_zvm_root(buffer: []u8, home: []const u8) ![]const u8 {
     return result;
 }
 
+/// Get the ZVM configuration directory using the canonical resolution order:
+///
+///   1. `ZVM_CONFIG_HOME` environment variable (cross-platform escape hatch)
+///   2. `XDG_CONFIG_HOME` + `.zm` (Unix XDG Base Directory specification)
+///   3. Platform default:
+///      - Windows: `%APPDATA%\.zm`
+///      - Unix:    `{HOME}/.config/.zm`
+///
+/// Callers must provide a buffer large enough for the resolved path.
+pub fn get_zvm_config_dir(buffer: []u8, home: []const u8) ![]const u8 {
+    assert(buffer.len > 0);
+    assert(home.len > 0);
+
+    // ZVM_CONFIG_HOME is deliberately separate from ZVM_HOME. Operators may
+    // want tool binaries on fast local storage while keeping config synced.
+    if (util_tool.getenv_cross_platform("ZVM_CONFIG_HOME")) |zvm_config_home| {
+        if (zvm_config_home.len == 0) return error.HomeNotFound;
+        if (zvm_config_home.len > buffer.len) return error.HomePathTooLong;
+        @memcpy(buffer[0..zvm_config_home.len], zvm_config_home);
+
+        assert(zvm_config_home.len > 0);
+        assert(zvm_config_home.len <= buffer.len);
+        return buffer[0..zvm_config_home.len];
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (util_tool.getenv_cross_platform("APPDATA")) |appdata| {
+            if (appdata.len == 0) return error.HomeNotFound;
+            const result = try std.fmt.bufPrint(buffer, "{s}\\" ++ zvm_dir_name, .{appdata});
+            assert(result.len > appdata.len);
+            assert(std.mem.endsWith(u8, result, "\\" ++ zvm_dir_name));
+            return result;
+        }
+    } else {
+        if (util_tool.getenv_cross_platform("XDG_CONFIG_HOME")) |xdg_config| {
+            if (xdg_config.len == 0) return error.HomeNotFound;
+            const result = try std.fmt.bufPrint(buffer, "{s}/" ++ zvm_dir_name, .{xdg_config});
+            assert(result.len > xdg_config.len);
+            assert(std.mem.endsWith(u8, result, "/" ++ zvm_dir_name));
+            return result;
+        }
+    }
+
+    const result = if (builtin.os.tag == .windows)
+        try std.fmt.bufPrint(buffer, "{s}\\" ++ zvm_dir_name, .{home})
+    else
+        try std.fmt.bufPrint(buffer, "{s}/.config/" ++ zvm_dir_name, .{home});
+
+    assert(result.len > home.len);
+    assert(std.mem.endsWith(u8, result, zvm_dir_name));
+    return result;
+}
+
 test "get_home_path returns HOME on Unix" {
     if (builtin.os.tag == .windows) return error.SkipZigTest;
     var buffer: [512]u8 = undefined;
@@ -125,6 +178,46 @@ test "get_zvm_root respects ZVM_HOME override" {
     const result = try get_zvm_root(&buffer, home);
     const zvm_home = util_tool.getenv_cross_platform("ZVM_HOME").?;
     try std.testing.expectEqualStrings(zvm_home, result);
+}
+
+test "get_zvm_config_dir returns XDG_CONFIG_HOME/.zm when set" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    const xdg_config = util_tool.getenv_cross_platform("XDG_CONFIG_HOME");
+    if (xdg_config == null) return error.SkipZigTest;
+
+    var buffer: [512]u8 = undefined;
+    var home_buf: [256]u8 = undefined;
+    const home = try get_home_path(&home_buf);
+    const result = try get_zvm_config_dir(&buffer, home);
+
+    try std.testing.expect(result.len > 0);
+    try std.testing.expect(std.mem.startsWith(u8, result, xdg_config.?));
+}
+
+test "get_zvm_config_dir returns Unix fallback when XDG not set" {
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+    if (util_tool.getenv_cross_platform("XDG_CONFIG_HOME") != null) return error.SkipZigTest;
+    if (util_tool.getenv_cross_platform("ZVM_CONFIG_HOME") != null) return error.SkipZigTest;
+
+    var buffer: [512]u8 = undefined;
+    var home_buf: [256]u8 = undefined;
+    const home = try get_home_path(&home_buf);
+    const result = try get_zvm_config_dir(&buffer, home);
+
+    try std.testing.expect(result.len > 0);
+    try std.testing.expect(std.mem.endsWith(u8, result, "/.config/.zm"));
+}
+
+test "get_zvm_config_dir respects ZVM_CONFIG_HOME override" {
+    if (util_tool.getenv_cross_platform("ZVM_CONFIG_HOME") == null) return error.SkipZigTest;
+
+    var buffer: [512]u8 = undefined;
+    var home_buf: [256]u8 = undefined;
+    const home = try get_home_path(&home_buf);
+    const result = try get_zvm_config_dir(&buffer, home);
+    const zvm_config_home = util_tool.getenv_cross_platform("ZVM_CONFIG_HOME").?;
+
+    try std.testing.expectEqualStrings(zvm_config_home, result);
 }
 
 test "get_zvm_root rejects oversized ZVM_HOME" {

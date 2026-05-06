@@ -275,7 +275,7 @@ pub fn main(process_init: std.process.Init) !void {
         // Surface a debugging hint only when verbose is off — otherwise the
         // operator already has the trace lines and a second nudge is noise.
         if (!util_output.debug_enabled()) {
-            util_output.err("Re-run with --verbose (-v) for debug output, -vv for trace.", .{});
+            util_output.err("Re-run with --verbose for debug output, or --trace for trace output.", .{});
         }
         util_output.fatal(
             util_output.ExitCode.from_error(err),
@@ -291,7 +291,7 @@ pub fn main(process_init: std.process.Init) !void {
     }
 }
 
-/// Best-effort scan for `--verbose` / `-v` / clustered `-vv...` before the
+/// Best-effort scan for `--verbose` / `--trace` before the
 /// authoritative parse runs. Stops at the first non-option (the command),
 /// at `--`, or at end of args. Why bounded: verbose is a global option,
 /// so anything after the command name belongs to the subcommand and
@@ -311,17 +311,12 @@ fn prescan_verbose_level(arguments: []const []const u8) util_output.VerboseLevel
         if (arg.len < 2 or arg[0] != '-') break;
 
         if (std.mem.eql(u8, arg, "--verbose")) {
-            level = level.promote();
+            level = .debug;
             continue;
         }
-
-        // Clustered short options: every 'v' in `-vvv...` promotes once.
-        // Any non-'v' character in a short cluster is left for the real
-        // parser to validate or reject.
-        if (arg[1] != '-') {
-            for (arg[1..]) |option_char| {
-                if (option_char == 'v') level = level.promote();
-            }
+        if (std.mem.eql(u8, arg, "--trace")) {
+            level = .trace;
+            continue;
         }
     }
     return level;
@@ -329,8 +324,8 @@ fn prescan_verbose_level(arguments: []const []const u8) util_output.VerboseLevel
 
 /// Read the legacy `ZVM_DEBUG` env var. Any non-empty value enables
 /// debug-equivalent output; matches the documented behavior shown in
-/// `zvm help`. Trace level is only reachable through `-vv` / `--verbose
-/// --verbose` to keep the env-var path strictly backward-compatible.
+/// `zvm help`. Trace level is only reachable through `--trace` to keep the
+/// env-var path strictly backward-compatible.
 fn read_zvm_debug_env() bool {
     if (builtin.os.tag == .windows) {
         return has_windows_env_var("ZVM_DEBUG");

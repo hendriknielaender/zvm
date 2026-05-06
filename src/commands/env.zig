@@ -40,23 +40,27 @@ pub fn execute(
 ) !void {
     _ = progress_node;
 
-    var path_buffer = try ctx.acquire_path_buffer();
-    defer path_buffer.reset();
-    const zvm_bin_path = try build_zvm_bin_path(ctx, path_buffer.slice());
+    var zvm_bin_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_bin_path = try build_zvm_bin_path(ctx, &zvm_bin_buffer);
     assert(zvm_bin_path.len > 0);
+
+    var zvm_config_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_config_dir = try build_zvm_config_dir(ctx, &zvm_config_buffer);
+    assert(zvm_config_dir.len > 0);
 
     const shell_kind = detect_shell_kind(command.shell);
     const shell_name = shell_kind.display_name();
     assert(shell_name.len > 0);
 
     var text_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
-    const text = try build_env_text(shell_kind, zvm_bin_path, &text_buffer);
+    const text = try build_env_text(shell_kind, zvm_bin_path, zvm_config_dir, &text_buffer);
     assert(text.len > 0);
 
     const emitter = util_output.get_global();
     if (emitter.config.mode == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "shell", .value = .{ .string = shell_name } },
+            .{ .key = "config_dir", .value = .{ .string = zvm_config_dir } },
             .{ .key = "text", .value = .{ .string = text } },
         };
         util_output.json_object(&fields);
@@ -73,6 +77,12 @@ fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, home_dir);
     return try std.fmt.bufPrint(buffer, "{s}/bin", .{zvm_root});
+}
+
+fn build_zvm_config_dir(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
+    assert(buffer.len > 0);
+    const home_dir = ctx.get_home_dir();
+    return try paths.get_zvm_config_dir(buffer, home_dir);
 }
 
 fn detect_shell_kind(shell: ?validation.ShellType) ShellKind {
@@ -127,9 +137,11 @@ fn detect_windows_shell_kind() ShellKind {
 fn build_env_text(
     shell_kind: ShellKind,
     zvm_bin_path: []const u8,
+    zvm_config_dir: []const u8,
     buffer: []u8,
 ) ![]const u8 {
     assert(zvm_bin_path.len > 0);
+    assert(zvm_config_dir.len > 0);
     assert(buffer.len > 0);
 
     var writer_state: std.Io.Writer = .fixed(buffer);
@@ -138,26 +150,32 @@ fn build_env_text(
     switch (shell_kind) {
         .fish => {
             try writer.print("# Add this to your ~/.config/fish/config.fish:\n", .{});
+            try writer.print("# zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("set -gx PATH {s} $PATH\n", .{zvm_bin_path});
         },
         .zsh => {
             try writer.print("# Add this to your ~/.zshrc:\n", .{});
+            try writer.print("# zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
         },
         .bash => {
             try writer.print("# Add this to your ~/.bashrc:\n", .{});
+            try writer.print("# zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
         },
         .sh => {
             try writer.print("# Add this to your shell configuration:\n", .{});
+            try writer.print("# zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("export PATH=\"{s}:$PATH\"\n", .{zvm_bin_path});
         },
         .powershell => {
             try writer.print("# Add this to your PowerShell profile:\n", .{});
+            try writer.print("# zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("$env:Path = \"{s};$env:Path\"\n", .{zvm_bin_path});
         },
         .cmd => {
             try writer.print("REM Add this to your environment variables:\n", .{});
+            try writer.print("REM zvm config directory: {s}\n", .{zvm_config_dir});
             try writer.print("SET PATH={s};%PATH%\n", .{zvm_bin_path});
         },
     }

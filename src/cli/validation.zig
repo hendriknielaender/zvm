@@ -1,6 +1,7 @@
 const std = @import("std");
 const raw_args = @import("raw_args.zig");
 const limits = @import("../memory/limits.zig");
+const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const assert = std.debug.assert;
@@ -156,6 +157,25 @@ pub const HelpTopic = enum {
     }
 };
 
+const help_topic_names = [_][]const u8{
+    "install",
+    "i",
+    "remove",
+    "rm",
+    "use",
+    "u",
+    "list",
+    "ls",
+    "list-remote",
+    "list-mirrors",
+    "clean",
+    "env",
+    "completions",
+    "version",
+    "help",
+    "upgrade",
+};
+
 /// Shell type with validation
 pub const ShellType = enum {
     bash,
@@ -175,6 +195,40 @@ pub const ShellType = enum {
         return error.UnknownShell;
     }
 };
+
+const shell_names = [_][]const u8{
+    "bash",
+    "zsh",
+    "fish",
+    "powershell",
+    "pwsh",
+};
+
+fn fatal_unknown_help_topic(topic: []const u8) noreturn {
+    if (edit_distance.nearest(topic, &help_topic_names)) |suggestion| {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown help topic '{s}'\n\n  Did you mean '{s}'?",
+            .{ topic, suggestion },
+        );
+    }
+    util_output.fatal(.invalid_arguments, "unknown help topic '{s}'", .{topic});
+}
+
+fn fatal_unknown_shell(shell: []const u8) noreturn {
+    if (edit_distance.nearest(shell, &shell_names)) |suggestion| {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown shell type '{s}'\n\n  Did you mean '{s}'?",
+            .{ shell, suggestion },
+        );
+    }
+    util_output.fatal(
+        .invalid_arguments,
+        "unknown shell type '{s}' (supported: bash, zsh, fish, powershell)",
+        .{shell},
+    );
+}
 
 /// Stage 2: Validated command with business logic applied
 pub const ValidatedCommand = union(enum) {
@@ -518,7 +572,7 @@ fn validate_env(raw: raw_args.RawArgs.EnvArgs) !ValidatedCommand.EnvCommand {
     const shell = if (raw.get_shell()) |shell_str|
         ShellType.parse(shell_str) catch |err| switch (err) {
             error.UnknownShell => {
-                util_output.fatal(.invalid_arguments, "unknown shell type: '{s}' (supported: bash, zsh, fish, powershell)", .{shell_str});
+                fatal_unknown_shell(shell_str);
             },
         }
     else
@@ -533,7 +587,7 @@ fn validate_completions(raw: raw_args.RawArgs.CompletionsArgs) !ValidatedCommand
     const shell = if (raw.get_shell()) |shell_str|
         ShellType.parse(shell_str) catch |err| switch (err) {
             error.UnknownShell => {
-                util_output.fatal(.invalid_arguments, "unknown shell type: '{s}' (supported: bash, zsh, fish, powershell)", .{shell_str});
+                fatal_unknown_shell(shell_str);
             },
         }
     else blk: {
@@ -557,7 +611,7 @@ fn validate_help(raw: raw_args.RawArgs.HelpArgs) !ValidatedCommand.HelpCommand {
     const topic = if (raw.get_topic()) |topic_str|
         HelpTopic.parse(topic_str) catch |err| switch (err) {
             error.UnknownHelpTopic => {
-                util_output.fatal(.invalid_arguments, "unknown help topic: '{s}'", .{topic_str});
+                fatal_unknown_help_topic(topic_str);
             },
         }
     else

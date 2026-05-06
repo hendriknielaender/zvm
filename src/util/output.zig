@@ -85,8 +85,8 @@ pub const OutputMode = enum {
 };
 
 /// Verbosity level for diagnostic output. Set once at startup from the
-/// `--verbose` / `-v` global flag (or `ZVM_DEBUG` env var, for backward
-/// compatibility) and read globally by `trace()` / `debug_enabled()`.
+/// `--verbose` / `--trace` global flag (or `ZVM_DEBUG` env var, for
+/// backward compatibility) and read globally by `trace()` / `debug_enabled()`.
 ///
 /// Why three levels: `none` is the operator default — keep stderr quiet.
 /// `debug` mirrors the legacy `ZVM_DEBUG=1` behavior (resource summary).
@@ -96,18 +96,6 @@ pub const VerboseLevel = enum(u8) {
     none = 0,
     debug = 1,
     trace = 2,
-
-    /// Promote one step toward `trace`, saturating at the maximum.
-    /// Why saturating: `-vvvv` should not be a parse error — operators
-    /// often add extra `v`s under stress, and the result should still be
-    /// the most verbose mode rather than a confusing failure.
-    pub fn promote(self: VerboseLevel) VerboseLevel {
-        return switch (self) {
-            .none => .debug,
-            .debug => .trace,
-            .trace => .trace,
-        };
-    }
 
     pub fn at_least(self: VerboseLevel, threshold: VerboseLevel) bool {
         return @intFromEnum(self) >= @intFromEnum(threshold);
@@ -144,9 +132,9 @@ pub fn trace_enabled() bool {
     return verbose_level_global.at_least(.trace);
 }
 
-/// Emit a trace line to stderr when `--verbose -v` (or higher) is active.
+/// Emit a trace line to stderr when `--trace` is active.
 /// No-op otherwise. Why stderr: keeps stdout reserved for command output
-/// so trace lines don't pollute pipelines (`zvm --plain -vv list | awk ...`).
+/// so trace lines don't pollute pipelines (`zvm --plain --trace list | awk ...`).
 pub fn trace(comptime message: []const u8, args: anytype) void {
     if (!trace_enabled()) return;
     emit_diagnostic_line("trace: ", message, args);
