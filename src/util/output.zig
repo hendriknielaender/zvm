@@ -350,9 +350,18 @@ pub const JsonPayload = union(enum) {
     text: []const u8,
 
     pub const StringArray = struct {
-        field_name: []const u8,
+        field_name: JsonArrayFieldName,
         items: []const []const u8,
     };
+};
+
+pub const JsonArrayFieldName = enum {
+    installed,
+    mirrors,
+
+    fn text(self: JsonArrayFieldName) []const u8 {
+        return @tagName(self);
+    }
 };
 
 /// Centralized output management
@@ -416,9 +425,10 @@ const OutputEmitter = struct {
     }
 
     /// Emit JSON array of strings
-    fn emit_json_array(self: *OutputEmitter, field_name: []const u8, items: []const []const u8) void {
-        assert(field_name.len > 0);
-        assert(field_name.len < 64);
+    fn emit_json_array(self: *OutputEmitter, comptime field_name: JsonArrayFieldName, items: []const []const u8) void {
+        const field_name_text = comptime field_name.text();
+        assert(field_name_text.len > 0);
+        assert(field_name_text.len < 64);
         assert(items.len <= limits.limits.versions_maximum);
 
         if (self.config.mode != .machine_json) return;
@@ -427,7 +437,7 @@ const OutputEmitter = struct {
         const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll("{\"") catch return;
-        writer.writeAll(field_name) catch return;
+        writer.writeAll(field_name_text) catch return;
         writer.writeAll("\":[") catch return;
 
         for (items, 0..) |item, index| {
@@ -888,15 +898,17 @@ pub fn emit(level: MessageLevel, comptime message: []const u8, args: anytype) vo
 pub fn emit_json(payload: JsonPayload) void {
     switch (payload) {
         .object => |fields| get_global().emit_json_object(fields),
-        .string_array => |array| get_global().emit_json_array(array.field_name, array.items),
+        .string_array => |array| switch (array.field_name) {
+            .installed => get_global().emit_json_array(.installed, array.items),
+            .mirrors => get_global().emit_json_array(.mirrors, array.items),
+        },
         .text => |text| get_global().emit_text(text),
     }
 }
 
 pub fn exit_with(exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
     assert(exit_code != .success);
-    get_global().emit_message(.error_fatal, message, args);
-    std.process.exit(@intFromEnum(exit_code));
+    get_global().emit_fatal(exit_code, message, args);
 }
 
 test "write_json_string escapes control characters" {

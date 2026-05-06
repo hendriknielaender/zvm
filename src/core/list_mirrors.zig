@@ -18,7 +18,7 @@ pub fn run(
         for (metadata.zig_mirrors, 0..) |mirror_info, index| {
             mirror_urls[index] = mirror_info[0];
         }
-        util_output.emit_json(.{ .string_array = .{ .field_name = "mirrors", .items = mirror_urls[0..metadata.zig_mirrors.len] } });
+        util_output.emit_json(.{ .string_array = .{ .field_name = .mirrors, .items = mirror_urls[0..metadata.zig_mirrors.len] } });
         return;
     }
 

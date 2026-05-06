@@ -28,6 +28,9 @@ const AutoInstallError = error{
     InstallationFailed,
 };
 
+// The install path needs the full static arena; keep it out of the shim stack.
+var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
+
 pub fn is_shim_name(program_basename: []const u8) bool {
     return util_tool.eql_str(program_basename, "zig") or util_tool.eql_str(program_basename, "zls");
 }
@@ -155,12 +158,11 @@ fn auto_install_version(io: std.Io, version: []const u8) AutoInstallError!void {
     if (util_tool.eql_str(version, "current")) return error.AlreadyCurrent;
 
     var context_storage: Context.CliContext = undefined;
-    var static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
     const install_args = &[_][]const u8{ "zvm", "install", version };
 
     const context = Context.CliContext.init_locked(
         &context_storage,
-        &static_buffer,
+        &alias_static_buffer,
         install_args,
         io,
     ) catch return error.ContextInitFailed;

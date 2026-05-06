@@ -102,7 +102,7 @@ fn emit_plain_tagged_versions(tool_tag: []const u8, versions: []const []const u8
 
 fn emit_zig_versions(versions: []const []const u8, version_count: usize) !void {
     if (util_output.output_mode() == .machine_json) {
-        util_output.emit_json(.{ .string_array = .{ .field_name = "installed", .items = versions } });
+        util_output.emit_json(.{ .string_array = .{ .field_name = .installed, .items = versions } });
         return;
     }
 
