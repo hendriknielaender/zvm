@@ -4,6 +4,7 @@ const context = @import("../Context.zig");
 const limits = @import("../memory/limits.zig");
 const util_tool = @import("../util/tool.zig");
 const util_output = @import("../util/output.zig");
+const signals = @import("../platform/signals.zig");
 const log = std.log.scoped(.http);
 
 /// Name of the environment variable that overrides the per-request total
@@ -104,6 +105,7 @@ pub const HttpClient = struct {
         headers: std.http.Client.Request.Headers,
     ) ![]const u8 {
         const total_seconds = read_total_timeout_seconds();
+        try signals.check();
         return run_with_timeout(FetchTask, FetchTask.run, .{
             .ctx = ctx,
             .uri = uri,
@@ -122,6 +124,7 @@ pub const HttpClient = struct {
         progress_node: std.Progress.Node,
     ) !void {
         const total_seconds = read_total_timeout_seconds();
+        try signals.check();
         _ = try run_with_timeout(DownloadTask, DownloadTask.run, .{
             .ctx = ctx,
             .uri = uri,
@@ -167,7 +170,7 @@ fn run_with_timeout(
         // Single-threaded builds are the only realistic path here.
         error.ConcurrencyUnavailable => {
             log.debug("Timer concurrency unavailable; awaiting fetch without timeout for {any}", .{uri});
-            const outcome = select.@"await"() catch |await_err| switch (await_err) {
+            const outcome = select.await() catch |await_err| switch (await_err) {
                 error.Canceled => return error.Canceled,
             };
             return switch (outcome) {
@@ -177,7 +180,7 @@ fn run_with_timeout(
         },
     };
 
-    const winner = select.@"await"() catch |err| switch (err) {
+    const winner = select.await() catch |err| switch (err) {
         error.Canceled => {
             _ = select.cancel();
             return error.Canceled;
@@ -208,6 +211,7 @@ const FetchTask = struct {
     const Payload = []const u8;
 
     fn run(self: FetchTask) anyerror!Payload {
+        try signals.check();
         const operation = try self.ctx.acquire_http_operation();
         defer operation.release();
 
@@ -230,14 +234,18 @@ const FetchTask = struct {
         util_output.trace("GET {any}", .{self.uri});
 
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
-        const result = try client.fetch(.{
+        const result = client.fetch(.{
             .location = .{ .uri = self.uri },
             .method = .GET,
             .headers = self.headers,
             .redirect_buffer = &redirect_buffer,
             .decompress_buffer = operation.decompress_slice(),
             .response_writer = writer,
-        });
+        }) catch |err| {
+            if (signals.requested()) return error.Interrupted;
+            return err;
+        };
+        try signals.check();
         try writer.flush();
 
         util_output.trace("response status={d} bytes={d}", .{
@@ -279,6 +287,7 @@ const DownloadTask = struct {
 
     fn run(self: DownloadTask) anyerror!Payload {
         _ = self.progress_node;
+        try signals.check();
 
         const operation = try self.ctx.acquire_http_operation();
         defer operation.release();
@@ -295,18 +304,23 @@ const DownloadTask = struct {
 
         var writer_buffer: [8192]u8 = undefined;
         var writer = self.dest_file.writer(self.ctx.io, &writer_buffer);
+        var interrupt_writer_buffer: [8192]u8 = undefined;
+        var interrupt_writer = InterruptWriter.init(&writer.interface, &interrupt_writer_buffer);
 
         util_output.trace("GET {any} (download)", .{self.uri});
 
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
-        const result = try client.fetch(.{
+        const result = client.fetch(.{
             .location = .{ .uri = self.uri },
             .method = .GET,
             .headers = self.headers,
             .redirect_buffer = &redirect_buffer,
             .decompress_buffer = operation.decompress_slice(),
-            .response_writer = &writer.interface,
-        });
+            .response_writer = &interrupt_writer.writer,
+        }) catch |err| {
+            if (signals.requested()) return error.Interrupted;
+            return err;
+        };
 
         util_output.trace("response status={d}", .{@intFromEnum(result.status)});
 
@@ -315,7 +329,61 @@ const DownloadTask = struct {
             return error.HttpRequestFailed;
         }
 
-        try writer.interface.flush();
+        interrupt_writer.writer.flush() catch |err| {
+            if (signals.requested()) return error.Interrupted;
+            return err;
+        };
+    }
+};
+
+const InterruptWriter = struct {
+    out: *std.Io.Writer,
+    writer: std.Io.Writer,
+
+    fn init(out: *std.Io.Writer, buffer: []u8) InterruptWriter {
+        assert(buffer.len > 0);
+        return .{
+            .out = out,
+            .writer = .{
+                .buffer = buffer,
+                .vtable = &.{
+                    .drain = drain,
+                    .flush = flush,
+                },
+            },
+        };
+    }
+
+    fn drain(
+        writer: *std.Io.Writer,
+        data: []const []const u8,
+        splat: usize,
+    ) std.Io.Writer.Error!usize {
+        const self: *InterruptWriter = @alignCast(@fieldParentPtr("writer", writer));
+        if (signals.requested()) return error.WriteFailed;
+        const buffered = writer.buffered();
+        const written_total = try self.out.writeSplatHeader(buffered, data, splat);
+        if (written_total < writer.end) {
+            const remaining = writer.buffer[written_total..writer.end];
+            @memmove(writer.buffer[0..remaining.len], remaining);
+            writer.end = remaining.len;
+            if (signals.requested()) return error.WriteFailed;
+            return 0;
+        }
+
+        const written = written_total - writer.end;
+        writer.end = 0;
+        if (signals.requested()) return error.WriteFailed;
+        return written;
+    }
+
+    fn flush(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const self: *InterruptWriter = @alignCast(@fieldParentPtr("writer", writer));
+        if (signals.requested()) return error.WriteFailed;
+        try self.out.writeAll(writer.buffered());
+        writer.end = 0;
+        try self.out.flush();
+        if (signals.requested()) return error.WriteFailed;
     }
 };
 

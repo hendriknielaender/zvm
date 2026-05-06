@@ -4,6 +4,7 @@ const data = @import("../util/data.zig");
 const tool = @import("../util/tool.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
+const signals = @import("../platform/signals.zig");
 const builtin = @import("builtin");
 const log = std.log.scoped(.extract);
 const assert = std.debug.assert;
@@ -25,6 +26,7 @@ pub fn extract_static(
     root_node: std.Progress.Node,
     archive_path: []const u8,
 ) !void {
+    try signals.check();
     switch (file_type) {
         .zip => try extract_zip_dir_static(io, extract_op, out_dir, file, root_node),
         .tarxz => try extract_tarxz_to_dir(io, extract_op, out_dir, archive_path, is_zls, root_node),
@@ -43,7 +45,9 @@ fn extract_tarxz_to_dir(
     root_node: std.Progress.Node,
 ) !void {
     root_node.setEstimatedTotalItems(0);
+    try signals.check();
     try extract_tarxz_with_system_tar(io, extract_op, out_dir, archive_path, is_zls);
+    try signals.check();
     root_node.setCompletedItems(1);
 }
 
@@ -57,6 +61,7 @@ fn extract_tarxz_with_system_tar(
     if (builtin.os.tag == .windows) return error.UnsupportedPlatform;
 
     assert(archive_path.len > 0);
+    try signals.check();
 
     var out_path_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const out_path_len = try out_dir.realPath(io, &out_path_buffer);
@@ -82,6 +87,7 @@ fn extract_tarxz_with_system_tar(
         .stderr = .inherit,
     });
     const term = try child.wait(io);
+    try signals.check();
     switch (term) {
         .exited => |code| {
             if (code != 0) return error.TarExtractionFailed;
@@ -98,6 +104,7 @@ fn extract_targz_to_dir(
     is_zls: bool,
     root_node: std.Progress.Node,
 ) !void {
+    try signals.check();
     // Create a File.Reader with buffer
     var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
     var file_reader = file.reader(io, &reader_buffer);
@@ -114,6 +121,7 @@ fn extract_targz_to_dir(
         .{ .mode_mode = .executable_bit_only, .strip_components = if (is_zls) 0 else 1 },
     );
 
+    try signals.check();
     root_node.setCompletedItems(1);
 }
 
@@ -125,6 +133,7 @@ fn extract_zip_dir_static(
     file: std.Io.File,
     _: std.Progress.Node,
 ) !void {
+    try signals.check();
     // Use pre-allocated path buffers from extract operation.
     const tmp_path_buffer = &extract_op.tmp_path_buffer;
     const tmp_path = try data.get_zvm_path_segment(tmp_path_buffer, "tmpdir");
@@ -141,6 +150,7 @@ fn extract_zip_dir_static(
     var reader_buffer: [4096]u8 = undefined;
     var file_reader = file.reader(io, &reader_buffer);
     try std.zip.extract(tmp_dir, &file_reader, .{});
+    try signals.check();
 
     // Use pre-allocated buffer for output path.
     const out_path_buffer = &extract_op.out_path_buffer;
@@ -153,4 +163,5 @@ fn extract_zip_dir_static(
     // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
     var dest_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
     try tool.copy_dir_static(io, tmp_path, out_path, &source_buffer, &dest_buffer);
+    try signals.check();
 }

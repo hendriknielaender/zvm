@@ -28,11 +28,13 @@ pub const ExitCode = enum(u8) {
     already_exists = 6,
     corruption_detected = 7,
     resource_exhausted = 8,
+    interrupted = 130,
 
     comptime {
         assert(@intFromEnum(ExitCode.success) == 0);
         assert(@intFromEnum(ExitCode.resource_exhausted) < 16);
         assert(@intFromEnum(ExitCode.resource_exhausted) >= @intFromEnum(ExitCode.success));
+        assert(@intFromEnum(ExitCode.interrupted) == 130);
     }
 
     /// Convert error union types to semantic exit codes
@@ -54,6 +56,9 @@ pub const ExitCode = enum(u8) {
 
             // Version/package not found
             error.VersionNotFound, error.PackageNotFound => .version_not_found,
+
+            // User interrupts map to the conventional shell status 128 + SIGINT.
+            error.Interrupted => .interrupted,
 
             // Default to invalid arguments for parsing/validation errors
             else => .invalid_arguments,
