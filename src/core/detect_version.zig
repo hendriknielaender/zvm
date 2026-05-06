@@ -88,6 +88,181 @@ pub fn is_version_string(arg: []const u8) bool {
     return part_count >= 2;
 }
 
+pub fn detect_version_for_shim(
+    io: std.Io,
+    args: []const []const u8,
+    version_buffer: []u8,
+) ![]const u8 {
+    assert(version_buffer.len > 0);
+
+    if (args.len > 0) {
+        if (is_shim_version_argument(args[0])) return args[0];
+    }
+
+    var current_dir_buffer: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const current_dir_len = std.process.currentPath(io, &current_dir_buffer) catch return "current";
+    const current_dir = current_dir_buffer[0..current_dir_len];
+
+    var search_dir: []const u8 = current_dir;
+    while (true) {
+        var path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+        const path = std.fmt.bufPrint(
+            &path_buffer,
+            "{s}/build.zig.zon",
+            .{search_dir},
+        ) catch break;
+
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch {
+            const parent = std.fs.path.dirname(search_dir) orelse break;
+            if (std.mem.eql(u8, parent, search_dir)) break;
+            search_dir = parent;
+            continue;
+        };
+        defer file.close(io);
+
+        var content_buffer: [8192]u8 = undefined;
+        var reader_buffer: [8192]u8 = undefined;
+        var file_reader = file.reader(io, &reader_buffer);
+        const bytes_read = file_reader.interface.readSliceShort(&content_buffer) catch break;
+        if (bytes_read == 0) break;
+
+        if (extract_minimum_zig_version_from_zon(
+            content_buffer[0..bytes_read],
+            version_buffer,
+        )) |version| {
+            if (validate_semantic_version(version)) return version;
+            return "current";
+        }
+
+        const parent = std.fs.path.dirname(search_dir) orelse break;
+        if (std.mem.eql(u8, parent, search_dir)) break;
+        search_dir = parent;
+    }
+
+    return "current";
+}
+
+pub fn is_shim_version_argument(argument: []const u8) bool {
+    if (argument.len == 0) return false;
+
+    if (std.mem.eql(u8, argument, "version")) return false;
+    if (std.mem.eql(u8, argument, "build")) return false;
+    if (std.mem.eql(u8, argument, "test")) return false;
+    if (std.mem.eql(u8, argument, "run")) return false;
+    if (std.mem.eql(u8, argument, "help")) return false;
+
+    if (std.mem.eql(u8, argument, "master")) return true;
+
+    var dot_count: usize = 0;
+    var has_digit = false;
+    for (argument) |byte| {
+        if (byte == '.') {
+            dot_count += 1;
+            continue;
+        }
+        if (std.ascii.isDigit(byte)) {
+            has_digit = true;
+            continue;
+        }
+        if (byte == '-') continue;
+        return false;
+    }
+
+    return has_digit and dot_count > 0;
+}
+
+pub fn validate_semantic_version(version: []const u8) bool {
+    assert(version.len > 0);
+    assert(version.len < 64);
+
+    if (std.mem.eql(u8, version, "master")) return true;
+    if (std.mem.eql(u8, version, "current")) return true;
+
+    _ = std.SemanticVersion.parse(version) catch return false;
+    return true;
+}
+
+pub fn extract_minimum_zig_version_from_zon(content: []const u8, version_buffer: []u8) ?[]const u8 {
+    assert(content.len > 0);
+    assert(content.len <= 8192);
+    assert(version_buffer.len > 0);
+
+    const key = "minimum_zig_version";
+    var index: usize = 0;
+
+    while (index < content.len) : (index += 1) {
+        if (index + key.len > content.len) break;
+        if (!std.mem.eql(u8, content[index .. index + key.len], key)) continue;
+
+        var cursor = index + key.len;
+        while (cursor < content.len) : (cursor += 1) {
+            if (!std.ascii.isWhitespace(content[cursor])) break;
+        }
+
+        if (cursor >= content.len) continue;
+        if (content[cursor] != '=') continue;
+        cursor += 1;
+
+        while (cursor < content.len) : (cursor += 1) {
+            if (!std.ascii.isWhitespace(content[cursor])) break;
+        }
+
+        if (cursor >= content.len) continue;
+        if (content[cursor] != '"') continue;
+        cursor += 1;
+
+        const version_start = cursor;
+        while (cursor < content.len) : (cursor += 1) {
+            if (content[cursor] == '"') break;
+        }
+
+        if (cursor >= content.len) continue;
+
+        const version = content[version_start..cursor];
+        if (version.len == 0) continue;
+        if (version.len > version_buffer.len) continue;
+
+        @memcpy(version_buffer[0..version.len], version);
+        return version_buffer[0..version.len];
+    }
+
+    return null;
+}
+
+test "detect_version_for_shim prefers explicit version argument" {
+    var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    const arguments = &[_][]const u8{ "0.16.0", "build" };
+
+    const detected = try detect_version_for_shim(std.testing.io, arguments, &version_buffer);
+    try std.testing.expectEqualStrings("0.16.0", detected);
+}
+
+test "is_shim_version_argument excludes common zig subcommands" {
+    try std.testing.expect(is_shim_version_argument("0.16.0"));
+    try std.testing.expect(is_shim_version_argument("master"));
+    try std.testing.expect(!is_shim_version_argument("build"));
+    try std.testing.expect(!is_shim_version_argument("test"));
+    try std.testing.expect(!is_shim_version_argument("run"));
+    try std.testing.expect(!is_shim_version_argument("latest"));
+}
+
+test "extract_minimum_zig_version_from_zon parses zon source without allocation" {
+    const content =
+        \\.{
+        \\    .name = "sample",
+        \\    .version = "0.1.0",
+        \\    .minimum_zig_version = "0.14.1",
+        \\    .dependencies = .{},
+        \\}
+    ;
+
+    var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    const detected = extract_minimum_zig_version_from_zon(content, &version_buffer) orelse
+        return error.ExpectedVersionInZon;
+
+    try std.testing.expectEqualStrings("0.14.1", detected);
+}
+
 fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
     var current_dir_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const current_dir_len = std.process.currentPath(ctx.io, &current_dir_buf) catch return null;

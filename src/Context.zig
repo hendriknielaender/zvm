@@ -72,6 +72,18 @@ pub const CliContext = struct {
         return context_storage;
     }
 
+    /// Initialize a context and freeze startup allocation before runtime work.
+    pub fn init_locked(
+        context_storage: *CliContext,
+        static_buffer: []u8,
+        arguments: []const []const u8,
+        io: std.Io,
+    ) !*CliContext {
+        const context = try init(context_storage, static_buffer, arguments, io);
+        context.static_mem.lock();
+        return context;
+    }
+
     /// Initialize core systems (memory and pools)
     fn init_core_systems(context_storage: *CliContext, static_buffer: []u8) !void {
         assert(static_buffer.len > 0);
