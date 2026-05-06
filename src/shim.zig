@@ -52,15 +52,6 @@ pub fn run(
         },
     };
 
-    const version_available = ensure_version_available(io, version) catch false;
-    if (!version_available) {
-        if (!util_tool.eql_str(version, "current")) {
-            if (!auto_install_version_gracefully(io, version)) {
-                return run_current(io, program_name, remaining_arguments);
-            }
-        }
-    }
-
     if (util_tool.eql_str(version, "current")) {
         return run_current(io, program_name, remaining_arguments);
     }
@@ -72,7 +63,19 @@ pub fn run(
         &adjusted_arguments_buffer,
     ) catch return error.TooManyArguments;
 
-    try run_versioned(io, program_name, version, adjusted_arguments);
+    if (try run_versioned_if_available(io, program_name, version, adjusted_arguments)) {
+        return;
+    }
+
+    if (util_tool.eql_str(program_name, "zig")) {
+        if (auto_install_version_gracefully(io, version)) {
+            if (try run_versioned_if_available(io, program_name, version, adjusted_arguments)) {
+                return;
+            }
+        }
+    }
+
+    return run_current(io, program_name, remaining_arguments);
 }
 
 fn run_current(io: std.Io, program_name: []const u8, arguments: []const []const u8) !void {
@@ -85,19 +88,22 @@ fn run_current(io: std.Io, program_name: []const u8, arguments: []const []const 
     try exec_tool(io, &buffers, tool_path, arguments);
 }
 
-fn run_versioned(
+fn run_versioned_if_available(
     io: std.Io,
     program_name: []const u8,
     version: []const u8,
     arguments: []const []const u8,
-) !void {
+) !bool {
     var buffers: ShimBuffers = undefined;
     buffers.exec_arguments_count = 0;
 
     const home = try get_home_path(&buffers);
     const zvm_home = try get_zvm_home_path(&buffers, home);
     const tool_path = try build_versioned_tool_path(&buffers, program_name, zvm_home, version);
+    if (!tool_path_exists(io, tool_path)) return false;
+
     try exec_tool(io, &buffers, tool_path, arguments);
+    return true;
 }
 
 fn exec_tool(
@@ -176,34 +182,6 @@ fn auto_install_version_gracefully(io: std.Io, version: []const u8) bool {
     return true;
 }
 
-fn ensure_version_available(io: std.Io, version: []const u8) !bool {
-    assert(version.len > 0);
-
-    if (util_tool.eql_str(version, "current")) return true;
-
-    var home_buffer: [memory_limits.limits.home_dir_length_maximum]u8 = undefined;
-    const home = try paths.get_home_path(&home_buffer);
-
-    var zvm_home_buffer: [memory_limits.limits.path_length_maximum]u8 = undefined;
-    const zvm_home = try paths.get_zvm_root(&zvm_home_buffer, home);
-
-    var version_path_buffer: [memory_limits.limits.path_length_maximum]u8 = undefined;
-    const version_path = try std.fmt.bufPrint(
-        &version_path_buffer,
-        "{s}/version/zig/{s}",
-        .{ zvm_home, version },
-    );
-
-    var dir = std.Io.Dir.cwd().openDir(io, version_path, .{}) catch return false;
-    defer dir.close(io);
-
-    var zig_path_buffer: [memory_limits.limits.path_length_maximum]u8 = undefined;
-    const zig_path = try std.fmt.bufPrint(&zig_path_buffer, "{s}/zig", .{version_path});
-    dir.access(io, zig_path, .{}) catch return false;
-
-    return true;
-}
-
 fn get_home_path(buffers: *ShimBuffers) ![]const u8 {
     const home = try paths.get_home_path(&buffers.home);
     assert(home.len > 0);
@@ -239,6 +217,15 @@ fn build_versioned_tool_path(
         "{s}/version/{s}/{s}/{s}",
         .{ zvm_home, tool_name, version, tool_name },
     );
+}
+
+fn tool_path_exists(io: std.Io, tool_path: []const u8) bool {
+    assert(tool_path.len > 0);
+
+    std.Io.Dir.accessAbsolute(io, tool_path, .{}) catch |err| {
+        if (err == error.FileNotFound) return false;
+    };
+    return true;
 }
 
 fn build_exec_arguments(
