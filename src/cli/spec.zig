@@ -130,6 +130,10 @@ pub const version_tool_options = [_]OptionSpec{option_zls};
 pub const list_options = [_]OptionSpec{option_all};
 pub const env_options = [_]OptionSpec{option_shell};
 
+const version_tool_option_suggestions = [_][]const u8{option_zls.display};
+const list_option_suggestions = [_][]const u8{option_all.display};
+const env_option_suggestions = [_][]const u8{option_shell.display};
+
 pub const command_specs = [_]CommandSpec{
     .{ .command = .install, .name = "install", .alias = "i", .description = "Install a Zig or ZLS version", .options = &version_tool_options },
     .{ .command = .remove, .name = "remove", .alias = "rm", .description = "Remove an installed Zig or ZLS version", .options = &version_tool_options },
@@ -248,12 +252,11 @@ pub fn valid_option(command_name: []const u8, arg: []const u8) bool {
 
 pub fn option_suggestions(command_name: []const u8) ?[]const []const u8 {
     const command = Command.parse(command_name) orelse return null;
-    const command_spec = command.spec();
-    return switch (command_spec.options.len) {
-        0 => null,
-        1 => &.{command_spec.options[0].display},
-        2 => &.{ command_spec.options[0].display, command_spec.options[1].display },
-        else => unreachable,
+    return switch (command) {
+        .install, .remove, .use, .list_remote => &version_tool_option_suggestions,
+        .list, .clean => &list_option_suggestions,
+        .env => &env_option_suggestions,
+        .list_mirrors, .completions, .version, .help, .upgrade => null,
     };
 }
 
@@ -284,4 +287,16 @@ test "valued command options require attached syntax" {
     try std.testing.expect(valid_option("env", "--shell=zsh"));
     try std.testing.expect(!valid_option("env", "--shell:zsh"));
     try std.testing.expect(!valid_option("env", "--shellzsh"));
+}
+
+test "command option suggestions are stable command option names" {
+    const list_suggestions = option_suggestions("list").?;
+    try std.testing.expectEqual(@as(usize, 1), list_suggestions.len);
+    try std.testing.expectEqualStrings("--all", list_suggestions[0]);
+
+    const install_suggestions = option_suggestions("install").?;
+    try std.testing.expectEqual(@as(usize, 1), install_suggestions.len);
+    try std.testing.expectEqualStrings("--zls", install_suggestions[0]);
+
+    try std.testing.expect(option_suggestions("help") == null);
 }
