@@ -242,7 +242,7 @@ const powershell_script =
     \\}
 ;
 
-pub fn execute(
+pub fn generate_completions(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.CompletionsCommand,
     progress_node: std.Progress.Node,

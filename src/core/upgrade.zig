@@ -7,7 +7,7 @@ const util_tool = @import("../util/tool.zig");
 const util_data = @import("../util/data.zig");
 const util_extract = @import("../io/extract.zig");
 const http_client = @import("../io/http_client.zig");
-const core_install = @import("../core/install.zig");
+const core_install = @import("install.zig");
 const limits = @import("../memory/limits.zig");
 const options = @import("options");
 const assert = std.debug.assert;
@@ -27,7 +27,7 @@ comptime {
     assert(tag_max_length <= limits.limits.version_string_length_maximum);
 }
 
-pub fn execute(
+pub fn upgrade(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.UpgradeCommand,
     progress_node: std.Progress.Node,

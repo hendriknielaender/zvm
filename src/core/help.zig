@@ -298,7 +298,7 @@ fn topic_text(topic: validation.HelpTopic) []const u8 {
     };
 }
 
-pub fn execute(
+pub fn emit_help(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.HelpCommand,
     progress_node: std.Progress.Node,
@@ -334,5 +334,5 @@ test "help command executes without error" {
 
     var mock_ctx: context.CliContext = undefined;
 
-    try execute(&mock_ctx, command, progress_node);
+    try emit_help(&mock_ctx, command, progress_node);
 }

@@ -5,12 +5,12 @@ const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
-const remove = @import("../core/remove.zig");
-const detect_version = @import("../core/detect_version.zig");
+const remove = @import("remove.zig");
+const detect_version = @import("detect_version.zig");
 const confirm = @import("../util/confirm.zig");
 const assert = std.debug.assert;
 
-pub fn execute(
+pub fn remove_installed(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.RemoveCommand,
     progress_node: std.Progress.Node,

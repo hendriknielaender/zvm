@@ -5,7 +5,7 @@ const util_data = @import("../util/data.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
 
-pub fn execute(
+pub fn list_installed(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.ListCommand,
     progress_node: std.Progress.Node,

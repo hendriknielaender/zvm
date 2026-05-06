@@ -8,7 +8,7 @@ const signals = @import("../platform/signals.zig");
 const log = std.log.scoped(.http);
 
 /// Name of the environment variable that overrides the per-request total
-/// timeout. Documented in `commands/help.zig`.
+/// timeout. Documented in `core/help.zig`.
 pub const timeout_env_var_name = "ZVM_DOWNLOAD_TIMEOUT_SECONDS";
 
 /// Default total timeout for one mirror attempt. Picked to be generous enough

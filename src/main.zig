@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const parser = @import("cli/parser.zig");
+const validation = @import("cli/validation.zig");
 const Context = @import("Context.zig");
 const memory_limits = @import("memory/limits.zig");
 const memory_static = @import("memory/static_memory.zig");
@@ -34,22 +35,16 @@ comptime {
     _ = std.SemanticVersion.parse("0.13.0") catch @compileError("Semantic version parsing failed");
 }
 
-const commands = struct {
-    pub const help = @import("commands/help.zig");
-    pub const version = @import("commands/version.zig");
-    pub const list = @import("commands/list.zig");
-    pub const list_remote = @import("commands/list_remote.zig");
-    pub const list_mirrors = @import("commands/list_mirrors.zig");
-    pub const install = @import("commands/install.zig");
-    pub const remove = @import("commands/remove.zig");
-    pub const use = @import("commands/use.zig");
-    pub const clean = @import("commands/clean.zig");
-    pub const env = @import("commands/env.zig");
-    pub const completions = @import("commands/completions.zig");
-    pub const upgrade = @import("commands/upgrade.zig");
-};
-
+const alias = @import("core/alias.zig");
+const clean = @import("core/clean.zig");
+const completions = @import("core/completions.zig");
+const env = @import("core/env.zig");
+const help = @import("core/help.zig");
 const install = @import("core/install.zig");
+const list = @import("core/list.zig");
+const list_remote = @import("core/list_remote.zig");
+const remove_installed = @import("core/remove_installed.zig");
+const upgrade = @import("core/upgrade.zig");
 
 // SAFETY: global_static_buffer is initialized before first use in main().
 // StaticMemory requires at least 8-byte alignment for its fixed allocator state.
@@ -811,23 +806,88 @@ fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedComma
 
 fn execute_command(
     ctx: *Context.CliContext,
-    command: @import("cli/validation.zig").ValidatedCommand,
+    command: validation.ValidatedCommand,
     progress_node: std.Progress.Node,
 ) !void {
     switch (command) {
-        .help => |opts| try commands.help.execute(ctx, opts, progress_node),
-        .version => |opts| try commands.version.execute(ctx, opts, progress_node),
-        .list => |opts| try commands.list.execute(ctx, opts, progress_node),
-        .list_remote => |opts| try commands.list_remote.execute(ctx, opts, progress_node),
-        .list_mirrors => |opts| try commands.list_mirrors.execute(ctx, opts, progress_node),
-        .install => |opts| try commands.install.execute(ctx, opts, progress_node),
-        .remove => |opts| try commands.remove.execute(ctx, opts, progress_node),
-        .use => |opts| try commands.use.execute(ctx, opts, progress_node),
-        .clean => |opts| try commands.clean.execute(ctx, opts, progress_node),
-        .env => |opts| try commands.env.execute(ctx, opts, progress_node),
-        .completions => |opts| try commands.completions.execute(ctx, opts, progress_node),
-        .upgrade => |opts| try commands.upgrade.execute(ctx, opts, progress_node),
+        .help => |opts| try help.emit_help(ctx, opts, progress_node),
+        .version => {
+            emit_version();
+        },
+        .list => |opts| try list.list_installed(ctx, opts, progress_node),
+        .list_remote => |opts| try list_remote.list_remote(ctx, opts, progress_node),
+        .list_mirrors => {
+            emit_mirrors();
+        },
+        .install => |opts| {
+            const version = opts.get_version();
+            try install.install(ctx, version, opts.tool == .zls, progress_node);
+        },
+        .remove => |opts| try remove_installed.remove_installed(ctx, opts, progress_node),
+        .use => |opts| {
+            const version = opts.get_version();
+            try alias.set_version(ctx, version, opts.tool == .zls);
+        },
+        .clean => |opts| try clean.clean(ctx, opts, progress_node),
+        .env => |opts| try env.emit_env(ctx, opts, progress_node),
+        .completions => |opts| try completions.generate_completions(ctx, opts, progress_node),
+        .upgrade => |opts| try upgrade.upgrade(ctx, opts, progress_node),
     }
+}
+
+fn emit_version() void {
+    const emitter = util_output.get_global();
+
+    if (emitter.config.mode == .machine_json) {
+        const fields = [_]util_output.JsonField{
+            .{ .key = "name", .value = .{ .string = "zvm" } },
+            .{ .key = "version", .value = .{ .string = build_options.version } },
+        };
+        util_output.json_object(&fields);
+        return;
+    }
+
+    util_output.info("zvm {s}\n", .{build_options.version});
+}
+
+fn emit_mirrors() void {
+    const emitter = util_output.get_global();
+
+    if (emitter.config.mode == .machine_json) {
+        var mirror_urls: [metadata.zig_mirrors.len][]const u8 = undefined;
+        for (metadata.zig_mirrors, 0..) |mirror_info, index| {
+            mirror_urls[index] = mirror_info[0];
+        }
+        util_output.json_array("mirrors", mirror_urls[0..metadata.zig_mirrors.len]);
+        return;
+    }
+
+    if (emitter.config.mode == .plain) {
+        var line_buffer: [512]u8 = undefined;
+        for (metadata.zig_mirrors, 0..) |mirror_info, index| {
+            assert(index < 1024);
+            const url = mirror_info[0];
+            const maintainer = mirror_info[1];
+            assert(url.len > 0);
+            assert(maintainer.len > 0);
+            const line = std.fmt.bufPrint(
+                &line_buffer,
+                "{d}\t{s}\t{s}",
+                .{ index, url, maintainer },
+            ) catch continue;
+            util_output.print_text(line);
+        }
+        return;
+    }
+
+    util_output.info("Available download mirrors:\n", .{});
+    for (metadata.zig_mirrors, 0..) |mirror_info, index| {
+        const url = mirror_info[0];
+        const maintainer = mirror_info[1];
+        util_output.info("  {d}: {s} ({s})\n", .{ index, url, maintainer });
+    }
+    util_output.info("Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
+    util_output.info("Example: ZVM_MIRROR=1 zvm install master\n", .{});
 }
 
 test "build_tool_path points at the current tool binary" {

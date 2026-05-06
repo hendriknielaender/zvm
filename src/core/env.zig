@@ -33,7 +33,7 @@ const ShellKind = enum {
     }
 };
 
-pub fn execute(
+pub fn emit_env(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.EnvCommand,
     progress_node: std.Progress.Node,
