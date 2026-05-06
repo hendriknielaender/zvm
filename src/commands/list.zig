@@ -71,10 +71,35 @@ fn order_versions(_: void, left: []const u8, right: []const u8) bool {
     return std.mem.order(u8, left, right) == .lt;
 }
 
+fn emit_plain_tagged_versions(tool_tag: []const u8, versions: []const []const u8) void {
+    std.debug.assert(tool_tag.len > 0);
+    std.debug.assert(tool_tag.len < 16);
+
+    var line_buffer: [limits.limits.version_string_length_maximum + 32]u8 = undefined;
+    for (versions) |version| {
+        std.debug.assert(version.len > 0);
+        const line = std.fmt.bufPrint(
+            &line_buffer,
+            "{s}\t{s}",
+            .{ tool_tag, version },
+        ) catch continue;
+        util_output.print_text(line);
+    }
+}
+
 fn emit_zig_versions(versions: []const []const u8, version_count: usize) !void {
     const emitter = util_output.get_global();
     if (emitter.config.mode == .machine_json) {
         util_output.json_array("installed", versions);
+        return;
+    }
+
+    if (emitter.config.mode == .plain) {
+        // Plain: one version per line, no header. Why: `zvm --plain list | wc -l`
+        // must return the installed count exactly.
+        for (versions) |version| {
+            util_output.print_text(version);
+        }
         return;
     }
 
@@ -97,6 +122,14 @@ fn emit_all_versions(zig_versions: []const []const u8, zls_versions: []const []c
             .{ .key = "zls", .value = .{ .array_strings = zls_versions } },
         };
         util_output.json_object(&fields);
+        return;
+    }
+
+    if (emitter.config.mode == .plain) {
+        // Plain --all: tool\tversion per line. Why: a single column would
+        // collapse zig and zls entries together; the tool tag disambiguates.
+        emit_plain_tagged_versions("zig", zig_versions);
+        emit_plain_tagged_versions("zls", zls_versions);
         return;
     }
 

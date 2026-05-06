@@ -40,6 +40,16 @@ pub fn execute(
         return;
     }
 
+    if (emitter.config.mode == .plain) {
+        // Plain: one version per line, no header. The tool is implicit in
+        // the invocation (`zvm --plain ls-remote --zls ...`), so a single
+        // column suffices for shell pipelines.
+        for (version_names[0..version_count]) |version| {
+            util_output.print_text(version);
+        }
+        return;
+    }
+
     if (command.tool == .zls) {
         util_output.info("Available ZLS versions:", .{});
     } else {

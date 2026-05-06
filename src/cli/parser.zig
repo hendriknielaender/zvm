@@ -31,13 +31,17 @@ pub const GlobalConfig = struct {
         // Positive assertions: what we expect
         assert(self.output_mode == .human_readable or
             self.output_mode == .machine_json or
-            self.output_mode == .silent_errors_only);
+            self.output_mode == .silent_errors_only or
+            self.output_mode == .plain);
         assert(self.color_mode == .never_use_color or
             self.color_mode == .always_use_color or
             self.color_mode == .auto);
 
         // Negative assertions: invalid combinations
         if (self.output_mode == .machine_json) {
+            assert(self.color_mode == .never_use_color);
+        }
+        if (self.output_mode == .plain) {
             assert(self.color_mode == .never_use_color);
         }
     }
@@ -127,6 +131,18 @@ fn apply_long_global_option(
         tracker.output_mode_set = true;
         tracker.color_mode_set = true;
         global_config.output_mode = .machine_json;
+        global_config.color_mode = .never_use_color;
+        return;
+    }
+    if (std.mem.eql(u8, arg, "--plain")) {
+        // Plain mode is mutually exclusive with --json, --quiet, --color, --no-color.
+        // Why: plain emits tab-separated records with color forced off; any other
+        // output/color flag would create ambiguity for shell pipelines.
+        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        tracker.output_mode_set = true;
+        tracker.color_mode_set = true;
+        global_config.output_mode = .plain;
         global_config.color_mode = .never_use_color;
         return;
     }
@@ -610,6 +626,42 @@ test "parse_global_prefix rejects duplicate --no-input" {
 test "parse_global_prefix rejects -y (only long options are accepted)" {
     const testing = std.testing;
     try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-y", "remove" }));
+}
+
+test "parse_global_prefix accepts --plain and forces never_use_color" {
+    const testing = std.testing;
+    const parsed = try parse_global_prefix(&.{ "zvm", "--plain", "list" });
+    try testing.expectEqual(util_output.OutputMode.plain, parsed.global_config.output_mode);
+    try testing.expectEqual(util_output.ColorMode.never_use_color, parsed.global_config.color_mode);
+}
+
+test "parse_global_prefix rejects duplicate --plain" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--plain", "--plain" }));
+}
+
+test "parse_global_prefix rejects --plain --json conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--plain", "--json" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--json", "--plain" }));
+}
+
+test "parse_global_prefix rejects --plain --quiet conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--plain", "--quiet" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--quiet", "--plain" }));
+}
+
+test "parse_global_prefix rejects --plain --color conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--plain", "--color" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--color", "--plain" }));
+}
+
+test "parse_global_prefix rejects --plain --no-color conflict" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--plain", "--no-color" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--no-color", "--plain" }));
 }
 
 test "parse_global_prefix rejects duplicate short standard commands" {

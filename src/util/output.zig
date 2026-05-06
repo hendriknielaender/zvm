@@ -61,15 +61,19 @@ pub const ExitCode = enum(u8) {
     }
 };
 
-/// Output modes that determine formatting and destination
+/// Output modes that determine formatting and destination.
+/// `plain` is for shell pipelines: tabular records, no headers, no color,
+/// no progress. Why: human_readable decoration breaks `awk` / `grep`
+/// parsing, while machine_json is overkill for one-shot scripts.
 pub const OutputMode = enum {
     human_readable,
     machine_json,
     silent_errors_only,
+    plain,
 
     comptime {
         const mode_count = @typeInfo(OutputMode).@"enum".fields.len;
-        assert(mode_count == 3);
+        assert(mode_count == 4);
         assert(mode_count >= 2);
         assert(mode_count <= 8);
     }
@@ -199,7 +203,8 @@ pub const OutputConfig = struct {
         // Positive assertions
         assert(self.mode == .human_readable or
             self.mode == .machine_json or
-            self.mode == .silent_errors_only);
+            self.mode == .silent_errors_only or
+            self.mode == .plain);
         assert(self.color == .never_use_color or
             self.color == .always_use_color);
 
@@ -209,6 +214,9 @@ pub const OutputConfig = struct {
         // Negative assertions - invalid combinations
         if (self.mode == .machine_json) {
             assert(self.color == .never_use_color); // JSON never uses colors
+        }
+        if (self.mode == .plain) {
+            assert(self.color == .never_use_color); // Plain mode never uses colors
         }
     }
 
@@ -399,6 +407,7 @@ pub const OutputEmitter = struct {
         switch (self.config.mode) {
             .silent_errors_only => return,
             .human_readable => self.write_plain_to_stdout(text),
+            .plain => self.write_plain_to_stdout(text),
             .machine_json => {
                 const fields = [_]JsonField{
                     .{ .key = "text", .value = .{ .string = text } },
@@ -416,6 +425,13 @@ pub const OutputEmitter = struct {
             .silent_errors_only => {
                 // Only emit errors in silent mode
                 if (level == .error_recoverable or level == .error_fatal) {
+                    self.emit_to_stderr_plain(message, args);
+                }
+            },
+            .plain => {
+                // Plain mode: only diagnostics on stderr, no decoration on stdout.
+                // Why: shell pipelines parse stdout; non-data lines must not appear there.
+                if (level == .warning or level == .error_recoverable or level == .error_fatal) {
                     self.emit_to_stderr_plain(message, args);
                 }
             },
