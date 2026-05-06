@@ -2,7 +2,6 @@ const std = @import("std");
 const limits = @import("../memory/limits.zig");
 const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
-const raw_args = @import("raw_args.zig");
 const validation = @import("validation.zig");
 const assert = std.debug.assert;
 
@@ -514,11 +513,11 @@ fn standard_command_to_validated_command(standard_command: StandardCommand) vali
     };
 }
 
-fn parse_raw_command_or_fatal(
+fn parse_command_args_or_fatal(
     command_name: []const u8,
     remaining_args: []const []const u8,
-) raw_args.RawArgs {
-    return raw_args.parse_raw_args(command_name, remaining_args) catch |err| switch (err) {
+) validation.ValidatedCommand {
+    return validation.parse_command_args(command_name, remaining_args) catch |err| switch (err) {
         error.UnknownCommand => {
             fatal_unknown_command(command_name);
         },
@@ -644,14 +643,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         }
     }
 
-    // Stage 1: Parse raw arguments
-    const raw_command = parse_raw_command_or_fatal(command_name, remaining_args);
-
-    // Stage 2: Validate and transform
-    const validated_command = validation.validate_command(raw_command) catch |err| switch (err) {
-        // Validation errors are handled inside validation.zig with detailed messages
-        else => return err,
-    };
+    const validated_command = parse_command_args_or_fatal(command_name, remaining_args);
 
     const result = ParsedCommandLine{
         .global_config = global_prefix.global_config,
