@@ -6,6 +6,8 @@ const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
 const detect_version = @import("../core/detect_version.zig");
+const confirm = @import("../util/confirm.zig");
+const assert = std.debug.assert;
 
 const StoreCleanup = struct {
     files_removed: usize = 0,
@@ -30,6 +32,44 @@ pub fn execute(
 
     const emitter = util_output.get_global();
     const emit_human = emitter.config.mode == .human_readable;
+    const json_mode = emitter.config.mode == .machine_json;
+
+    if (command.remove_all and !ctx.assume_yes) {
+        const pending = try count_removable_versions(ctx);
+        if (pending > 0) {
+            if (json_mode) {
+                util_output.fatal(
+                    .invalid_arguments,
+                    "clean --all requires --yes in --json mode ({d} version(s) would be removed)",
+                    .{pending},
+                );
+            }
+
+            var prompt_buffer: [128]u8 = undefined;
+            const prompt = std.fmt.bufPrint(
+                &prompt_buffer,
+                "Remove {d} non-current installed version(s)?",
+                .{pending},
+            ) catch unreachable;
+
+            const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
+                error.RequiresConfirmation => util_output.fatal(
+                    .invalid_arguments,
+                    "clean --all requires --yes (stdin is not a terminal or --no-input was set)",
+                    .{},
+                ),
+                error.StdinReadFailed => util_output.fatal(
+                    .invalid_arguments,
+                    "failed to read confirmation from stdin",
+                    .{},
+                ),
+            };
+            if (!confirmed) {
+                util_output.info("Aborted: no installed versions removed.", .{});
+                return;
+            }
+        }
+    }
 
     const store_cleanup = try clean_download_store(ctx, emit_human);
     const version_cleanup = if (command.remove_all)
@@ -133,6 +173,59 @@ fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !Version
         ),
     );
     return cleanup;
+}
+
+/// Count installed Zig and ZLS versions that `clean --all` would delete.
+/// Why: a destructive prompt that says "delete N versions" is far more
+/// informative than a vague "are you sure" — operators can tell at a
+/// glance whether the count matches their expectation.
+fn count_removable_versions(ctx: *context.CliContext) !usize {
+    var current_zig_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var current_zls_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
+
+    const current_zig = detect_version.find_default_version_in_buffer(
+        ctx,
+        &current_zig_storage,
+    ) catch null;
+    const current_zls = try read_current_version(ctx, .zls, &current_zls_storage);
+
+    const zig_count = try count_versions_for_tool(ctx, .zig, current_zig);
+    const zls_count = try count_versions_for_tool(ctx, .zls, current_zls);
+    const total = zig_count + zls_count;
+
+    assert(total >= zig_count);
+    assert(total >= zls_count);
+    return total;
+}
+
+fn count_versions_for_tool(
+    ctx: *context.CliContext,
+    tool: validation.ToolType,
+    current_version: ?[]const u8,
+) !usize {
+    var versions_path_buffer = try ctx.acquire_path_buffer();
+    defer versions_path_buffer.reset();
+
+    const versions_path = switch (tool) {
+        .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
+        .zls => try util_data.get_zvm_zls_version(versions_path_buffer),
+    };
+    var versions_dir = std.Io.Dir.openDirAbsolute(ctx.io, versions_path, .{ .iterate = true }) catch |err| {
+        if (err == error.FileNotFound) return 0;
+        return err;
+    };
+    defer versions_dir.close(ctx.io);
+
+    var iterator = versions_dir.iterate();
+    var pending: usize = 0;
+    while (try iterator.next(ctx.io)) |entry| {
+        if (entry.kind != .directory) continue;
+        if (current_version) |current| {
+            if (std.mem.eql(u8, entry.name, current)) continue;
+        }
+        pending += 1;
+    }
+    return pending;
 }
 
 fn read_current_version(

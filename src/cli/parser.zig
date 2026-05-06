@@ -22,6 +22,10 @@ comptime {
 pub const GlobalConfig = struct {
     output_mode: util_output.OutputMode,
     color_mode: util_output.ColorMode,
+    /// Skip confirmation prompts for destructive operations.
+    assume_yes: bool,
+    /// Refuse to prompt; non-interactive invocations should fail fast.
+    no_input: bool,
 
     pub fn validate(self: GlobalConfig) void {
         // Positive assertions: what we expect
@@ -42,6 +46,8 @@ pub const GlobalConfig = struct {
     pub const default = GlobalConfig{
         .output_mode = .human_readable,
         .color_mode = .auto,
+        .assume_yes = false,
+        .no_input = false,
     };
 
     comptime {
@@ -101,6 +107,8 @@ const GlobalOptionTracker = struct {
     output_mode_set: bool = false,
     color_mode_set: bool = false,
     standard_command_set: bool = false,
+    assume_yes_set: bool = false,
+    no_input_set: bool = false,
 };
 
 fn apply_long_global_option(
@@ -138,6 +146,18 @@ fn apply_long_global_option(
         if (tracker.color_mode_set) return error.DuplicateGlobalOption;
         tracker.color_mode_set = true;
         global_config.color_mode = .never_use_color;
+        return;
+    }
+    if (std.mem.eql(u8, arg, "--yes")) {
+        if (tracker.assume_yes_set) return error.DuplicateGlobalOption;
+        tracker.assume_yes_set = true;
+        global_config.assume_yes = true;
+        return;
+    }
+    if (std.mem.eql(u8, arg, "--no-input")) {
+        if (tracker.no_input_set) return error.DuplicateGlobalOption;
+        tracker.no_input_set = true;
+        global_config.no_input = true;
         return;
     }
     const is_help = is_help_option(arg);
@@ -561,6 +581,35 @@ test "parse_global_prefix rejects -q and --quiet as duplicate" {
     const testing = std.testing;
     try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-q", "--quiet" }));
     try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--quiet", "-q" }));
+}
+
+test "parse_global_prefix accepts --yes" {
+    const testing = std.testing;
+    const parsed = try parse_global_prefix(&.{ "zvm", "--yes", "remove" });
+    try testing.expect(parsed.global_config.assume_yes);
+    try testing.expect(!parsed.global_config.no_input);
+}
+
+test "parse_global_prefix accepts --no-input" {
+    const testing = std.testing;
+    const parsed = try parse_global_prefix(&.{ "zvm", "--no-input", "remove" });
+    try testing.expect(parsed.global_config.no_input);
+    try testing.expect(!parsed.global_config.assume_yes);
+}
+
+test "parse_global_prefix rejects duplicate --yes" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--yes", "--yes" }));
+}
+
+test "parse_global_prefix rejects duplicate --no-input" {
+    const testing = std.testing;
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--no-input", "--no-input" }));
+}
+
+test "parse_global_prefix rejects -y (only long options are accepted)" {
+    const testing = std.testing;
+    try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-y", "remove" }));
 }
 
 test "parse_global_prefix rejects duplicate short standard commands" {

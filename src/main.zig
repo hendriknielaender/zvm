@@ -232,6 +232,8 @@ pub fn main(process_init: std.process.Init) !void {
             .{@errorName(err)},
         );
     };
+    context_instance.assume_yes = parsed_command_line.global_config.assume_yes;
+    context_instance.no_input = parsed_command_line.global_config.no_input;
     // Freeze startup allocation before command execution begins.
     context_instance.static_mem.lock();
 

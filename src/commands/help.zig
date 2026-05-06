@@ -16,6 +16,8 @@ const general_help_text =
     \\    --quiet, -q         Suppress non-error output
     \\    --no-color          Disable colored output
     \\    --color             Force colored output
+    \\    --yes               Skip confirmation prompts for destructive operations
+    \\    --no-input          Refuse to prompt; non-interactive runs fail fast
     \\    --help, -h          Show this help message
     \\    --version, -V       Show version information
     \\
@@ -72,13 +74,20 @@ const remove_help_text =
     \\    zvm [GLOBAL_OPTIONS] rm [--zls] <version>
     \\
     \\DESCRIPTION:
-    \\    Remove an installed Zig or ZLS release.
+    \\    Remove an installed Zig or ZLS release. Removing the active version
+    \\    requires a y/N confirmation unless --yes is passed. Removing
+    \\    an inactive version proceeds without a prompt.
     \\
     \\OPTIONS:
     \\    --zls                   Remove ZLS instead of Zig
     \\
+    \\GLOBAL OPTIONS USED:
+    \\    --yes                   Skip the confirmation prompt
+    \\    --no-input              Fail instead of prompting (use with --yes for automation)
+    \\
     \\EXAMPLES:
     \\    zvm remove 0.16.0
+    \\    zvm --yes rm 0.16.0
     \\    zvm rm --zls master
     \\
 ;
@@ -150,14 +159,21 @@ const clean_help_text =
     \\    zvm [GLOBAL_OPTIONS] clean [--all]
     \\
     \\DESCRIPTION:
-    \\    Remove cached or unused versions. Use --all to remove everything not current.
+    \\    Remove cached download artifacts. Use --all to also remove every
+    \\    non-current installed Zig and ZLS version. --all always prompts
+    \\    with a count of versions to delete unless --yes is passed.
     \\
     \\OPTIONS:
     \\    --all                   Remove every non-current installed version
     \\
+    \\GLOBAL OPTIONS USED:
+    \\    --yes                   Skip the confirmation prompt for --all
+    \\    --no-input              Fail instead of prompting (use with --yes for automation)
+    \\
     \\EXAMPLES:
     \\    zvm clean
     \\    zvm clean --all
+    \\    zvm --yes clean --all
     \\
 ;
 

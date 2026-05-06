@@ -688,7 +688,7 @@ fn online_cycle(suite: *const Suite, sandbox: []const u8) !void {
         suite,
         sandbox,
         sandbox,
-        &.{ "remove", online_zig_version },
+        &.{ "--yes", "remove", online_zig_version },
     );
     defer remove_outcome.deinit(suite.gpa);
     try assert_exit_zero(remove_outcome, "remove");
