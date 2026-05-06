@@ -156,6 +156,7 @@ fn run_with_timeout(
     };
 
     var select_buffer: [2]Outcome = undefined;
+    // Race the network operation against a timer and cancel whichever arm loses.
     var select: std.Io.Select(Outcome) = .init(io, &select_buffer);
 
     select.concurrent(.completed, task_fn, .{task_args}) catch |err| switch (err) {
@@ -171,10 +172,16 @@ fn run_with_timeout(
         error.ConcurrencyUnavailable => {
             log.debug("Timer concurrency unavailable; awaiting fetch without timeout for {any}", .{uri});
             const outcome = select.await() catch |await_err| switch (await_err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => {
+                    _ = select.cancel();
+                    return error.Canceled;
+                },
             };
             return switch (outcome) {
-                .completed => |result| result,
+                .completed => |result| {
+                    _ = select.cancel();
+                    return result;
+                },
                 .timed_out => unreachable,
             };
         },
@@ -200,6 +207,7 @@ fn run_with_timeout(
 
 fn sleep_seconds(io: std.Io, seconds: u32) void {
     const duration: std.Io.Duration = .fromSeconds(@intCast(seconds));
+    // A canceled timer is the losing Select arm, so no error is reported.
     std.Io.sleep(io, duration, .awake) catch return;
 }
 

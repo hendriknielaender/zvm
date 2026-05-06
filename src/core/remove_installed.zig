@@ -108,6 +108,6 @@ fn is_active_version(ctx: *context.CliContext, version_str: []const u8, is_zls: 
     defer path_buffer.release();
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-    const current = util_data.get_current_version(path_buffer, &output_buffer, is_zls) catch return false;
+    const current = util_data.get_current_version(ctx.io, path_buffer, &output_buffer, is_zls) catch return false;
     return util_tool.eql_str(current, version_str);
 }

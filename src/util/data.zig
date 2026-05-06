@@ -62,7 +62,7 @@ pub fn get_zvm_zls_version(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "version/zls");
 }
 
-pub fn write_version_manifest(install_path: []const u8, version: []const u8) !void {
+pub fn write_version_manifest(io: std.Io, install_path: []const u8, version: []const u8) !void {
     assert(install_path.len > 0);
     assert(version.len > 0);
     assert(version.len <= limits.limits.version_string_length_maximum);
@@ -74,7 +74,6 @@ pub fn write_version_manifest(install_path: []const u8, version: []const u8) !vo
         .{ install_path, version_manifest_name },
     );
 
-    const io = std.Io.Threaded.global_single_threaded.io();
     const manifest_file = try std.Io.Dir.cwd().createFile(io, manifest_path, .{});
     defer manifest_file.close(io);
 
@@ -97,6 +96,7 @@ fn build_manifest_path(
 }
 
 pub fn read_version_manifest_absolute(
+    io: std.Io,
     path_buffer: anytype,
     install_path: []const u8,
     output_buffer: []u8,
@@ -104,7 +104,6 @@ pub fn read_version_manifest_absolute(
     assert(output_buffer.len > 0);
 
     const manifest_path = try build_manifest_path(path_buffer, install_path);
-    const io = std.Io.Threaded.global_single_threaded.io();
     const manifest_file = try std.Io.Dir.openFileAbsolute(io, manifest_path, .{ .mode = .read_only });
     defer manifest_file.close(io);
 
@@ -120,6 +119,7 @@ pub fn read_version_manifest_absolute(
 
 /// Get the version from the manifest within the active installation.
 pub fn get_current_version(
+    io: std.Io,
     path_buffer: anytype,
     output_buffer: []u8,
     is_zls: bool,
@@ -129,7 +129,7 @@ pub fn get_current_version(
     else
         try get_zvm_current_zig(path_buffer);
 
-    return try read_version_manifest_absolute(path_buffer, base_path, output_buffer);
+    return try read_version_manifest_absolute(io, path_buffer, base_path, output_buffer);
 }
 
 test "build_manifest_path handles aliased input and output buffers" {

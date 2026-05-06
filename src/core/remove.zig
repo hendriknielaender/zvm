@@ -77,6 +77,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
             assert(output_buffer.len >= limits.limits.version_string_length_maximum);
 
             const current_version = util_data.get_current_version(
+                ctx.io,
                 version_buffer,
                 &output_buffer,
                 is_zls,

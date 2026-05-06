@@ -162,6 +162,7 @@ fn emit_diagnostic_line(
     assert(formatted.len > 0);
     assert(formatted.len <= line_buffer.len);
 
+    // Output is the process boundary: diagnostics may run before CliContext exists.
     std.Io.File.stderr().writeStreamingAll(
         std.Io.Threaded.global_single_threaded.io(),
         formatted,
@@ -684,6 +685,7 @@ const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
+        // Output is the process boundary: emitters outlive command-local CliContext.
         std.Io.File.stdout().writeStreamingAll(std.Io.Threaded.global_single_threaded.io(), content) catch return;
     }
 
@@ -692,6 +694,7 @@ const OutputEmitter = struct {
         _ = self; // Buffer is not used after writing
         assert(content.len <= io_buffer_size_bytes);
 
+        // Output is the process boundary: emitters outlive command-local CliContext.
         std.Io.File.stderr().writeStreamingAll(std.Io.Threaded.global_single_threaded.io(), content) catch return;
     }
 

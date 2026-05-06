@@ -104,7 +104,7 @@ fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, v
         return;
     }
 
-    try util_data.write_version_manifest(version_path, version);
+    try util_data.write_version_manifest(ctx.io, version_path, version);
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
@@ -164,6 +164,7 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
+        ctx.io,
         path_buffer,
         &output_buffer,
         false,
@@ -189,6 +190,7 @@ fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !v
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
+        ctx.io,
         path_buffer,
         &output_buffer,
         true,

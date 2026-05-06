@@ -432,7 +432,7 @@ fn install_release(
 
     try stage_release(ctx, release, tarball_file, &progress);
     try signals.check();
-    try util_data.write_version_manifest(extract_path, release.version());
+    try util_data.write_version_manifest(ctx.io, extract_path, release.version());
 
     try alias.set_version(ctx, release.version(), release.is_zls());
 }
@@ -635,6 +635,7 @@ fn cleanup_delete_tree_with_timeout(ctx: *context.CliContext, extract_path: []co
     };
 
     var select_buffer: [2]Outcome = undefined;
+    // Race cleanup against a timer and cancel whichever arm loses.
     var select: std.Io.Select(Outcome) = .init(ctx.io, &select_buffer);
     select.concurrent(.completed, cleanup_delete_tree, .{
         ctx.io,
@@ -648,10 +649,16 @@ fn cleanup_delete_tree_with_timeout(ctx: *context.CliContext, extract_path: []co
     }) catch |err| switch (err) {
         error.ConcurrencyUnavailable => {
             const outcome = select.await() catch |await_err| switch (await_err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => {
+                    _ = select.cancel();
+                    return error.Canceled;
+                },
             };
             return switch (outcome) {
-                .completed => |result| result,
+                .completed => |result| {
+                    _ = select.cancel();
+                    return result;
+                },
                 .timed_out => unreachable,
             };
         },
@@ -677,6 +684,7 @@ fn cleanup_delete_tree(io: std.Io, extract_path: []const u8) !void {
 
 fn cleanup_sleep(io: std.Io, seconds: u32) void {
     const duration: std.Io.Duration = .fromSeconds(@intCast(seconds));
+    // A canceled timer is the losing Select arm, so no error is reported.
     std.Io.sleep(io, duration, .awake) catch return;
 }
 

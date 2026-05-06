@@ -258,6 +258,7 @@ fn read_current_version(
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
     const version_output = util_data.get_current_version(
+        ctx.io,
         current_path_buffer,
         &output_buffer,
         tool == .zls,
