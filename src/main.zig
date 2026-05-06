@@ -202,6 +202,14 @@ pub fn main(process_init: std.process.Init) !void {
     };
     _ = try util_output.init_global(default_output_config);
 
+    // Pre-scan for verbose flags so parse-error fatals respect --verbose.
+    // Why: parser.parse_command_line emits its own fatals (unknown option,
+    // duplicate, etc.). If verbose is only applied after that returns, the
+    // operator who passed `--verbose --bogus` would not get the [fatal]
+    // tag they explicitly asked for. The full parse still owns the
+    // authoritative value; this only widens the window where it applies.
+    util_output.set_verbose_level(prescan_verbose_level(arguments));
+
     const parsed_command_line = parser.parse_command_line(arguments) catch |err| {
         util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
@@ -276,6 +284,42 @@ pub fn main(process_init: std.process.Init) !void {
     if (util_output.debug_enabled() and final_output_config.mode == .human_readable) {
         try context_instance.print_debug_info();
     }
+}
+
+/// Best-effort scan for `--verbose` / `-v` / clustered `-vv...` before the
+/// authoritative parse runs. Stops at the first non-option (the command),
+/// at `--`, or at end of args. Why bounded: verbose is a global option,
+/// so anything after the command name belongs to the subcommand and
+/// should not influence global verbosity. ZVM_DEBUG is not consulted
+/// here — that env var is folded in only after the full parse so the
+/// flag-vs-env precedence rule lives in exactly one place.
+fn prescan_verbose_level(arguments: []const []const u8) util_output.VerboseLevel {
+    assert(arguments.len > 0);
+
+    var level: util_output.VerboseLevel = .none;
+    var index: usize = 1;
+    while (index < arguments.len) : (index += 1) {
+        const arg = arguments[index];
+        assert(arg.len > 0);
+
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (arg.len < 2 or arg[0] != '-') break;
+
+        if (std.mem.eql(u8, arg, "--verbose")) {
+            level = level.promote();
+            continue;
+        }
+
+        // Clustered short options: every 'v' in `-vvv...` promotes once.
+        // Any non-'v' character in a short cluster is left for the real
+        // parser to validate or reject.
+        if (arg[1] != '-') {
+            for (arg[1..]) |option_char| {
+                if (option_char == 'v') level = level.promote();
+            }
+        }
+    }
+    return level;
 }
 
 /// Read the legacy `ZVM_DEBUG` env var. Any non-empty value enables

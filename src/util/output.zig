@@ -521,14 +521,14 @@ pub const OutputEmitter = struct {
             .silent_errors_only => {
                 // Only emit errors in silent mode
                 if (level == .error_recoverable or level == .error_fatal) {
-                    self.emit_to_stderr_plain(message, args);
+                    self.emit_to_stderr_plain(level, message, args);
                 }
             },
             .plain => {
                 // Plain mode: only diagnostics on stderr, no decoration on stdout.
                 // Why: shell pipelines parse stdout; non-data lines must not appear there.
                 if (level == .warning or level == .error_recoverable or level == .error_fatal) {
-                    self.emit_to_stderr_plain(message, args);
+                    self.emit_to_stderr_plain(level, message, args);
                 }
             },
             .machine_json => {
@@ -559,19 +559,21 @@ pub const OutputEmitter = struct {
     /// Emit colored message to stderr
     fn emit_to_stderr_colored(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
+        const tag = stderr_level_tag(level);
 
         if (self.config.color.should_use_color()) {
             const color_code = get_color_code(level);
-            self.write_colored_to_stderr(color_code, formatted);
+            self.write_colored_to_stderr(color_code, tag, formatted);
         } else {
-            self.write_plain_to_stderr(formatted);
+            self.write_plain_to_stderr(tag, formatted);
         }
     }
 
     /// Emit plain message to stderr
-    fn emit_to_stderr_plain(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_to_stderr_plain(self: *OutputEmitter, level: MessageLevel, comptime message: []const u8, args: anytype) void {
         const formatted = self.format_message(message, args);
-        self.write_plain_to_stderr(formatted);
+        const tag = stderr_level_tag(level);
+        self.write_plain_to_stderr(tag, formatted);
     }
 
     /// Emit JSON structured message
@@ -624,12 +626,22 @@ pub const OutputEmitter = struct {
         self.flush_stdout_buffer(writer_state.buffered());
     }
 
-    /// Write colored text to stderr
-    fn write_colored_to_stderr(self: *OutputEmitter, color_code: []const u8, text: []const u8) void {
+    /// Write colored text to stderr.
+    /// `tag` is an optional prefix (empty when verbose is off); placed
+    /// inside the color span so the label inherits the level color.
+    fn write_colored_to_stderr(
+        self: *OutputEmitter,
+        color_code: []const u8,
+        tag: []const u8,
+        text: []const u8,
+    ) void {
+        assert(tag.len <= 16);
+
         var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
         const writer: *std.Io.Writer = &writer_state;
 
         writer.writeAll(color_code) catch return;
+        if (tag.len > 0) writer.writeAll(tag) catch return;
         writer.writeAll(text) catch return;
         writer.writeAll("\x1b[0m") catch return; // Reset color
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
@@ -648,11 +660,15 @@ pub const OutputEmitter = struct {
         self.flush_stdout_buffer(writer_state.buffered());
     }
 
-    /// Write plain text to stderr
-    fn write_plain_to_stderr(self: *OutputEmitter, text: []const u8) void {
+    /// Write plain text to stderr.
+    /// `tag` is an optional prefix (empty when verbose is off).
+    fn write_plain_to_stderr(self: *OutputEmitter, tag: []const u8, text: []const u8) void {
+        assert(tag.len <= 16);
+
         var writer_state: std.Io.Writer = .fixed(&self.stderr_buffer);
         const writer: *std.Io.Writer = &writer_state;
 
+        if (tag.len > 0) writer.writeAll(tag) catch return;
         writer.writeAll(text) catch return;
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
@@ -699,6 +715,30 @@ pub const JsonField = struct {
         assert(@alignOf(JsonField) >= 1); // Must be aligned
     }
 };
+
+/// Stderr label prefix for diagnostic messages.
+/// Why empty by default: the operator default is to rely on color alone
+/// (red ≡ error, yellow ≡ warn). Labels add visual noise that's only
+/// useful when reading logs without color, e.g. captured to a file. The
+/// label appears only when `--verbose` (or higher) is active, so it's an
+/// opt-in clarity aid for debugging — not a default decoration.
+fn stderr_level_tag(level: MessageLevel) []const u8 {
+    if (!debug_enabled()) return "";
+    return switch (level) {
+        .warning => "[warn] ",
+        .error_recoverable => "[error] ",
+        .error_fatal => "[fatal] ",
+        // success/info do not write to stderr from emit_message; defensive empty.
+        .success, .info => "",
+    };
+}
+
+comptime {
+    // Pair assertion: every tag fits the buffer slack used by callers.
+    assert("[warn] ".len <= 16);
+    assert("[error] ".len <= 16);
+    assert("[fatal] ".len <= 16);
+}
 
 /// Get ANSI color code for message level
 fn get_color_code(level: MessageLevel) []const u8 {
@@ -875,6 +915,45 @@ test "write_json_string_array escapes nested strings" {
 
     const expected = "[\"a\\\"b\",\"c\\\\d\"]";
     try testing.expectEqualStrings(expected, writer_state.buffered());
+}
+
+// --- stderr_level_tag unit tests ---
+
+test "stderr_level_tag: empty when verbose is none" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.none);
+    try testing.expectEqualStrings("", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("", stderr_level_tag(.error_fatal));
+}
+
+test "stderr_level_tag: labels appear at debug level and above" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.debug);
+    try testing.expectEqualStrings("[warn] ", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("[error] ", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("[fatal] ", stderr_level_tag(.error_fatal));
+
+    set_verbose_level(.trace);
+    try testing.expectEqualStrings("[warn] ", stderr_level_tag(.warning));
+    try testing.expectEqualStrings("[error] ", stderr_level_tag(.error_recoverable));
+    try testing.expectEqualStrings("[fatal] ", stderr_level_tag(.error_fatal));
+}
+
+test "stderr_level_tag: success and info never get a label" {
+    const testing = std.testing;
+    const saved = verbose_level_global;
+    defer verbose_level_global = saved;
+
+    set_verbose_level(.trace);
+    try testing.expectEqualStrings("", stderr_level_tag(.success));
+    try testing.expectEqualStrings("", stderr_level_tag(.info));
 }
 
 // --- resolve_color_mode unit tests ---
