@@ -433,18 +433,18 @@ fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) nore
     if (std.mem.eql(u8, command_name, "env") and std.mem.eql(u8, flag, "--shell")) {
         util_output.exit_with(
             .invalid_arguments,
-            "unknown flag '{s}' in env command\n\n  Use '--shell=<shell>' (for example, '--shell=zsh').",
+            "{s}: expected value separator '='; use '--shell=<shell>' (for example, '--shell=zsh').",
             .{flag},
         );
     }
     if (command_option_suggestion(command_name, flag)) |suggestion| {
         util_output.exit_with(
             .invalid_arguments,
-            "unknown flag '{s}' in {s} command\n\n  Did you mean '{s}'?",
+            "{s}: unknown flag in {s} command\n\n  Did you mean '{s}'?",
             .{ flag, command_name, suggestion },
         );
     }
-    util_output.exit_with(.invalid_arguments, "unknown flag '{s}' in {s} command", .{
+    util_output.exit_with(.invalid_arguments, "{s}: unknown flag in {s} command", .{
         flag,
         command_name,
     });
@@ -504,7 +504,7 @@ fn parse_command_args_or_fatal(
             const flag = find_trailing_command_option(remaining_args);
             util_output.exit_with(
                 .invalid_arguments,
-                "unexpected trailing option '{s}' in {s} command; place options before positional arguments",
+                "{s}: unexpected trailing option in {s} command; place options before positional arguments",
                 .{ flag, command_name },
             );
         },
@@ -522,9 +522,15 @@ fn parse_command_args_or_fatal(
         },
         error.DuplicateOption => {
             const flag = find_invalid_command_option(command_name, remaining_args);
-            util_output.exit_with(.invalid_arguments, "duplicate option in {s} command: '{s}'", .{
-                command_name,
+            util_output.exit_with(.invalid_arguments, "{s}: duplicate option in {s} command", .{
                 flag,
+                command_name,
+            });
+        },
+        else => {
+            util_output.exit_with(.invalid_arguments, "failed to parse {s} command: {s}", .{
+                command_name,
+                @errorName(err),
             });
         },
     };
@@ -549,10 +555,10 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
             util_output.exit_with(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
         },
         error.DuplicateGlobalOption => {
-            util_output.exit_with(.invalid_arguments, "duplicate global option: '{s}'", .{find_invalid_global_option(arguments)});
+            util_output.exit_with(.invalid_arguments, "{s}: duplicate global option", .{find_invalid_global_option(arguments)});
         },
         error.ConflictingGlobalOption => {
-            util_output.exit_with(.invalid_arguments, "conflicting global option: '{s}'", .{find_invalid_global_option(arguments)});
+            util_output.exit_with(.invalid_arguments, "{s}: conflicting global option", .{find_invalid_global_option(arguments)});
         },
     };
 

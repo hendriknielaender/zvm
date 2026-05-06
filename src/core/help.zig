@@ -2,6 +2,7 @@ const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
+const cli_spec = @import("../cli/spec.zig");
 
 const general_help_text =
     \\ZVM - Zig Version Manager
@@ -346,4 +347,21 @@ test "help command executes without error" {
     var mock_ctx: context.CliContext = undefined;
 
     try emit_help(&mock_ctx, command, progress_node);
+}
+
+test "general help includes every primary command from cli spec" {
+    for (cli_spec.primary_command_names) |command_name| {
+        try std.testing.expect(std.mem.indexOf(u8, general_help_text, command_name) != null);
+    }
+}
+
+test "help topics map every command in cli spec" {
+    for (cli_spec.command_specs) |command_spec| {
+        const topic = try validation.HelpTopic.parse(command_spec.name);
+        try std.testing.expectEqualStrings(command_spec.name, topic_name(topic));
+        try std.testing.expect(std.mem.indexOf(u8, topic_text(topic), command_spec.name) != null);
+        if (command_spec.alias) |alias| {
+            try std.testing.expectEqual(topic, try validation.HelpTopic.parse(alias));
+        }
+    }
 }

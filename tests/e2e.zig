@@ -542,7 +542,7 @@ fn test_unknown_subcommand_flag_suggests(suite: *const Suite, sandbox: []const u
     var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "list", "--al" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_non_zero(outcome, "list --al typo");
-    try assert_contains(outcome.stderr, "unknown flag '--al' in list command", "flag echo");
+    try assert_contains(outcome.stderr, "--al: unknown flag in list command", "flag echo");
     try assert_contains(outcome.stderr, "Did you mean '--all'?", "subcommand flag suggestion");
 }
 

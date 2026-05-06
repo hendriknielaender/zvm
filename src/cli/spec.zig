@@ -58,6 +58,53 @@ pub const CommandSpec = struct {
     options: []const OptionSpec = &.{},
 };
 
+pub const CLIArgs = union(enum) {
+    install: VersionToolArgs,
+    remove: VersionToolArgs,
+    use: VersionToolArgs,
+    list: ListArgs,
+    list_remote: ListRemoteArgs,
+    list_mirrors: void,
+    clean: CleanArgs,
+    env: EnvArgs,
+    completions: CompletionsArgs,
+    version: void,
+    help: HelpArgs,
+    upgrade: void,
+};
+
+pub const VersionToolArgs = struct {
+    zls: bool = false,
+    @"--": void,
+    version: []const u8,
+};
+
+pub const ListArgs = struct {
+    all: bool = false,
+};
+
+pub const ListRemoteArgs = struct {
+    zls: bool = false,
+};
+
+pub const CleanArgs = struct {
+    all: bool = false,
+};
+
+pub const EnvArgs = struct {
+    shell: ?[]const u8 = null,
+};
+
+pub const CompletionsArgs = struct {
+    @"--": void,
+    shell: ?[]const u8 = null,
+};
+
+pub const HelpArgs = struct {
+    @"--": void,
+    topic: ?[]const u8 = null,
+};
+
 pub const option_zls = OptionSpec{
     .option = .zls,
     .name = "--zls",
@@ -157,6 +204,30 @@ fn build_primary_command_names() [command_specs.len][]const u8 {
 
 pub const command_names = build_command_names();
 pub const primary_command_names = build_primary_command_names();
+pub const primary_command_words = build_primary_command_words();
+pub const shell_words = build_shell_words();
+
+fn build_primary_command_words() []const u8 {
+    comptime {
+        var words: []const u8 = "";
+        for (primary_command_names, 0..) |name, index| {
+            if (index > 0) words = words ++ " ";
+            words = words ++ name;
+        }
+        return words;
+    }
+}
+
+fn build_shell_words() []const u8 {
+    comptime {
+        var words: []const u8 = "";
+        for (shell_names, 0..) |name, index| {
+            if (index > 0) words = words ++ " ";
+            words = words ++ name;
+        }
+        return words;
+    }
+}
 
 pub fn valid_option(command_name: []const u8, arg: []const u8) bool {
     const command = Command.parse(command_name) orelse return false;
@@ -188,4 +259,29 @@ pub fn option_suggestions(command_name: []const u8) ?[]const []const u8 {
 
 comptime {
     std.debug.assert(command_specs.len == @typeInfo(Command).@"enum".fields.len);
+}
+
+test "command name arrays are derived from command specs" {
+    var primary_index: usize = 0;
+    var name_index: usize = 0;
+    for (command_specs) |command_spec| {
+        try std.testing.expectEqualStrings(command_spec.name, primary_command_names[primary_index]);
+        primary_index += 1;
+
+        try std.testing.expectEqualStrings(command_spec.name, command_names[name_index]);
+        name_index += 1;
+        if (command_spec.alias) |alias| {
+            try std.testing.expectEqualStrings(alias, command_names[name_index]);
+            name_index += 1;
+        }
+    }
+    try std.testing.expectEqual(primary_command_names.len, primary_index);
+    try std.testing.expectEqual(command_names.len, name_index);
+}
+
+test "valued command options require attached syntax" {
+    try std.testing.expect(valid_option("env", "--shell"));
+    try std.testing.expect(valid_option("env", "--shell=zsh"));
+    try std.testing.expect(!valid_option("env", "--shell:zsh"));
+    try std.testing.expect(!valid_option("env", "--shellzsh"));
 }

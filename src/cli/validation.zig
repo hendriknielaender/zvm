@@ -4,6 +4,7 @@ const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const cli_spec = @import("spec.zig");
+const flags = @import("flags.zig");
 const assert = std.debug.assert;
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_shell_name_length = 32;
@@ -274,21 +275,126 @@ fn parse_command_syntax(command_name: []const u8, args: []const []const u8) !Com
         assert(arg.len < 1024);
     }
 
+    const parsed = flags.parseCommand(cli_spec.CLIArgs, command_name, args) catch |err| switch (err) {
+        error.UnknownCommand => return error.UnknownCommand,
+        error.UnknownFlag => return error.UnknownFlag,
+        error.DuplicateOption => return error.DuplicateOption,
+        error.MissingOptionValueSeparator => return error.MissingOptionValueSeparator,
+        error.EmptyOptionValue => return error.EmptyOptionValue,
+        error.MissingRequiredArgument => return missing_required_argument(command_name),
+        error.EmptyArgument => return empty_positional_argument(command_name),
+        error.UnexpectedArguments => return unexpected_arguments(command_name),
+        error.TrailingOption => return error.TrailingOption,
+        error.InvalidFlagValue => return error.UnknownFlag,
+        error.Overflow => return error.UnknownFlag,
+    };
+
+    return switch (parsed) {
+        .install => |install| .{ .install = try version_tool_args_to_install(install) },
+        .remove => |remove| .{ .remove = try version_tool_args_to_remove(remove) },
+        .use => |use| .{ .use = try version_tool_args_to_use(use) },
+        .list => |list| .{ .list = .{ .show_all = list.all } },
+        .list_remote => |list_remote| .{ .list_remote = .{ .is_zls = list_remote.zls } },
+        .list_mirrors => .{ .list_mirrors = .{} },
+        .clean => |clean| .{ .clean = .{ .remove_all = clean.all } },
+        .env => |env| .{ .env = try env_args_from_cli(env) },
+        .completions => |completions| .{ .completions = try completions_args_from_cli(completions) },
+        .version => .{ .version = .{} },
+        .help => |help| .{ .help = try help_args_from_cli(help) },
+        .upgrade => .{ .upgrade = .{} },
+    };
+}
+
+fn missing_required_argument(command_name: []const u8) anyerror {
     const command = cli_spec.Command.parse(command_name) orelse return error.UnknownCommand;
     return switch (command) {
-        .install => .{ .install = try parse_install_args(args) },
-        .remove => .{ .remove = try parse_remove_args(args) },
-        .use => .{ .use = try parse_use_args(args) },
-        .list => .{ .list = try parse_list_args(args) },
-        .list_remote => .{ .list_remote = try parse_list_remote_args(args) },
-        .list_mirrors => .{ .list_mirrors = try parse_list_mirrors_args(args) },
-        .clean => .{ .clean = try parse_clean_args(args) },
-        .env => .{ .env = try parse_env_args(args) },
-        .completions => .{ .completions = try parse_completions_args(args) },
-        .version => .{ .version = try parse_version_args(args) },
-        .help => .{ .help = try parse_help_args(args) },
-        .upgrade => .{ .upgrade = try parse_upgrade_args(args) },
+        .install, .remove, .use => error.MissingVersionArgument,
+        else => error.UnexpectedArguments,
     };
+}
+
+fn empty_positional_argument(command_name: []const u8) anyerror {
+    const command = cli_spec.Command.parse(command_name) orelse return error.UnknownCommand;
+    return switch (command) {
+        .install, .remove, .use => error.EmptyVersionArgument,
+        .completions => error.EmptyShellArgument,
+        .help => error.EmptyHelpTopic,
+        else => error.UnexpectedArguments,
+    };
+}
+
+fn unexpected_arguments(command_name: []const u8) anyerror {
+    const command = cli_spec.Command.parse(command_name) orelse return error.UnknownCommand;
+    return switch (command) {
+        .completions, .help => error.TooManyArguments,
+        else => error.UnexpectedArguments,
+    };
+}
+
+fn version_tool_args_to_install(args: cli_spec.VersionToolArgs) !CommandArgs.InstallArgs {
+    try validate_version_arg(args.version);
+    var result = CommandArgs.InstallArgs{
+        .version = std.mem.zeroes([max_version_string_length]u8),
+        .version_length = @intCast(args.version.len),
+        .is_zls = args.zls,
+    };
+    @memcpy(result.version[0..args.version.len], args.version);
+    return result;
+}
+
+fn version_tool_args_to_remove(args: cli_spec.VersionToolArgs) !CommandArgs.RemoveArgs {
+    try validate_version_arg(args.version);
+    var result = CommandArgs.RemoveArgs{
+        .version = std.mem.zeroes([max_version_string_length]u8),
+        .version_length = @intCast(args.version.len),
+        .is_zls = args.zls,
+    };
+    @memcpy(result.version[0..args.version.len], args.version);
+    return result;
+}
+
+fn version_tool_args_to_use(args: cli_spec.VersionToolArgs) !CommandArgs.UseArgs {
+    try validate_version_arg(args.version);
+    var result = CommandArgs.UseArgs{
+        .version = std.mem.zeroes([max_version_string_length]u8),
+        .version_length = @intCast(args.version.len),
+        .is_zls = args.zls,
+    };
+    @memcpy(result.version[0..args.version.len], args.version);
+    return result;
+}
+
+fn env_args_from_cli(args: cli_spec.EnvArgs) !CommandArgs.EnvArgs {
+    var result = CommandArgs.EnvArgs{};
+    const shell = args.shell orelse return result;
+    if (shell.len > max_shell_name_length) return error.ShellNameTooLong;
+    result.shell_name = std.mem.zeroes([max_shell_name_length]u8);
+    @memcpy(result.shell_name.?[0..shell.len], shell);
+    result.shell_length = @intCast(shell.len);
+    return result;
+}
+
+fn completions_args_from_cli(args: cli_spec.CompletionsArgs) !CommandArgs.CompletionsArgs {
+    var result = CommandArgs.CompletionsArgs{
+        .shell = null,
+        .shell_length = 0,
+    };
+    const shell = args.shell orelse return result;
+    if (shell.len > max_shell_name_length) return error.ShellNameTooLong;
+    result.shell = std.mem.zeroes([max_shell_name_length]u8);
+    @memcpy(result.shell.?[0..shell.len], shell);
+    result.shell_length = @intCast(shell.len);
+    return result;
+}
+
+fn help_args_from_cli(args: cli_spec.HelpArgs) !CommandArgs.HelpArgs {
+    var result = CommandArgs.HelpArgs{};
+    const topic = args.topic orelse return result;
+    if (topic.len > max_help_topic_length) return error.HelpTopicTooLong;
+    result.topic = std.mem.zeroes([max_help_topic_length]u8);
+    @memcpy(result.topic.?[0..topic.len], topic);
+    result.topic_length = @intCast(topic.len);
+    return result;
 }
 
 fn parse_install_args(args: []const []const u8) !CommandArgs.InstallArgs {

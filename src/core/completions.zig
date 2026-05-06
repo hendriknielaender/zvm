@@ -2,6 +2,7 @@ const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
+const cli_spec = @import("../cli/spec.zig");
 
 const assert = std.debug.assert;
 
@@ -73,7 +74,9 @@ const bash_script =
     \\    local cur prev words cword
     \\    _init_completion || return
     \\
-    \\    local commands="list list-remote list-mirrors install use remove env clean completions version help upgrade"
+    \\    local commands="
+++ cli_spec.primary_command_words ++
+    \\"
     \\
     \\    if [[ $cword -eq 1 ]]; then
     \\        COMPREPLY=( $( compgen -W "$commands" -- "$cur" ) )
@@ -96,14 +99,18 @@ const bash_script =
     \\            env)
     \\                if [[ $cur == --shell=* ]]; then
     \\                    local shell_prefix="${cur#--shell=}"
-    \\                    COMPREPLY=( $( compgen -P "--shell=" -W "bash zsh fish powershell" -- "$shell_prefix" ) )
+    \\                    COMPREPLY=( $( compgen -P "--shell=" -W "
+++ cli_spec.shell_words ++
+    \\" -- "$shell_prefix" ) )
     \\                else
     \\                    COMPREPLY=( $( compgen -W "--shell=" -- "$cur" ) )
     \\                fi
     \\                ;;
     \\            completions)
     \\                if [[ $cword -eq 2 ]]; then
-    \\                    COMPREPLY=( $( compgen -W "bash zsh fish powershell" -- "$cur" ) )
+    \\                    COMPREPLY=( $( compgen -W "
+++ cli_spec.shell_words ++
+    \\" -- "$cur" ) )
     \\                fi
     \\                ;;
     \\        esac
@@ -158,7 +165,9 @@ const fish_script =
     \\complete -c zvm -n '__zvm_using_command list-remote' -l zls -d 'List ZLS versions instead of Zig'
     \\complete -c zvm -n '__zvm_using_command clean' -l all -d 'Also remove unused versions'
     \\complete -c zvm -n '__zvm_using_command env' -a '--shell=bash --shell=zsh --shell=fish --shell=powershell' -d 'Specify shell'
-    \\complete -c zvm -n '__zvm_using_command completions' -xa 'bash zsh fish powershell'
+    \\complete -c zvm -n '__zvm_using_command completions' -xa '
+++ cli_spec.shell_words ++
+    \\'
 ;
 
 const powershell_script =
@@ -291,4 +300,28 @@ pub fn run(
 pub fn progress_items(command: validation.ValidatedCommand.CompletionsCommand) u16 {
     _ = command;
     return 1;
+}
+
+test "completion scripts include every primary command from cli spec" {
+    const scripts = [_][]const u8{
+        zsh_script,
+        bash_script,
+        fish_script,
+        powershell_script,
+    };
+
+    for (cli_spec.primary_command_names) |command_name| {
+        for (scripts) |script| {
+            try std.testing.expect(std.mem.indexOf(u8, script, command_name) != null);
+        }
+    }
+}
+
+test "completion scripts use attached shell option syntax" {
+    try std.testing.expect(std.mem.indexOf(u8, bash_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zsh_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fish_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, powershell_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bash_script, "prev == \"--shell\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, powershell_script, "previous -eq '--shell'") == null);
 }
