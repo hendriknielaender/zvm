@@ -8,10 +8,6 @@ pub fn set_environment_map(map: *const std.process.Environ.Map) void {
     environment_map = map;
 }
 
-pub fn get_environment_map() ?*const std.process.Environ.Map {
-    return environment_map;
-}
-
 /// Cross-platform environment variable getter
 pub fn getenv_cross_platform(var_name: []const u8) ?[]const u8 {
     if (environment_map) |map| return map.get(var_name);

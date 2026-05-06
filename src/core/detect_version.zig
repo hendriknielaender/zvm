@@ -380,28 +380,6 @@ pub fn adjust_arguments(version: []const u8, original_args: []const []const u8, 
     }
 }
 
-pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !bool {
-    if (util_tool.eql_str(version, "current")) return true;
-
-    const version_path = try build_version_path(ctx, version);
-    defer ctx.get_allocator().free(version_path);
-
-    // Check if the directory exists first
-    if (!util_tool.does_path_exist(ctx.io, version_path)) {
-        return false;
-    }
-
-    // Check if the actual zig executable exists
-    var zig_path_buffer = try ctx.scratch(.path);
-    defer zig_path_buffer.release();
-
-    const zig_path = try zig_path_buffer.set(
-        try std.fmt.bufPrint(zig_path_buffer.slice(), "{s}/zig", .{version_path}),
-    );
-
-    return util_tool.does_path_exist(ctx.io, zig_path);
-}
-
 pub fn auto_install_version(ctx: *Context.CliContext, version: []const u8) !void {
     if (util_tool.eql_str(version, "current")) return;
 

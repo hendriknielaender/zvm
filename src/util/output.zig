@@ -870,25 +870,12 @@ pub fn is_global_initialized() bool {
     return global_emitter_initialized;
 }
 
-fn get_global_config() ?OutputConfig {
-    if (global_emitter) |emitter| {
-        return emitter.config;
-    }
-
-    return null;
-}
-
 pub fn output_mode() OutputMode {
     return get_global().config.mode;
 }
 
 pub fn set_mode(config: OutputConfig) !void {
     _ = try update_global(config);
-}
-
-pub fn should_color() bool {
-    const config = get_global_config() orelse return false;
-    return config.color.should_use_color();
 }
 
 pub fn emit(level: MessageLevel, comptime message: []const u8, args: anytype) void {
