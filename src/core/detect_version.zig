@@ -270,8 +270,8 @@ fn find_build_zig_zon_version(ctx: *Context.CliContext) !?[]const u8 {
 
     var search_dir: []const u8 = current_dir;
     while (true) {
-        var path_buf = try ctx.acquire_path_buffer();
-        defer path_buf.reset();
+        var path_buf = try ctx.scratch_path();
+        defer path_buf.release();
 
         const build_zon_path = try path_buf.set(
             try std.fmt.bufPrint(path_buf.slice(), "{s}/build.zig.zon", .{search_dir}),
@@ -392,8 +392,8 @@ pub fn ensure_version_available(ctx: *Context.CliContext, version: []const u8) !
     }
 
     // Check if the actual zig executable exists
-    var zig_path_buffer = try ctx.acquire_path_buffer();
-    defer zig_path_buffer.reset();
+    var zig_path_buffer = try ctx.scratch_path();
+    defer zig_path_buffer.release();
 
     const zig_path = try zig_path_buffer.set(
         try std.fmt.bufPrint(zig_path_buffer.slice(), "{s}/zig", .{version_path}),
@@ -421,8 +421,8 @@ fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
-    var buffer = try ctx.acquire_path_buffer();
-    defer buffer.reset();
+    var buffer = try ctx.scratch_path();
+    defer buffer.release();
 
     const path = try buffer.set(
         try std.fmt.bufPrint(buffer.slice(), "{s}/version/zig/{s}", .{ zvm_root, version }),
@@ -465,8 +465,8 @@ pub fn find_default_version_in_buffer(
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
-    var config_path_buffer = try ctx.acquire_path_buffer();
-    defer config_path_buffer.reset();
+    var config_path_buffer = try ctx.scratch_path();
+    defer config_path_buffer.release();
 
     const config_path = try config_path_buffer.set(
         try std.fmt.bufPrint(config_path_buffer.slice(), "{s}/default_version", .{zvm_root}),
@@ -493,8 +493,8 @@ fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
-    var current_zig_path_buffer = try ctx.acquire_path_buffer();
-    defer current_zig_path_buffer.reset();
+    var current_zig_path_buffer = try ctx.scratch_path();
+    defer current_zig_path_buffer.release();
 
     const current_zig_path = try current_zig_path_buffer.set(
         try std.fmt.bufPrint(current_zig_path_buffer.slice(), "{s}/current/zig", .{zvm_root}),

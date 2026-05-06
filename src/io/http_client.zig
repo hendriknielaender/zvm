@@ -212,8 +212,9 @@ const FetchTask = struct {
 
     fn run(self: FetchTask) anyerror!Payload {
         try signals.check();
-        const operation = try self.ctx.acquire_http_operation();
-        defer operation.release();
+        var http_scratch = try self.ctx.scratch_http();
+        defer http_scratch.release();
+        const operation = http_scratch.operation;
 
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{
@@ -289,8 +290,9 @@ const DownloadTask = struct {
         _ = self.progress_node;
         try signals.check();
 
-        const operation = try self.ctx.acquire_http_operation();
-        defer operation.release();
+        var http_scratch = try self.ctx.scratch_http();
+        defer http_scratch.release();
+        const operation = http_scratch.operation;
 
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{

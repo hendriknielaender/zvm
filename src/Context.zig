@@ -34,6 +34,63 @@ pub const CliContext = struct {
     /// Singleton instance - set during initialization.
     var instance: ?*CliContext = null;
 
+    pub const PathScratch = struct {
+        buffer: *object_pools.PathBuffer,
+        released: bool = false,
+
+        pub fn release(self: *PathScratch) void {
+            assert(!self.released);
+            self.buffer.reset();
+            self.released = true;
+        }
+
+        pub fn slice(self: *const PathScratch) []u8 {
+            assert(!self.released);
+            return self.buffer.slice();
+        }
+
+        pub fn set(self: *const PathScratch, value: []const u8) ![]const u8 {
+            assert(!self.released);
+            return self.buffer.set(value);
+        }
+
+        pub fn used_slice(self: *const PathScratch) []const u8 {
+            assert(!self.released);
+            return self.buffer.used_slice();
+        }
+
+        pub fn print(
+            self: *const PathScratch,
+            comptime format: []const u8,
+            args: anytype,
+        ) ![]const u8 {
+            assert(!self.released);
+            return self.set(try std.fmt.bufPrint(self.slice(), format, args));
+        }
+    };
+
+    pub const HttpScratch = struct {
+        operation: *object_pools.HttpOperation,
+        released: bool = false,
+
+        pub fn release(self: *HttpScratch) void {
+            assert(!self.released);
+            self.operation.release();
+            self.released = true;
+        }
+    };
+
+    pub const ExtractScratch = struct {
+        operation: *object_pools.ExtractOperation,
+        released: bool = false,
+
+        pub fn release(self: *ExtractScratch) void {
+            assert(!self.released);
+            self.operation.release();
+            self.released = true;
+        }
+    };
+
     /// Initialize the context with all memory allocated upfront.
     pub fn init(
         context_storage: *CliContext,
@@ -187,19 +244,19 @@ pub const CliContext = struct {
         return result;
     }
 
-    /// Get a path buffer from the pool.
-    pub fn acquire_path_buffer(self: *CliContext) !*object_pools.PathBuffer {
-        return self.pools.acquire_path_buffer();
+    /// Get a scoped path scratch buffer from the static pool.
+    pub fn scratch_path(self: *CliContext) !PathScratch {
+        return .{ .buffer = try self.pools.acquire_path_buffer() };
     }
 
-    /// Get an HTTP operation from the pool.
-    pub fn acquire_http_operation(self: *CliContext) !*object_pools.HttpOperation {
-        return self.pools.acquire_http_operation();
+    /// Get a scoped HTTP scratch operation from the static pool.
+    pub fn scratch_http(self: *CliContext) !HttpScratch {
+        return .{ .operation = try self.pools.acquire_http_operation() };
     }
 
-    /// Get an extract operation from the pool.
-    pub fn acquire_extract_operation(self: *CliContext) !*object_pools.ExtractOperation {
-        return self.pools.acquire_extract_operation();
+    /// Get a scoped extract scratch operation from the static pool.
+    pub fn scratch_extract(self: *CliContext) !ExtractScratch {
+        return .{ .operation = try self.pools.acquire_extract_operation() };
     }
 
     /// Get a version entry from the pool.
@@ -217,15 +274,10 @@ pub const CliContext = struct {
         var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
         const zvm_root = try paths.get_zvm_root(&zvm_root_buf, self.get_home_dir());
 
-        var path_buffer = try self.acquire_path_buffer();
-        defer path_buffer.reset();
+        var path_buffer = try self.scratch_path();
+        defer path_buffer.release();
 
-        const result = try std.fmt.bufPrint(
-            path_buffer.slice(),
-            "{s}/{s}",
-            .{ zvm_root, segment },
-        );
-        const path = try path_buffer.set(result);
+        const path = try path_buffer.print("{s}/{s}", .{ zvm_root, segment });
 
         assert(path.len > 0);
         assert(path.len <= limits.limits.path_length_maximum);

@@ -31,8 +31,8 @@ pub fn download_file_with_verification(
 ) !std.Io.File {
     defer progress_node.end();
     try signals.check();
-    var store_path_buffer = try ctx.acquire_path_buffer();
-    defer store_path_buffer.reset();
+    var store_path_buffer = try ctx.scratch_path();
+    defer store_path_buffer.release();
     const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
     var store = try std.Io.Dir.cwd().createDirPathOpen(ctx.io, zvm_path, .{});
     defer store.close(ctx.io);
@@ -139,7 +139,8 @@ fn install_zig(
     const is_master = util_tool.is_master_like_version(version);
 
     // Get platform string and store it in a persistent buffer
-    const platform_buffer = try ctx.acquire_path_buffer();
+    var platform_buffer = try ctx.scratch_path();
+    defer platform_buffer.release();
     const platform_str = try get_platform_string_into_buffer(is_master, platform_buffer);
 
     var items_done: u32 = 0;
@@ -189,8 +190,8 @@ fn install_zig(
     try signals.check();
     try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
-    var tarball_path_buffer = try ctx.acquire_path_buffer();
-    defer tarball_path_buffer.reset();
+    var tarball_path_buffer = try ctx.scratch_path();
+    defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
     const tarball_file_name = std.fs.path.basename(version_data.tarball());
     var tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
@@ -221,8 +222,8 @@ fn resolve_zig_version_root(
 ) ![]const u8 {
     assert(storage.len > 0);
 
-    const path_buffer = try ctx.acquire_path_buffer();
-    defer path_buffer.reset();
+    var path_buffer = try ctx.scratch_path();
+    defer path_buffer.release();
     const path = try util_data.get_zvm_zig_version(path_buffer);
     assert(path.len > 0);
     assert(path.len <= storage.len);
@@ -311,8 +312,8 @@ fn compose_extract_path(
     assert(version.len > 0);
     assert(storage.len > 0);
 
-    const path_buffer = try ctx.acquire_path_buffer();
-    defer path_buffer.reset();
+    var path_buffer = try ctx.scratch_path();
+    defer path_buffer.release();
     const path = try path_buffer.set(
         try std.fmt.bufPrint(path_buffer.slice(), "{s}/{s}", .{ version_path, version }),
     );
@@ -373,7 +374,7 @@ fn installed_version_matches(extract_path: []const u8, expected_version: []const
     return util_tool.eql_str(installed, expected_version);
 }
 
-pub fn get_platform_string_into_buffer(is_master: bool, platform_buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_platform_string_into_buffer(is_master: bool, platform_buffer: anytype) ![]const u8 {
     const platform_str = try util_arch.platform_str_static(
         platform_buffer,
         .{
@@ -444,7 +445,9 @@ fn download_and_verify_signature(
     assert(file_name.len > 0);
     assert(file_name.len <= tarball_url.len);
 
-    const signature_file_name = try build_signature_filename(ctx, file_name);
+    var sig_name_buffer = try ctx.scratch_path();
+    defer sig_name_buffer.release();
+    const signature_file_name = try sig_name_buffer.print("{s}.minisig", .{file_name});
 
     var sig_url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
     const sig_url = try std.fmt.bufPrint(&sig_url_buffer, "{s}.minisig", .{tarball_url});
@@ -459,18 +462,6 @@ fn download_and_verify_signature(
     try verify_signature(ctx, file_name, signature_file_name);
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
-}
-
-fn build_signature_filename(ctx: *context.CliContext, file_name: []const u8) ![]const u8 {
-    assert(file_name.len > 0);
-
-    var sig_name_buffer = try ctx.acquire_path_buffer();
-
-    const sig_name = try sig_name_buffer.set(
-        try std.fmt.bufPrint(sig_name_buffer.slice(), "{s}.minisig", .{file_name}),
-    );
-
-    return sig_name;
 }
 
 fn download_file_from_url(
@@ -505,18 +496,18 @@ fn verify_signature(
     assert(file_name.len > 0);
     assert(signature_file_name.len > 0);
 
-    var store_path_buffer = try ctx.acquire_path_buffer();
-    defer store_path_buffer.reset();
+    var store_path_buffer = try ctx.scratch_path();
+    defer store_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
 
-    var tarball_path_buffer = try ctx.acquire_path_buffer();
-    defer tarball_path_buffer.reset();
+    var tarball_path_buffer = try ctx.scratch_path();
+    defer tarball_path_buffer.release();
     const tarball_path = try tarball_path_buffer.set(
         try std.fmt.bufPrint(tarball_path_buffer.slice(), "{s}/{s}", .{ zvm_store_path, file_name }),
     );
 
-    var sig_path_buffer = try ctx.acquire_path_buffer();
-    defer sig_path_buffer.reset();
+    var sig_path_buffer = try ctx.scratch_path();
+    defer sig_path_buffer.release();
     const sig_path = try sig_path_buffer.set(
         try std.fmt.bufPrint(sig_path_buffer.slice(), "{s}/{s}", .{ zvm_store_path, signature_file_name }),
     );
@@ -556,14 +547,14 @@ fn extract_and_install(
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
     defer extract_dir.close(ctx.io);
 
-    var extract_op = try ctx.acquire_extract_operation();
+    var extract_op = try ctx.scratch_extract();
     defer extract_op.release();
 
     const file_type: @import("../io/extract.zig").ExtractFileType = if (builtin.os.tag == .windows) .zip else .tarxz;
 
     util_extract.extract_static(
         ctx.io,
-        extract_op,
+        extract_op.operation,
         extract_dir,
         tarball_file,
         file_type,
@@ -603,13 +594,13 @@ fn download_with_mirrors(
         if (mirror_index < config.zig_mirrors.len) {
             const mirror_url = config.zig_mirrors[mirror_index][0];
 
-            var mirror_uri_buffer = try ctx.acquire_path_buffer();
-            defer mirror_uri_buffer.reset();
+            var mirror_uri_buffer = try ctx.scratch_path();
+            defer mirror_uri_buffer.release();
 
             const mirror_uri = try construct_mirror_uri(mirror_uri_buffer, mirror_url, file_name);
 
-            var node_name_buffer = try ctx.acquire_path_buffer();
-            defer node_name_buffer.reset();
+            var node_name_buffer = try ctx.scratch_path();
+            defer node_name_buffer.release();
             _ = try std.fmt.bufPrint(node_name_buffer.slice(), "download zig (mirror {d}): {s}", .{ mirror_index, mirror_url });
             const node_name = node_name_buffer.used_slice();
 
@@ -651,8 +642,8 @@ fn download_with_fallbacks(
 
     log.info("Downloading from official source: {s}", .{tarball_url});
 
-    var node_name_buffer = try ctx.acquire_path_buffer();
-    defer node_name_buffer.reset();
+    var node_name_buffer = try ctx.scratch_path();
+    defer node_name_buffer.release();
     _ = try std.fmt.bufPrint(node_name_buffer.slice(), "download zig (official): {s}", .{tarball_url});
     const node_name = node_name_buffer.used_slice();
 
@@ -686,15 +677,15 @@ fn download_from_mirrors(
 
         log.info("Trying mirror {d} ({s}): {s}", .{ i, mirror_maintainer, mirror_url });
 
-        var mirror_uri_buffer = try ctx.acquire_path_buffer();
-        defer mirror_uri_buffer.reset();
+        var mirror_uri_buffer = try ctx.scratch_path();
+        defer mirror_uri_buffer.release();
         const mirror_uri = construct_mirror_uri(mirror_uri_buffer, mirror_url, file_name) catch |err| {
             log.warn("Failed to construct mirror URI for {s}: {s}", .{ mirror_url, @errorName(err) });
             continue;
         };
 
-        var node_name_buffer = try ctx.acquire_path_buffer();
-        defer node_name_buffer.reset();
+        var node_name_buffer = try ctx.scratch_path();
+        defer node_name_buffer.release();
         _ = try std.fmt.bufPrint(node_name_buffer.slice(), "download zig (mirror {d}): {s}", .{ i, mirror_url });
         const node_name = node_name_buffer.used_slice();
 
@@ -714,7 +705,7 @@ fn download_from_mirrors(
     return error.AllDownloadsFailed;
 }
 
-fn construct_mirror_uri(buffer: *object_pools.PathBuffer, mirror_url: []const u8, file_name: []const u8) !std.Uri {
+fn construct_mirror_uri(buffer: anytype, mirror_url: []const u8, file_name: []const u8) !std.Uri {
     assert(mirror_url.len > 0);
     assert(mirror_url.len < limits.limits.url_length_maximum / 2);
     assert(file_name.len > 0);
@@ -746,8 +737,8 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     const platform_str = platform_str_buffer[0..platform_str_temp.len];
 
     // Get version path directly
-    var version_path_buffer = try ctx.acquire_path_buffer();
-    defer version_path_buffer.reset();
+    var version_path_buffer = try ctx.scratch_path();
+    defer version_path_buffer.release();
     const version_path = try util_data.get_zvm_zls_version(version_path_buffer);
 
     // Format extract path directly
@@ -768,8 +759,8 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     const tarball_file = try download_zls(ctx, version_data, root_node);
     defer tarball_file.close(ctx.io);
 
-    var tarball_path_buffer = try ctx.acquire_path_buffer();
-    defer tarball_path_buffer.reset();
+    var tarball_path_buffer = try ctx.scratch_path();
+    defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
     const zls_tarball_name = std.fs.path.basename(version_data.tarball());
     var zls_tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
@@ -860,14 +851,14 @@ fn extract_zls(
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
     defer extract_dir.close(ctx.io);
 
-    var extract_op = try ctx.acquire_extract_operation();
+    var extract_op = try ctx.scratch_extract();
     defer extract_op.release();
 
     const file_type: util_extract.ExtractFileType = if (builtin.os.tag == .windows) .zip else .tarxz;
 
     try util_extract.extract_static(
         ctx.io,
-        extract_op,
+        extract_op.operation,
         extract_dir,
         tarball_file,
         file_type,

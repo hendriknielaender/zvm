@@ -89,8 +89,8 @@ pub fn clean(
 }
 
 fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanup {
-    var store_buffer = try ctx.acquire_path_buffer();
-    defer store_buffer.reset();
+    var store_buffer = try ctx.scratch_path();
+    defer store_buffer.release();
 
     const store_path = try util_data.get_zvm_store(store_buffer);
     var store_dir = std.Io.Dir.openDirAbsolute(ctx.io, store_path, .{ .iterate = true }) catch |err| {
@@ -203,8 +203,8 @@ fn count_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch_path();
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
@@ -233,8 +233,8 @@ fn read_current_version(
     tool: validation.ToolType,
     version_buffer: []u8,
 ) !?[]const u8 {
-    var current_path_buffer = try ctx.acquire_path_buffer();
-    defer current_path_buffer.reset();
+    var current_path_buffer = try ctx.scratch_path();
+    defer current_path_buffer.release();
 
     const current_path = switch (tool) {
         .zig => try util_data.get_zvm_current_zig(current_path_buffer),
@@ -266,8 +266,8 @@ fn clean_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch_path();
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),

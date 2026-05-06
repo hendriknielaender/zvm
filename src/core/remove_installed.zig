@@ -92,8 +92,8 @@ fn is_active_version(ctx: *context.CliContext, version_str: []const u8, is_zls: 
         }
     }
 
-    var path_buffer = ctx.acquire_path_buffer() catch return false;
-    defer path_buffer.reset();
+    var path_buffer = ctx.scratch_path() catch return false;
+    defer path_buffer.release();
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
     const current = util_data.get_current_version(path_buffer, &output_buffer, is_zls) catch return false;

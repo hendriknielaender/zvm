@@ -28,7 +28,7 @@ fn resolve_zvm_root(out_buffer: []u8) ![]const u8 {
 }
 
 /// Get ZVM path segment relative to the ZVM root.
-pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
+pub fn get_zvm_path_segment(buffer: anytype, segment: []const u8) ![]const u8 {
     assert(segment.len > 0);
 
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
@@ -38,27 +38,27 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 }
 
 /// Get the ZVM current/zig directory path.
-pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_current_zig(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "current/zig");
 }
 
 /// Get the ZVM current/zls directory path.
-pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_current_zls(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "current/zls");
 }
 
 /// Get the ZVM store directory path.
-pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_store(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "store");
 }
 
 /// Get the ZVM version/zig directory path.
-pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_zig_version(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "version/zig");
 }
 
 /// Get the ZVM version/zls directory path.
-pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_zls_version(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "version/zls");
 }
 
@@ -82,7 +82,7 @@ pub fn write_version_manifest(install_path: []const u8, version: []const u8) !vo
 }
 
 fn build_manifest_path(
-    path_buffer: *object_pools.PathBuffer,
+    path_buffer: anytype,
     install_path: []const u8,
 ) ![]const u8 {
     assert(install_path.len > 0);
@@ -97,7 +97,7 @@ fn build_manifest_path(
 }
 
 pub fn read_version_manifest_absolute(
-    path_buffer: *object_pools.PathBuffer,
+    path_buffer: anytype,
     install_path: []const u8,
     output_buffer: []u8,
 ) ![]const u8 {
@@ -120,7 +120,7 @@ pub fn read_version_manifest_absolute(
 
 /// Get the version from the manifest within the active installation.
 pub fn get_current_version(
-    path_buffer: *object_pools.PathBuffer,
+    path_buffer: anytype,
     output_buffer: []u8,
     is_zls: bool,
 ) ![]const u8 {

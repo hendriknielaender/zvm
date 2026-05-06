@@ -35,8 +35,8 @@ fn collect_versions(
     versions: *[limits.limits.versions_maximum][]const u8,
     storage: *[limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch_path();
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
