@@ -3,6 +3,7 @@ const limits = @import("../memory/limits.zig");
 const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
+const cli_spec = @import("spec.zig");
 const assert = std.debug.assert;
 const max_version_string_length = limits.limits.version_string_length_maximum;
 const max_shell_name_length = 32;
@@ -273,44 +274,21 @@ fn parse_command_syntax(command_name: []const u8, args: []const []const u8) !Com
         assert(arg.len < 1024);
     }
 
-    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
-        return .{ .install = try parse_install_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
-        return .{ .remove = try parse_remove_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
-        return .{ .use = try parse_use_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
-        return .{ .list = try parse_list_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "list-remote")) {
-        return .{ .list_remote = try parse_list_remote_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "clean")) {
-        return .{ .clean = try parse_clean_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "env")) {
-        return .{ .env = try parse_env_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "completions")) {
-        return .{ .completions = try parse_completions_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "version")) {
-        return .{ .version = try parse_version_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "help")) {
-        return .{ .help = try parse_help_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "list-mirrors")) {
-        return .{ .list_mirrors = try parse_list_mirrors_args(args) };
-    }
-    if (std.mem.eql(u8, command_name, "upgrade")) {
-        return .{ .upgrade = try parse_upgrade_args(args) };
-    }
-
-    return error.UnknownCommand;
+    const command = cli_spec.Command.parse(command_name) orelse return error.UnknownCommand;
+    return switch (command) {
+        .install => .{ .install = try parse_install_args(args) },
+        .remove => .{ .remove = try parse_remove_args(args) },
+        .use => .{ .use = try parse_use_args(args) },
+        .list => .{ .list = try parse_list_args(args) },
+        .list_remote => .{ .list_remote = try parse_list_remote_args(args) },
+        .list_mirrors => .{ .list_mirrors = try parse_list_mirrors_args(args) },
+        .clean => .{ .clean = try parse_clean_args(args) },
+        .env => .{ .env = try parse_env_args(args) },
+        .completions => .{ .completions = try parse_completions_args(args) },
+        .version => .{ .version = try parse_version_args(args) },
+        .help => .{ .help = try parse_help_args(args) },
+        .upgrade => .{ .upgrade = try parse_upgrade_args(args) },
+    };
 }
 
 fn parse_install_args(args: []const []const u8) !CommandArgs.InstallArgs {
@@ -719,40 +697,22 @@ pub const HelpTopic = enum {
     pub fn parse(topic_str: []const u8) !HelpTopic {
         assert(topic_str.len > 0);
 
-        if (std.mem.eql(u8, topic_str, "install") or std.mem.eql(u8, topic_str, "i")) return .install;
-        if (std.mem.eql(u8, topic_str, "remove") or std.mem.eql(u8, topic_str, "rm")) return .remove;
-        if (std.mem.eql(u8, topic_str, "use") or std.mem.eql(u8, topic_str, "u")) return .use;
-        if (std.mem.eql(u8, topic_str, "list") or std.mem.eql(u8, topic_str, "ls")) return .list;
-        if (std.mem.eql(u8, topic_str, "list-remote")) return .list_remote;
-        if (std.mem.eql(u8, topic_str, "list-mirrors")) return .list_mirrors;
-        if (std.mem.eql(u8, topic_str, "clean")) return .clean;
-        if (std.mem.eql(u8, topic_str, "env")) return .env;
-        if (std.mem.eql(u8, topic_str, "completions")) return .completions;
-        if (std.mem.eql(u8, topic_str, "version")) return .version;
-        if (std.mem.eql(u8, topic_str, "help")) return .help;
-        if (std.mem.eql(u8, topic_str, "upgrade")) return .upgrade;
-
-        return error.UnknownHelpTopic;
+        const command = cli_spec.Command.parse(topic_str) orelse return error.UnknownHelpTopic;
+        return switch (command) {
+            .install => .install,
+            .remove => .remove,
+            .use => .use,
+            .list => .list,
+            .list_remote => .list_remote,
+            .list_mirrors => .list_mirrors,
+            .clean => .clean,
+            .env => .env,
+            .completions => .completions,
+            .version => .version,
+            .help => .help,
+            .upgrade => .upgrade,
+        };
     }
-};
-
-const help_topic_names = [_][]const u8{
-    "install",
-    "i",
-    "remove",
-    "rm",
-    "use",
-    "u",
-    "list",
-    "ls",
-    "list-remote",
-    "list-mirrors",
-    "clean",
-    "env",
-    "completions",
-    "version",
-    "help",
-    "upgrade",
 };
 
 /// Shell type with validation
@@ -769,22 +729,12 @@ pub const ShellType = enum {
         if (std.mem.eql(u8, shell_str, "zsh")) return .zsh;
         if (std.mem.eql(u8, shell_str, "fish")) return .fish;
         if (std.mem.eql(u8, shell_str, "powershell")) return .powershell;
-        if (std.mem.eql(u8, shell_str, "pwsh")) return .powershell; // PowerShell Core alias
-
         return error.UnknownShell;
     }
 };
 
-const shell_names = [_][]const u8{
-    "bash",
-    "zsh",
-    "fish",
-    "powershell",
-    "pwsh",
-};
-
 fn fatal_unknown_help_topic(topic: []const u8) noreturn {
-    if (edit_distance.nearest(topic, &help_topic_names)) |suggestion| {
+    if (edit_distance.nearest(topic, &cli_spec.command_names)) |suggestion| {
         util_output.exit_with(
             .invalid_arguments,
             "unknown help topic '{s}'\n\n  Did you mean '{s}'?",
@@ -795,7 +745,7 @@ fn fatal_unknown_help_topic(topic: []const u8) noreturn {
 }
 
 fn fatal_unknown_shell(shell: []const u8) noreturn {
-    if (edit_distance.nearest(shell, &shell_names)) |suggestion| {
+    if (edit_distance.nearest(shell, &cli_spec.shell_names)) |suggestion| {
         util_output.exit_with(
             .invalid_arguments,
             "unknown shell type '{s}'\n\n  Did you mean '{s}'?",

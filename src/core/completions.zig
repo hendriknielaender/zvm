@@ -19,6 +19,8 @@ const zsh_script =
     \\  'env:Show environment setup instructions'
     \\  'clean:Clean up old download artifacts'
     \\  'completions:Generate shell completion script'
+    \\  'list-mirrors:List configured download mirrors'
+    \\  'upgrade:Upgrade zvm'
     \\  'version:Show zvm version'
     \\  'help:Show help message'
     \\)
@@ -52,7 +54,7 @@ const zsh_script =
     \\        ;;
     \\      env)
     \\        _arguments \
-    \\          '--shell[Specify shell]:shell:(bash zsh fish powershell)'
+    \\          '--shell=[Specify shell]:shell:(bash zsh fish powershell)'
     \\        ;;
     \\      completions)
     \\        _arguments \
@@ -71,7 +73,7 @@ const bash_script =
     \\    local cur prev words cword
     \\    _init_completion || return
     \\
-    \\    local commands="list list-remote install use remove env clean completions version help"
+    \\    local commands="list list-remote list-mirrors install use remove env clean completions version help upgrade"
     \\
     \\    if [[ $cword -eq 1 ]]; then
     \\        COMPREPLY=( $( compgen -W "$commands" -- "$cur" ) )
@@ -92,10 +94,11 @@ const bash_script =
     \\                COMPREPLY=( $( compgen -W "--all" -- "$cur" ) )
     \\                ;;
     \\            env)
-    \\                if [[ $prev == "--shell" ]]; then
-    \\                    COMPREPLY=( $( compgen -W "bash zsh fish powershell" -- "$cur" ) )
+    \\                if [[ $cur == --shell=* ]]; then
+    \\                    local shell_prefix="${cur#--shell=}"
+    \\                    COMPREPLY=( $( compgen -P "--shell=" -W "bash zsh fish powershell" -- "$shell_prefix" ) )
     \\                else
-    \\                    COMPREPLY=( $( compgen -W "--shell" -- "$cur" ) )
+    \\                    COMPREPLY=( $( compgen -W "--shell=" -- "$cur" ) )
     \\                fi
     \\                ;;
     \\            completions)
@@ -142,6 +145,8 @@ const fish_script =
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'env' -d 'Show environment setup instructions'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'clean' -d 'Clean up old download artifacts'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'completions' -d 'Generate shell completion script'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'list-mirrors' -d 'List configured download mirrors'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'upgrade' -d 'Upgrade zvm'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'version' -d 'Show zvm version'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'help' -d 'Show help message'
     \\
@@ -152,7 +157,7 @@ const fish_script =
     \\complete -c zvm -n '__zvm_using_command list' -l all -d 'List Zig and ZLS versions together'
     \\complete -c zvm -n '__zvm_using_command list-remote' -l zls -d 'List ZLS versions instead of Zig'
     \\complete -c zvm -n '__zvm_using_command clean' -l all -d 'Also remove unused versions'
-    \\complete -c zvm -n '__zvm_using_command env' -l shell -d 'Specify shell' -xa 'bash zsh fish powershell'
+    \\complete -c zvm -n '__zvm_using_command env' -a '--shell=bash --shell=zsh --shell=fish --shell=powershell' -d 'Specify shell'
     \\complete -c zvm -n '__zvm_using_command completions' -xa 'bash zsh fish powershell'
 ;
 
@@ -174,6 +179,8 @@ const powershell_script =
     \\        @{ Name = 'env';         Description = 'Show environment setup instructions' }
     \\        @{ Name = 'clean';       Description = 'Clean up old download artifacts' }
     \\        @{ Name = 'completions'; Description = 'Generate shell completion script' }
+    \\        @{ Name = 'list-mirrors';Description = 'List configured download mirrors' }
+    \\        @{ Name = 'upgrade';     Description = 'Upgrade zvm' }
     \\        @{ Name = 'version';     Description = 'Show zvm version' }
     \\        @{ Name = 'help';        Description = 'Show help message' }
     \\    )
@@ -217,16 +224,18 @@ const powershell_script =
     \\                '--all', '--all', 'ParameterName', 'Also remove unused versions'))
     \\        }
     \\        'env' {
-    \\            if ($previous -eq '--shell' -or $wordToComplete -notlike '-*') {
+    \\            if ($wordToComplete -like '--shell=*') {
+    \\                $prefix = $wordToComplete.Substring('--shell='.Length)
     \\                return $shells |
-    \\                    Where-Object { $_ -like "$wordToComplete*" } |
+    \\                    Where-Object { $_ -like "$prefix*" } |
     \\                    ForEach-Object {
+    \\                        $completion = "--shell=$_"
     \\                        [System.Management.Automation.CompletionResult]::new(
-    \\                            $_, $_, 'ParameterValue', "Shell: $_")
+    \\                            $completion, $completion, 'ParameterValue', "Shell: $_")
     \\                    }
     \\            }
     \\            return @([System.Management.Automation.CompletionResult]::new(
-    \\                '--shell', '--shell', 'ParameterName', 'Specify shell'))
+    \\                '--shell=', '--shell=', 'ParameterName', 'Specify shell'))
     \\        }
     \\        'completions' {
     \\            if ($effectiveCount -le 3) {

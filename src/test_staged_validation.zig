@@ -235,8 +235,8 @@ test "shell type parsing" {
     try testing.expectEqual(validation.ShellType.zsh, try validation.ShellType.parse("zsh"));
     try testing.expectEqual(validation.ShellType.fish, try validation.ShellType.parse("fish"));
     try testing.expectEqual(validation.ShellType.powershell, try validation.ShellType.parse("powershell"));
-    try testing.expectEqual(validation.ShellType.powershell, try validation.ShellType.parse("pwsh"));
 
+    try testing.expectError(error.UnknownShell, validation.ShellType.parse("pwsh"));
     try testing.expectError(error.UnknownShell, validation.ShellType.parse("unknown"));
 }
 
