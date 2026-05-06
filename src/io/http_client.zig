@@ -12,9 +12,9 @@ const log = std.log.scoped(.http);
 pub const timeout_env_var_name = "ZVM_DOWNLOAD_TIMEOUT_SECONDS";
 
 /// Default total timeout for one mirror attempt. Picked to be generous enough
-/// for slow links on a 100MB tarball (~1.5 Mbit/s) but bounded so a stalled
+/// for slow CI links on a 100MB tarball (~0.5 Mbit/s) but bounded so a stalled
 /// mirror cannot hang `zvm install` indefinitely.
-pub const timeout_total_default_seconds: u32 = 600;
+pub const timeout_total_default_seconds: u32 = 1800;
 
 /// Lower bound for the total timeout. Anything smaller cannot reliably
 /// complete a TLS handshake plus a small response.

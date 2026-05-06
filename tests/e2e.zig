@@ -12,8 +12,8 @@
 //!     other matrix legs fast and offline-friendly.
 //!
 //! Each test gets a fresh sandbox directory and isolated environment
-//! (HOME, USERPROFILE, ZVM_HOME, XDG_DATA_HOME) so tests cannot pollute
-//! the developer machine or each other.
+//! (HOME, USERPROFILE, ZVM_HOME, XDG_DATA_HOME, XDG_CONFIG_HOME) so tests
+//! cannot pollute the developer machine or each other.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -260,6 +260,8 @@ fn apply_sandbox_overrides(
     try env_map.put("HOME", sandbox);
     try env_map.put("USERPROFILE", sandbox);
     _ = env_map.array_hash_map.swapRemove("XDG_DATA_HOME");
+    _ = env_map.array_hash_map.swapRemove("XDG_CONFIG_HOME");
+    _ = env_map.array_hash_map.swapRemove("ZVM_CONFIG_HOME");
     // Disable colour codes so plain substring assertions on stdout work.
     try env_map.put("NO_COLOR", "1");
 }
@@ -288,6 +290,10 @@ fn run_offline_suite(
         .{ .name = "completions fish", .run = test_completions_fish },
         .{ .name = "completions powershell", .run = test_completions_powershell },
         .{ .name = "invalid command exits non-zero", .run = test_invalid_command },
+        .{ .name = "unknown command suggests correction", .run = test_unknown_command_suggests },
+        .{ .name = "global flag suggests correction", .run = test_unknown_command_flag_suggests },
+        .{ .name = "flag suggests correction", .run = test_unknown_subcommand_flag_suggests },
+        .{ .name = "command alias resolves without suggestion", .run = test_alias_no_suggestion },
         .{ .name = "install missing version exits non-zero", .run = test_install_missing_arg },
         .{ .name = "install bogus version exits non-zero", .run = test_install_bogus_version },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
@@ -432,6 +438,7 @@ fn test_env_bash(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_zero(outcome, "env bash");
     try assert_contains(outcome.stdout, "export PATH=", "env bash export");
     try assert_contains(outcome.stdout, sandbox, "env bash sandbox path");
+    try assert_contains(outcome.stdout, ".config/.zm", "env bash config path");
 }
 
 fn test_env_zsh(suite: *const Suite, sandbox: []const u8) !void {
@@ -490,6 +497,37 @@ fn test_invalid_command(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_non_zero(outcome, "invalid command");
 }
 
+fn test_unknown_command_suggests(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{"installl"});
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "installl typo");
+    try assert_contains(outcome.stderr, "unknown command 'installl'", "unknown command typo");
+    try assert_contains(outcome.stderr, "Did you mean 'install'?", "unknown command suggestion");
+}
+
+fn test_unknown_command_flag_suggests(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "--jsom", "list" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "--jsom typo");
+    try assert_contains(outcome.stderr, "unknown global option '--jsom'", "unknown flag echo");
+    try assert_contains(outcome.stderr, "Did you mean '--json'?", "unknown flag suggestion");
+}
+
+fn test_unknown_subcommand_flag_suggests(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "list", "--al" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "list --al typo");
+    try assert_contains(outcome.stderr, "unknown flag '--al' in list command", "flag echo");
+    try assert_contains(outcome.stderr, "Did you mean '--all'?", "subcommand flag suggestion");
+}
+
+fn test_alias_no_suggestion(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "rm", "0.0.1" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "rm alias");
+    try assert_not_contains(outcome.stderr, "Did you mean", "rm alias suggestion");
+}
+
 fn test_install_missing_arg(suite: *const Suite, sandbox: []const u8) !void {
     var outcome = try run_zvm(suite, sandbox, sandbox, &.{"install"});
     defer outcome.deinit(suite.gpa);
@@ -522,6 +560,7 @@ fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env bash override");
     try assert_contains(outcome.stdout, sandbox, "env bash uses ZVM_HOME");
+    try assert_contains(outcome.stdout, ".config/.zm", "env bash config fallback");
 
     // The override resolves to `<sandbox>{sep}.zm`; zvm appends `/bin`
     // (forward slash regardless of platform). Check both pieces appear

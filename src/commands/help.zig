@@ -49,7 +49,7 @@ const general_help_text =
     \\                                      Prefer the flag; the env var is kept for
     \\                                      backward compatibility with existing scripts.
     \\    NO_COLOR                          Disable colored output when set to any value
-    \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 600,
+    \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 1800,
     \\                                      range 5..86400). Connect target 10s,
     \\                                      idle target 30s; on timeout zvm falls
     \\                                      through to the next mirror in list-mirrors.

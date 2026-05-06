@@ -1,5 +1,6 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
+const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
 const raw_args = @import("raw_args.zig");
 const validation = @import("validation.zig");
@@ -106,6 +107,42 @@ fn is_long_option(arg: []const u8) bool {
 const StandardCommand = enum {
     help,
     version,
+};
+
+const command_names = [_][]const u8{
+    "install",
+    "i",
+    "remove",
+    "rm",
+    "use",
+    "u",
+    "list",
+    "ls",
+    "list-remote",
+    "clean",
+    "env",
+    "completions",
+    "version",
+    "help",
+    "list-mirrors",
+    "upgrade",
+};
+
+const global_option_names = [_][]const u8{
+    "--json",
+    "--plain",
+    "--quiet",
+    "--color",
+    "--no-color",
+    "--yes",
+    "--verbose",
+    "--no-input",
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "-q",
+    "-v",
 };
 
 /// Tracks which global option groups have already been set.
@@ -325,6 +362,118 @@ fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
     return arguments[1];
 }
 
+fn find_invalid_command_option(command_name: []const u8, args: []const []const u8) []const u8 {
+    assert(command_name.len > 0);
+
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (!is_prefixed_option(arg)) continue;
+        if (command_option_valid(command_name, arg)) continue;
+        return arg;
+    }
+
+    return args[0];
+}
+
+fn command_option_valid(command_name: []const u8, arg: []const u8) bool {
+    assert(command_name.len > 0);
+    assert(arg.len > 0);
+
+    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
+        return std.mem.eql(u8, arg, "--zls");
+    }
+    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
+        return std.mem.eql(u8, arg, "--zls");
+    }
+    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
+        return std.mem.eql(u8, arg, "--zls");
+    }
+    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
+        return std.mem.eql(u8, arg, "--all");
+    }
+    if (std.mem.eql(u8, command_name, "list-remote")) {
+        return std.mem.eql(u8, arg, "--zls");
+    }
+    if (std.mem.eql(u8, command_name, "clean")) {
+        return std.mem.eql(u8, arg, "--all");
+    }
+    if (std.mem.eql(u8, command_name, "env")) {
+        if (std.mem.eql(u8, arg, "--shell")) return true;
+        return std.mem.startsWith(u8, arg, "--shell=");
+    }
+
+    return false;
+}
+
+fn command_option_suggestion(command_name: []const u8, flag: []const u8) ?[]const u8 {
+    assert(command_name.len > 0);
+    assert(flag.len > 0);
+
+    const version_tool_options = [_][]const u8{"--zls"};
+    const list_options = [_][]const u8{"--all"};
+    const env_options = [_][]const u8{"--shell"};
+
+    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
+        return edit_distance.nearest(flag, &version_tool_options);
+    }
+    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
+        return edit_distance.nearest(flag, &version_tool_options);
+    }
+    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
+        return edit_distance.nearest(flag, &version_tool_options);
+    }
+    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
+        return edit_distance.nearest(flag, &list_options);
+    }
+    if (std.mem.eql(u8, command_name, "list-remote")) {
+        return edit_distance.nearest(flag, &version_tool_options);
+    }
+    if (std.mem.eql(u8, command_name, "clean")) {
+        return edit_distance.nearest(flag, &list_options);
+    }
+    if (std.mem.eql(u8, command_name, "env")) {
+        return edit_distance.nearest(flag, &env_options);
+    }
+
+    return null;
+}
+
+fn fatal_unknown_command(command_name: []const u8) noreturn {
+    if (edit_distance.nearest(command_name, &command_names)) |suggestion| {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown command '{s}'\n\n  Did you mean '{s}'?",
+            .{ command_name, suggestion },
+        );
+    }
+    util_output.fatal(.invalid_arguments, "unknown command '{s}'", .{command_name});
+}
+
+fn fatal_unknown_global_option(flag: []const u8) noreturn {
+    if (edit_distance.nearest(flag, &global_option_names)) |suggestion| {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown global option '{s}'\n\n  Did you mean '{s}'?",
+            .{ flag, suggestion },
+        );
+    }
+    util_output.fatal(.invalid_arguments, "unknown global option '{s}'", .{flag});
+}
+
+fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) noreturn {
+    if (command_option_suggestion(command_name, flag)) |suggestion| {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown flag '{s}' in {s} command\n\n  Did you mean '{s}'?",
+            .{ flag, command_name, suggestion },
+        );
+    }
+    util_output.fatal(.invalid_arguments, "unknown flag '{s}' in {s} command", .{
+        flag,
+        command_name,
+    });
+}
+
 fn standard_command_to_validated_command(standard_command: StandardCommand) validation.ValidatedCommand {
     return switch (standard_command) {
         .help => .{ .help = .{} },
@@ -338,7 +487,7 @@ fn parse_raw_command_or_fatal(
 ) raw_args.RawArgs {
     return raw_args.parse_raw_args(command_name, remaining_args) catch |err| switch (err) {
         error.UnknownCommand => {
-            util_output.fatal(.invalid_arguments, "Unknown command: '{s}'", .{command_name});
+            fatal_unknown_command(command_name);
         },
         error.MissingVersionArgument => {
             util_output.fatal(.invalid_arguments, "{s} command requires a version argument", .{command_name});
@@ -354,7 +503,8 @@ fn parse_raw_command_or_fatal(
             );
         },
         error.UnknownFlag => {
-            util_output.fatal(.invalid_arguments, "unknown flag in {s} command", .{command_name});
+            const flag = find_invalid_command_option(command_name, remaining_args);
+            fatal_unknown_command_option(command_name, flag);
         },
         error.UnexpectedArguments => {
             util_output.fatal(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
@@ -390,7 +540,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
 
     const global_prefix = parse_global_prefix(arguments) catch |err| switch (err) {
         error.UnknownGlobalOption => {
-            util_output.fatal(.invalid_arguments, "unknown global option: '{s}'", .{find_invalid_global_option(arguments)});
+            fatal_unknown_global_option(find_invalid_global_option(arguments));
         },
         error.UnknownGlobalShortOption => {
             util_output.fatal(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
