@@ -42,7 +42,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         if (err != error.FileNotFound)
             return err;
 
-        util_output.fatal(
+        util_output.exit_with(
             .version_not_found,
             "{s} version {s} is not installed. Please install it before proceeding.",
             .{ if (is_zls) "zls" else "Zig", version },
@@ -203,18 +203,17 @@ fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !v
 }
 
 fn emit_selected_version(tool_name: []const u8, requested_version: []const u8, active_version: []const u8) void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = tool_name } },
             .{ .key = "requested_version", .value = .{ .string = requested_version } },
             .{ .key = "active_version", .value = .{ .string = active_version } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.success("Now using {s} version {s}", .{ tool_name, active_version });
+    util_output.emit(.success, "Now using {s} version {s}", .{ tool_name, active_version });
 }
 
 fn emit_selected_version_mismatch(
@@ -222,19 +221,19 @@ fn emit_selected_version_mismatch(
     expected_version: []const u8,
     actual_version: []const u8,
 ) void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = tool_name } },
             .{ .key = "expected_version", .value = .{ .string = expected_version } },
             .{ .key = "active_version", .value = .{ .string = actual_version } },
             .{ .key = "ok", .value = .{ .boolean = false } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.err(
+    util_output.emit(
+        .error_recoverable,
         "Expected {s} version {s}, but currently using {s}. Please check.",
         .{ tool_name, expected_version, actual_version },
     );

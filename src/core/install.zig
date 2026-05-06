@@ -756,7 +756,7 @@ fn verify_signature(
         config.ZIG_MINISIGN_PUBLIC_KEY,
         tarball_path,
     ) catch |err| {
-        util_output.fatal(.corruption_detected, "Failed to verify Zig signature: {s}", .{
+        util_output.exit_with(.corruption_detected, "Failed to verify Zig signature: {s}", .{
             @errorName(err),
         });
     };

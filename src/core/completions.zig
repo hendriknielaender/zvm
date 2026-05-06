@@ -259,18 +259,16 @@ pub fn generate_completions(
         .powershell => powershell_script,
     };
     assert(script.len > 0);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "shell", .value = .{ .string = shell_name } },
             .{ .key = "script", .value = .{ .string = script } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(script);
+    util_output.emit_json(.{ .text = script });
 }
 
 pub fn run(

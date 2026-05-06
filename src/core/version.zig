@@ -12,18 +12,16 @@ pub fn run(
     _ = ctx;
     _ = command;
     _ = progress_node;
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "name", .value = .{ .string = "zvm" } },
             .{ .key = "version", .value = .{ .string = build_options.version } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.info("zvm {s}\n", .{build_options.version});
+    util_output.emit(.info, "zvm {s}\n", .{build_options.version});
 }
 
 pub fn progress_items(command: validation.ValidatedCommand.VersionCommand) u16 {

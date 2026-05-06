@@ -13,19 +13,16 @@ pub fn run(
     _ = ctx;
     _ = command;
     _ = progress_node;
-
-    const emitter = util_output.get_global();
-
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         var mirror_urls: [metadata.zig_mirrors.len][]const u8 = undefined;
         for (metadata.zig_mirrors, 0..) |mirror_info, index| {
             mirror_urls[index] = mirror_info[0];
         }
-        util_output.json_array("mirrors", mirror_urls[0..metadata.zig_mirrors.len]);
+        util_output.emit_json(.{ .string_array = .{ .field_name = "mirrors", .items = mirror_urls[0..metadata.zig_mirrors.len] } });
         return;
     }
 
-    if (emitter.config.mode == .plain) {
+    if (util_output.output_mode() == .plain) {
         var line_buffer: [512]u8 = undefined;
         for (metadata.zig_mirrors, 0..) |mirror_info, index| {
             assert(index < 1024);
@@ -38,19 +35,19 @@ pub fn run(
                 "{d}\t{s}\t{s}",
                 .{ index, url, maintainer },
             ) catch continue;
-            util_output.print_text(line);
+            util_output.emit_json(.{ .text = line });
         }
         return;
     }
 
-    util_output.info("Available download mirrors:\n", .{});
+    util_output.emit(.info, "Available download mirrors:\n", .{});
     for (metadata.zig_mirrors, 0..) |mirror_info, index| {
         const url = mirror_info[0];
         const maintainer = mirror_info[1];
-        util_output.info("  {d}: {s} ({s})\n", .{ index, url, maintainer });
+        util_output.emit(.info, "  {d}: {s} ({s})\n", .{ index, url, maintainer });
     }
-    util_output.info("Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
-    util_output.info("Example: ZVM_MIRROR=1 zvm install master\n", .{});
+    util_output.emit(.info, "Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
+    util_output.emit(.info, "Example: ZVM_MIRROR=1 zvm install master\n", .{});
 }
 
 pub fn progress_items(command: validation.ValidatedCommand.ListMirrorsCommand) u16 {

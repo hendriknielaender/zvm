@@ -465,42 +465,42 @@ fn command_option_suggestion(command_name: []const u8, flag: []const u8) ?[]cons
 
 fn fatal_unknown_command(command_name: []const u8) noreturn {
     if (edit_distance.nearest(command_name, &command_names)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown command '{s}'\n\n  Did you mean '{s}'?",
             .{ command_name, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown command '{s}'", .{command_name});
+    util_output.exit_with(.invalid_arguments, "unknown command '{s}'", .{command_name});
 }
 
 fn fatal_unknown_global_option(flag: []const u8) noreturn {
     if (edit_distance.nearest(flag, &global_option_names)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown global option '{s}'\n\n  Did you mean '{s}'?",
             .{ flag, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown global option '{s}'", .{flag});
+    util_output.exit_with(.invalid_arguments, "unknown global option '{s}'", .{flag});
 }
 
 fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) noreturn {
     if (std.mem.eql(u8, command_name, "env") and std.mem.eql(u8, flag, "--shell")) {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown flag '{s}' in env command\n\n  Use '--shell=<shell>' (for example, '--shell=zsh').",
             .{flag},
         );
     }
     if (command_option_suggestion(command_name, flag)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown flag '{s}' in {s} command\n\n  Did you mean '{s}'?",
             .{ flag, command_name, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown flag '{s}' in {s} command", .{
+    util_output.exit_with(.invalid_arguments, "unknown flag '{s}' in {s} command", .{
         flag,
         command_name,
     });
@@ -522,13 +522,13 @@ fn parse_command_args_or_fatal(
             fatal_unknown_command(command_name);
         },
         error.MissingVersionArgument => {
-            util_output.fatal(.invalid_arguments, "{s} command requires a version argument", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command requires a version argument", .{command_name});
         },
         error.EmptyVersionArgument => {
-            util_output.fatal(.invalid_arguments, "{s} command version argument cannot be empty", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command version argument cannot be empty", .{command_name});
         },
         error.VersionStringTooLong => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "version string too long (maximum: {d} characters)",
                 .{limits.limits.version_string_length_maximum},
@@ -539,18 +539,18 @@ fn parse_command_args_or_fatal(
             fatal_unknown_command_option(command_name, flag);
         },
         error.UnexpectedArguments => {
-            util_output.fatal(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
         },
         error.EmptyShellArgument => {
-            util_output.fatal(.invalid_arguments, "shell argument cannot be empty", .{});
+            util_output.exit_with(.invalid_arguments, "shell argument cannot be empty", .{});
         },
         error.EmptyOptionValue => {
             const flag = option_display_name(find_first_command_option(remaining_args));
-            util_output.fatal(.invalid_arguments, "{s}: argument requires a value", .{flag});
+            util_output.exit_with(.invalid_arguments, "{s}: argument requires a value", .{flag});
         },
         error.MissingOptionValueSeparator => {
             const flag = option_display_name(find_first_command_option(remaining_args));
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "{s}: expected value separator '='; use '{s}=<value>'",
                 .{ flag, flag },
@@ -558,27 +558,27 @@ fn parse_command_args_or_fatal(
         },
         error.TrailingOption => {
             const flag = find_trailing_command_option(remaining_args);
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "unexpected trailing option '{s}' in {s} command; place options before positional arguments",
                 .{ flag, command_name },
             );
         },
         error.ShellNameTooLong => {
-            util_output.fatal(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
+            util_output.exit_with(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
         },
         error.EmptyHelpTopic => {
-            util_output.fatal(.invalid_arguments, "help topic cannot be empty", .{});
+            util_output.exit_with(.invalid_arguments, "help topic cannot be empty", .{});
         },
         error.HelpTopicTooLong => {
-            util_output.fatal(.invalid_arguments, "help topic too long (maximum: 32 characters)", .{});
+            util_output.exit_with(.invalid_arguments, "help topic too long (maximum: 32 characters)", .{});
         },
         error.TooManyArguments => {
-            util_output.fatal(.invalid_arguments, "too many arguments for {s} command", .{command_name});
+            util_output.exit_with(.invalid_arguments, "too many arguments for {s} command", .{command_name});
         },
         error.DuplicateOption => {
             const flag = find_invalid_command_option(command_name, remaining_args);
-            util_output.fatal(.invalid_arguments, "duplicate option in {s} command: '{s}'", .{
+            util_output.exit_with(.invalid_arguments, "duplicate option in {s} command: '{s}'", .{
                 command_name,
                 flag,
             });
@@ -602,10 +602,10 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
             fatal_unknown_global_option(find_invalid_global_option(arguments));
         },
         error.UnknownGlobalShortOption => {
-            util_output.fatal(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
+            util_output.exit_with(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
         },
         error.DuplicateGlobalOption => {
-            util_output.fatal(.invalid_arguments, "duplicate global option: '{s}'", .{find_invalid_global_option(arguments)});
+            util_output.exit_with(.invalid_arguments, "duplicate global option: '{s}'", .{find_invalid_global_option(arguments)});
         },
     };
 

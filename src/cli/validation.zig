@@ -785,24 +785,24 @@ const shell_names = [_][]const u8{
 
 fn fatal_unknown_help_topic(topic: []const u8) noreturn {
     if (edit_distance.nearest(topic, &help_topic_names)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown help topic '{s}'\n\n  Did you mean '{s}'?",
             .{ topic, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown help topic '{s}'", .{topic});
+    util_output.exit_with(.invalid_arguments, "unknown help topic '{s}'", .{topic});
 }
 
 fn fatal_unknown_shell(shell: []const u8) noreturn {
     if (edit_distance.nearest(shell, &shell_names)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
             "unknown shell type '{s}'\n\n  Did you mean '{s}'?",
             .{ shell, suggestion },
         );
     }
-    util_output.fatal(
+    util_output.exit_with(
         .invalid_arguments,
         "unknown shell type '{s}' (supported: bash, zsh, fish, powershell)",
         .{shell},
@@ -958,39 +958,39 @@ fn validate_install(args: CommandArgs.InstallArgs) !ValidatedCommand.InstallComm
     const version_str = args.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
                 .{version_str},
             );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "too many version parts in '{s}' (expected core: x.y.z)",
                 .{version_str},
             );
         },
         error.InvalidMajorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidMinorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidPatchVersion => {
-            util_output.fatal(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
         },
         error.MajorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.MinorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.PatchVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
+            util_output.exit_with(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 
@@ -1008,7 +1008,7 @@ fn validate_install(args: CommandArgs.InstallArgs) !ValidatedCommand.InstallComm
     // Apply business rule validation
     install_cmd.validate_business_rules() catch |err| switch (err) {
         error.IncompatibleZLSVersion => {
-            util_output.fatal(.invalid_arguments, "ZLS version '{s}' is incompatible (requires Zig >= 0.11.0)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "ZLS version '{s}' is incompatible (requires Zig >= 0.11.0)", .{version_str});
         },
     };
 
@@ -1019,39 +1019,39 @@ fn validate_remove(args: CommandArgs.RemoveArgs) !ValidatedCommand.RemoveCommand
     const version_str = args.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
                 .{version_str},
             );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "too many version parts in '{s}' (expected core: x.y.z)",
                 .{version_str},
             );
         },
         error.InvalidMajorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidMinorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidPatchVersion => {
-            util_output.fatal(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
         },
         error.MajorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.MinorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.PatchVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
+            util_output.exit_with(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 
@@ -1070,39 +1070,39 @@ fn validate_use(args: CommandArgs.UseArgs) !ValidatedCommand.UseCommand {
     const version_str = args.get_version();
     const version_spec = VersionSpec.parse(version_str) catch |err| switch (err) {
         error.InvalidVersionFormat => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "invalid version format: '{s}' (expected: x.y.z[-prerelease][+build] or 'master')",
                 .{version_str},
             );
         },
         error.TooManyVersionParts => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "too many version parts in '{s}' (expected core: x.y.z)",
                 .{version_str},
             );
         },
         error.InvalidMajorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid major version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidMinorVersion => {
-            util_output.fatal(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid minor version in '{s}' (must be a number)", .{version_str});
         },
         error.InvalidPatchVersion => {
-            util_output.fatal(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "invalid patch version in '{s}' (must be a number)", .{version_str});
         },
         error.MajorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "major version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.MinorVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "minor version too large in '{s}' (maximum: 99)", .{version_str});
         },
         error.PatchVersionTooLarge => {
-            util_output.fatal(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "patch version too large in '{s}' (maximum: 999)", .{version_str});
         },
         error.LatestNotSupported => {
-            util_output.fatal(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
+            util_output.exit_with(.invalid_arguments, "'latest' is not supported. Use 'master' for the development version or a specific version like '0.16.0'", .{});
         },
     };
 
@@ -1120,7 +1120,7 @@ fn validate_use(args: CommandArgs.UseArgs) !ValidatedCommand.UseCommand {
     // Apply business rule validation
     use_cmd.validate_business_rules() catch |err| switch (err) {
         error.IncompatibleZLSVersion => {
-            util_output.fatal(.invalid_arguments, "ZLS version '{s}' is incompatible (requires Zig >= 0.11.0)", .{version_str});
+            util_output.exit_with(.invalid_arguments, "ZLS version '{s}' is incompatible (requires Zig >= 0.11.0)", .{version_str});
         },
     };
 
@@ -1175,7 +1175,7 @@ fn validate_completions(args: CommandArgs.CompletionsArgs) !ValidatedCommand.Com
     else blk: {
         // Try to detect shell from environment if not provided
         break :blk detect_shell_from_environment() orelse {
-            util_output.fatal(.invalid_arguments, "completions command requires a shell argument or SHELL environment variable", .{});
+            util_output.exit_with(.invalid_arguments, "completions command requires a shell argument or SHELL environment variable", .{});
         };
     };
 

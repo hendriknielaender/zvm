@@ -55,19 +55,17 @@ pub fn emit_env(
     var text_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
     const text = try build_env_text(shell_kind, zvm_bin_path, zvm_config_dir, &text_buffer);
     assert(text.len > 0);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "shell", .value = .{ .string = shell_name } },
             .{ .key = "config_dir", .value = .{ .string = zvm_config_dir } },
             .{ .key = "text", .value = .{ .string = text } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(text);
+    util_output.emit_json(.{ .text = text });
 }
 
 pub fn run(

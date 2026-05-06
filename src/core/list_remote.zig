@@ -29,35 +29,33 @@ pub fn list_remote(
 
     var version_names: [limits.limits.versions_maximum][]const u8 = undefined;
     copy_version_names(version_entries_storage[0..version_count], &version_names);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = command.tool.to_string() } },
             .{ .key = "available", .value = .{ .array_strings = version_names[0..version_count] } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    if (emitter.config.mode == .plain) {
+    if (util_output.output_mode() == .plain) {
         // Plain: one version per line, no header. The tool is implicit in
         // the invocation (`zvm --plain ls-remote --zls ...`), so a single
         // column suffices for shell pipelines.
         for (version_names[0..version_count]) |version| {
-            util_output.print_text(version);
+            util_output.emit_json(.{ .text = version });
         }
         return;
     }
 
     if (command.tool == .zls) {
-        util_output.info("Available ZLS versions:", .{});
+        util_output.emit(.info, "Available ZLS versions:", .{});
     } else {
-        util_output.info("Available Zig versions:", .{});
+        util_output.emit(.info, "Available Zig versions:", .{});
     }
 
     for (version_names[0..version_count]) |version| {
-        util_output.info("  {s}", .{version});
+        util_output.emit(.info, "  {s}", .{version});
     }
 }
 

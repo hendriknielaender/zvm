@@ -20,14 +20,13 @@ pub fn remove_installed(
 
     const version_str = command.get_version();
     const is_zls = command.tool == .zls;
-    const emitter = util_output.get_global();
-    const json_mode = emitter.config.mode == .machine_json;
+    const json_mode = util_output.output_mode() == .machine_json;
 
     const removing_active = is_active_version(ctx, version_str, is_zls);
 
     if (!ctx.assume_yes and removing_active) {
         if (json_mode) {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "removing the active {s} version requires --yes in --json mode",
                 .{command.tool.to_string()},
@@ -42,19 +41,19 @@ pub fn remove_installed(
         ) catch unreachable;
 
         const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
-            error.RequiresConfirmation => util_output.fatal(
+            error.RequiresConfirmation => util_output.exit_with(
                 .invalid_arguments,
                 "removing the active {s} version requires --yes (stdin is not a terminal or --no-input was set)",
                 .{command.tool.to_string()},
             ),
-            error.StdinReadFailed => util_output.fatal(
+            error.StdinReadFailed => util_output.exit_with(
                 .invalid_arguments,
                 "failed to read confirmation from stdin",
                 .{},
             ),
         };
         if (!confirmed) {
-            util_output.info("Aborted: {s} version {s} not removed.", .{ command.tool.to_string(), version_str });
+            util_output.emit(.info, "Aborted: {s} version {s} not removed.", .{ command.tool.to_string(), version_str });
             return;
         }
     }
@@ -67,11 +66,11 @@ pub fn remove_installed(
             .{ .key = "version", .value = .{ .string = version_str } },
             .{ .key = "status", .value = .{ .string = "removed" } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.success("Removed {s} version {s}", .{ command.tool.to_string(), version_str });
+    util_output.emit(.success, "Removed {s} version {s}", .{ command.tool.to_string(), version_str });
 }
 
 pub fn run(

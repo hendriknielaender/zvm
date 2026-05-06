@@ -38,14 +38,16 @@ pub fn upgrade(
     const latest_tag = try fetch_latest_tag(ctx, &tag_storage, progress_node);
 
     if (!is_upgrade_needed(latest_tag, options.version)) {
-        util_output.success(
+        util_output.emit(
+            .success,
             "zvm is already at the latest version (current: {s}, latest tag: {s}).",
             .{ options.version, latest_tag },
         );
         return;
     }
 
-    util_output.info(
+    util_output.emit(
+        .info,
         "Upgrading zvm from {s} to {s}...",
         .{ options.version, latest_tag },
     );
@@ -95,7 +97,7 @@ pub fn upgrade(
 
     try replace_self_binary(ctx, self_path, new_binary_path);
 
-    util_output.success("Upgraded zvm to {s}.", .{latest_tag});
+    util_output.emit(.success, "Upgraded zvm to {s}.", .{latest_tag});
 }
 
 pub fn run(

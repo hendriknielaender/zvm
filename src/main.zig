@@ -54,12 +54,7 @@ fn log_message(
         return;
     }
 
-    const config = util_output.get_global_config() orelse {
-        std.log.defaultLog(message_level, scope, format, args);
-        return;
-    };
-
-    if (config.mode != .human_readable) return;
+    if (util_output.output_mode() != .human_readable) return;
     if (message_level == .err) return;
 
     std.log.defaultLog(message_level, scope, format, args);
@@ -174,7 +169,7 @@ pub fn main(process_init: std.process.Init) !void {
         .mode = .human_readable,
         .color = initial_color,
     };
-    _ = try util_output.init_global(default_output_config);
+    try util_output.set_mode(default_output_config);
 
     // Pre-scan for verbose flags so parse-error fatals respect --verbose.
     // Why: parser.parse_command_line emits its own fatals (unknown option,
@@ -185,7 +180,7 @@ pub fn main(process_init: std.process.Init) !void {
     util_output.set_verbose_level(prescan_verbose_level(arguments));
 
     const parsed_command_line = parser.parse_command_line(arguments) catch |err| {
-        util_output.fatal(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
+        util_output.exit_with(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
 
     // Resolve final color mode from parsed flags (which may override environment).
@@ -200,7 +195,7 @@ pub fn main(process_init: std.process.Init) !void {
         .mode = parsed_command_line.global_config.output_mode,
         .color = final_color,
     };
-    _ = try util_output.update_global(final_output_config);
+    try util_output.set_mode(final_output_config);
 
     // Resolve verbose level: explicit --verbose wins; otherwise honor the
     // legacy ZVM_DEBUG env var as a single-step debug equivalence. Why
@@ -222,7 +217,7 @@ pub fn main(process_init: std.process.Init) !void {
         arguments,
         process_init.io,
     ) catch |err| {
-        util_output.fatal(
+        util_output.exit_with(
             util_output.ExitCode.from_error(err),
             "Failed to initialize command context: {s}",
             .{@errorName(err)},
@@ -244,9 +239,9 @@ pub fn main(process_init: std.process.Init) !void {
         // Surface a debugging hint only when verbose is off — otherwise the
         // operator already has the trace lines and a second nudge is noise.
         if (!util_output.debug_enabled()) {
-            util_output.err("Re-run with --verbose for debug output, or --trace for trace output.", .{});
+            util_output.emit(.error_recoverable, "Re-run with --verbose for debug output, or --trace for trace output.", .{});
         }
-        util_output.fatal(
+        util_output.exit_with(
             util_output.ExitCode.from_error(err),
             "Command failed: {s}",
             .{@errorName(err)},

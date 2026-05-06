@@ -305,20 +305,18 @@ pub fn emit_help(
 ) !void {
     _ = ctx;
     _ = progress_node;
-
-    const emitter = util_output.get_global();
     const text = topic_text(command.topic);
 
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "topic", .value = .{ .string = topic_name(command.topic) } },
             .{ .key = "text", .value = .{ .string = text } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(text);
+    util_output.emit_json(.{ .text = text });
 }
 
 pub fn run(
@@ -339,7 +337,7 @@ test "help command executes without error" {
         .mode = .human_readable,
         .color = .never_use_color,
     };
-    _ = try util_output.init_global(output_config);
+    try util_output.set_mode(output_config);
 
     const command = validation.ValidatedCommand.HelpCommand{ .topic = .general };
     const progress_node = std.Progress.start(std.testing.io, .{ .root_name = "test" });

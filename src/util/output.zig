@@ -343,14 +343,25 @@ pub const MessageLevel = enum {
     }
 };
 
+pub const JsonPayload = union(enum) {
+    object: []const JsonField,
+    string_array: StringArray,
+    text: []const u8,
+
+    pub const StringArray = struct {
+        field_name: []const u8,
+        items: []const []const u8,
+    };
+};
+
 /// Centralized output management
-pub const OutputEmitter = struct {
+const OutputEmitter = struct {
     config: OutputConfig,
     stdout_buffer: [io_buffer_size_bytes]u8,
     stderr_buffer: [io_buffer_size_bytes]u8,
     message_buffer: [max_message_length_bytes]u8,
 
-    pub fn init(config: OutputConfig) OutputEmitter {
+    fn init(config: OutputConfig) OutputEmitter {
         config.validate(); // Assert valid configuration
 
         return OutputEmitter{
@@ -362,7 +373,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit success message to appropriate stream
-    pub fn emit_success(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_success(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         assert(message.len > 0);
         assert(message.len < 1024); // Reasonable message length
 
@@ -370,7 +381,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit informational message
-    pub fn emit_info(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_info(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         assert(message.len > 0);
         assert(message.len < 4096);
 
@@ -378,7 +389,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit warning message to stderr
-    pub fn emit_warning(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_warning(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         assert(message.len > 0);
         assert(message.len < 1024);
 
@@ -386,7 +397,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit recoverable error to stderr
-    pub fn emit_error(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
+    fn emit_error(self: *OutputEmitter, comptime message: []const u8, args: anytype) void {
         assert(message.len > 0);
         assert(message.len < 1024);
 
@@ -394,7 +405,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit fatal error and terminate program
-    pub fn emit_fatal(self: *OutputEmitter, exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
+    fn emit_fatal(self: *OutputEmitter, exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
         assert(message.len > 0);
         assert(message.len < 1024);
         assert(exit_code != .success); // Fatal errors never succeed
@@ -404,7 +415,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit JSON array of strings
-    pub fn emit_json_array(self: *OutputEmitter, comptime field_name: []const u8, items: []const []const u8) void {
+    fn emit_json_array(self: *OutputEmitter, field_name: []const u8, items: []const []const u8) void {
         assert(field_name.len > 0);
         assert(field_name.len < 64);
         assert(items.len <= limits.limits.versions_maximum);
@@ -435,7 +446,7 @@ pub const OutputEmitter = struct {
     }
 
     /// Emit JSON key-value pairs
-    pub fn emit_json_object(self: *OutputEmitter, fields: []const JsonField) void {
+    fn emit_json_object(self: *OutputEmitter, fields: []const JsonField) void {
         assert(fields.len > 0);
         assert(fields.len <= max_json_object_fields);
 
@@ -489,7 +500,7 @@ pub const OutputEmitter = struct {
         self.flush_stdout_buffer(writer_state.buffered());
     }
 
-    pub fn emit_text(self: *OutputEmitter, text: []const u8) void {
+    fn emit_text(self: *OutputEmitter, text: []const u8) void {
         assert(text.len > 0);
         assert(text.len <= io_buffer_size_bytes);
 
@@ -807,7 +818,7 @@ var global_emitter_initialized: bool = false;
 var global_emitter: ?*OutputEmitter = null;
 
 /// Initialize global output emitter with configuration
-pub fn init_global(config: OutputConfig) !*OutputEmitter {
+fn init_global(config: OutputConfig) !*OutputEmitter {
     config.validate();
 
     if (global_emitter != null) {
@@ -826,7 +837,7 @@ pub fn init_global(config: OutputConfig) !*OutputEmitter {
 }
 
 /// Update global output emitter configuration
-pub fn update_global(config: OutputConfig) !*OutputEmitter {
+fn update_global(config: OutputConfig) !*OutputEmitter {
     config.validate();
 
     if (global_emitter) |emitter| {
@@ -838,7 +849,7 @@ pub fn update_global(config: OutputConfig) !*OutputEmitter {
 }
 
 /// Get global output emitter instance
-pub fn get_global() *OutputEmitter {
+fn get_global() *OutputEmitter {
     return global_emitter orelse std.debug.panic("Output emitter not initialized - call init_global() first", .{});
 }
 
@@ -846,7 +857,7 @@ pub fn is_global_initialized() bool {
     return global_emitter_initialized;
 }
 
-pub fn get_global_config() ?OutputConfig {
+fn get_global_config() ?OutputConfig {
     if (global_emitter) |emitter| {
         return emitter.config;
     }
@@ -854,36 +865,35 @@ pub fn get_global_config() ?OutputConfig {
     return null;
 }
 
-pub fn success(comptime message: []const u8, args: anytype) void {
-    get_global().emit_success(message, args);
+pub fn output_mode() OutputMode {
+    return get_global().config.mode;
 }
 
-pub fn info(comptime message: []const u8, args: anytype) void {
-    get_global().emit_info(message, args);
+pub fn set_mode(config: OutputConfig) !void {
+    _ = try update_global(config);
 }
 
-pub fn warn(comptime message: []const u8, args: anytype) void {
-    get_global().emit_warning(message, args);
+pub fn should_color() bool {
+    const config = get_global_config() orelse return false;
+    return config.color.should_use_color();
 }
 
-pub fn err(comptime message: []const u8, args: anytype) void {
-    get_global().emit_error(message, args);
+pub fn emit(level: MessageLevel, comptime message: []const u8, args: anytype) void {
+    get_global().emit_message(level, message, args);
 }
 
-pub fn fatal(exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
-    get_global().emit_fatal(exit_code, message, args);
+pub fn emit_json(payload: JsonPayload) void {
+    switch (payload) {
+        .object => |fields| get_global().emit_json_object(fields),
+        .string_array => |array| get_global().emit_json_array(array.field_name, array.items),
+        .text => |text| get_global().emit_text(text),
+    }
 }
 
-pub fn json_array(comptime field_name: []const u8, items: []const []const u8) void {
-    get_global().emit_json_array(field_name, items);
-}
-
-pub fn json_object(fields: []const JsonField) void {
-    get_global().emit_json_object(fields);
-}
-
-pub fn print_text(message: []const u8) void {
-    get_global().emit_text(message);
+pub fn exit_with(exit_code: ExitCode, comptime message: []const u8, args: anytype) noreturn {
+    assert(exit_code != .success);
+    get_global().emit_message(.error_fatal, message, args);
+    std.process.exit(@intFromEnum(exit_code));
 }
 
 test "write_json_string escapes control characters" {
