@@ -23,6 +23,24 @@ fn is_prefixed_option(arg: []const u8) bool {
     return arg.len > 0 and arg[0] == '-';
 }
 
+fn parse_attached_option_value(arg: []const u8, comptime option_name: []const u8) ![]const u8 {
+    comptime {
+        assert(option_name.len >= 3);
+        assert(option_name[0] == '-');
+        assert(option_name[1] == '-');
+        assert(std.mem.indexOfScalar(u8, option_name, '=') == null);
+    }
+    assert(arg.len > 0);
+
+    if (!std.mem.startsWith(u8, arg, option_name)) return error.UnknownFlag;
+
+    const suffix = arg[option_name.len..];
+    if (suffix.len == 0) return error.MissingOptionValueSeparator;
+    if (suffix[0] != '=') return error.MissingOptionValueSeparator;
+    if (suffix.len == 1) return error.EmptyOptionValue;
+    return suffix[1..];
+}
+
 const VersionAndToolArgs = struct {
     version_arg: []const u8,
     is_zls: bool,
@@ -81,9 +99,7 @@ fn parse_version_and_tool_args(args: []const []const u8) !VersionAndToolArgs {
         }
 
         if (std.mem.eql(u8, arg, "--zls")) {
-            if (is_zls) return error.DuplicateOption;
-            is_zls = true;
-            continue;
+            return error.TrailingOption;
         }
         if (is_option_terminator(arg)) {
             if (i + 1 < args.len) {
@@ -422,14 +438,11 @@ fn parse_env_args(args: []const []const u8) !RawArgs.EnvArgs {
         }
         const arg = args[i];
         if (!std.mem.startsWith(u8, arg, "--shell=")) {
-            return error.UnknownFlag;
+            _ = try parse_attached_option_value(arg, "--shell");
         }
 
-        const shell_arg = arg["--shell=".len..];
+        const shell_arg = try parse_attached_option_value(arg, "--shell");
         if (env_args.shell_length != 0) return error.DuplicateOption;
-        if (shell_arg.len == 0) {
-            return error.EmptyShellArgument;
-        }
         if (shell_arg.len > max_shell_name_length) {
             return error.ShellNameTooLong;
         }

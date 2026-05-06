@@ -30,16 +30,8 @@ test "raw args parsing - install command with zls flag" {
     }
 }
 
-test "raw args parsing - install command keeps after-version zls compatibility" {
-    const install_raw = try raw_args.parse_raw_args("install", &.{ "0.11.0", "--zls" });
-
-    switch (install_raw) {
-        .install => |cmd| {
-            try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(true, cmd.is_zls);
-        },
-        else => return error.UnexpectedCommandType,
-    }
+test "raw args parsing - install command rejects option after version" {
+    try testing.expectError(error.TrailingOption, raw_args.parse_raw_args("install", &.{ "0.11.0", "--zls" }));
 }
 
 test "raw args parsing - use command with zls flag prefix" {
@@ -335,7 +327,12 @@ test "env command with attached shell option" {
 }
 
 test "env command rejects split shell option" {
-    try testing.expectError(error.UnknownFlag, raw_args.parse_raw_args("env", &.{ "--shell", "zsh" }));
+    try testing.expectError(error.MissingOptionValueSeparator, raw_args.parse_raw_args("env", &.{ "--shell", "zsh" }));
+}
+
+test "env command rejects malformed attached shell option" {
+    try testing.expectError(error.MissingOptionValueSeparator, raw_args.parse_raw_args("env", &.{"--shell:zsh"}));
+    try testing.expectError(error.EmptyOptionValue, raw_args.parse_raw_args("env", &.{"--shell="}));
 }
 
 test "command options reject duplicates" {

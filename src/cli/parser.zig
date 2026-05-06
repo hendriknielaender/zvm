@@ -362,6 +362,45 @@ fn find_invalid_command_option(command_name: []const u8, args: []const []const u
     return args[0];
 }
 
+fn find_first_command_option(args: []const []const u8) []const u8 {
+    assert(args.len > 0);
+
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (is_prefixed_option(arg)) return arg;
+    }
+
+    return args[0];
+}
+
+fn find_trailing_command_option(args: []const []const u8) []const u8 {
+    assert(args.len > 0);
+
+    var parsed_positional = false;
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (is_prefixed_option(arg)) {
+            if (parsed_positional) return arg;
+            continue;
+        }
+        parsed_positional = true;
+    }
+
+    return find_first_command_option(args);
+}
+
+fn option_display_name(arg: []const u8) []const u8 {
+    assert(arg.len > 0);
+
+    if (std.mem.indexOfScalar(u8, arg, '=')) |separator_index| {
+        return arg[0..separator_index];
+    }
+    if (std.mem.eql(u8, arg, "--shell") or std.mem.startsWith(u8, arg, "--shell")) {
+        return "--shell";
+    }
+    return arg;
+}
+
 fn command_option_valid(command_name: []const u8, arg: []const u8) bool {
     assert(command_name.len > 0);
     assert(arg.len > 0);
@@ -505,6 +544,26 @@ fn parse_raw_command_or_fatal(
         },
         error.EmptyShellArgument => {
             util_output.fatal(.invalid_arguments, "shell argument cannot be empty", .{});
+        },
+        error.EmptyOptionValue => {
+            const flag = option_display_name(find_first_command_option(remaining_args));
+            util_output.fatal(.invalid_arguments, "{s}: argument requires a value", .{flag});
+        },
+        error.MissingOptionValueSeparator => {
+            const flag = option_display_name(find_first_command_option(remaining_args));
+            util_output.fatal(
+                .invalid_arguments,
+                "{s}: expected value separator '='; use '{s}=<value>'",
+                .{ flag, flag },
+            );
+        },
+        error.TrailingOption => {
+            const flag = find_trailing_command_option(remaining_args);
+            util_output.fatal(
+                .invalid_arguments,
+                "unexpected trailing option '{s}' in {s} command; place options before positional arguments",
+                .{ flag, command_name },
+            );
         },
         error.ShellNameTooLong => {
             util_output.fatal(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
