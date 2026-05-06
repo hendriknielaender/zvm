@@ -259,6 +259,13 @@ fn apply_sandbox_overrides(
     // ZVM_HOME on every platform.
     try env_map.put("HOME", sandbox);
     try env_map.put("USERPROFILE", sandbox);
+    var appdata_buffer: [sandbox_path_max]u8 = undefined;
+    const appdata = try std.fmt.bufPrint(
+        &appdata_buffer,
+        "{s}{c}AppData{c}Roaming",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep },
+    );
+    try env_map.put("APPDATA", appdata);
     _ = env_map.array_hash_map.swapRemove("XDG_DATA_HOME");
     _ = env_map.array_hash_map.swapRemove("XDG_CONFIG_HOME");
     _ = env_map.array_hash_map.swapRemove("ZVM_CONFIG_HOME");
@@ -408,6 +415,17 @@ fn assert_not_contains(haystack: []const u8, needle: []const u8, label: []const 
     }
 }
 
+fn assert_env_config_dir(stdout: []const u8, sandbox: []const u8, label: []const u8) !void {
+    try assert_contains(stdout, "zvm config directory:", label);
+    if (builtin.os.tag == .windows) {
+        try assert_contains(stdout, sandbox, label);
+        try assert_contains(stdout, "AppData", label);
+        try assert_contains(stdout, "\\.zm", label);
+    } else {
+        try assert_contains(stdout, ".config/.zm", label);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Offline tests
 // ---------------------------------------------------------------------------
@@ -438,7 +456,7 @@ fn test_env_bash(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_zero(outcome, "env bash");
     try assert_contains(outcome.stdout, "export PATH=", "env bash export");
     try assert_contains(outcome.stdout, sandbox, "env bash sandbox path");
-    try assert_contains(outcome.stdout, ".config/.zm", "env bash config path");
+    try assert_env_config_dir(outcome.stdout, sandbox, "env bash config path");
 }
 
 fn test_env_zsh(suite: *const Suite, sandbox: []const u8) !void {
@@ -560,7 +578,7 @@ fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env bash override");
     try assert_contains(outcome.stdout, sandbox, "env bash uses ZVM_HOME");
-    try assert_contains(outcome.stdout, ".config/.zm", "env bash config fallback");
+    try assert_env_config_dir(outcome.stdout, sandbox, "env bash config fallback");
 
     // The override resolves to `<sandbox>{sep}.zm`; zvm appends `/bin`
     // (forward slash regardless of platform). Check both pieces appear
