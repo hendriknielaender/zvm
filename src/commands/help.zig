@@ -40,6 +40,15 @@ const general_help_text =
     \\    --all                   For list/clean, include Zig and ZLS versions
     \\    --shell <shell>         For env, specify shell type
     \\
+    \\ENVIRONMENT VARIABLES:
+    \\    ZVM_HOME                          Override the zvm install/data directory
+    \\    ZVM_DEBUG                         Enable debug logging when set to any value
+    \\    NO_COLOR                          Disable colored output when set to any value
+    \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 600,
+    \\                                      range 5..86400). Connect target 10s,
+    \\                                      idle target 30s; on timeout zvm falls
+    \\                                      through to the next mirror in list-mirrors.
+    \\
     \\EXAMPLES:
     \\    zvm -h
     \\    zvm --json list
