@@ -41,6 +41,8 @@ jobs:
         with:
           version: 0.16.0
       - name: Run e2e (online — downloads a Zig version)
+        env:
+          ZVM_DOWNLOAD_TIMEOUT_SECONDS: "60"
         run: zig build e2e -Donline=true
         timeout-minutes: 10
   lint:

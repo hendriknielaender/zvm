@@ -30,6 +30,7 @@ const sandbox_path_max: usize = 512;
 const argv_max: usize = 16;
 const stdio_limit_bytes: usize = 1 * 1024 * 1024;
 const online_zig_version: []const u8 = "0.13.0";
+const e2e_download_timeout_seconds: []const u8 = "60";
 
 const HarnessArgs = struct {
     zvm_bin: []const u8,
@@ -271,6 +272,10 @@ fn apply_sandbox_overrides(
     _ = env_map.array_hash_map.swapRemove("ZVM_CONFIG_HOME");
     // Disable colour codes so plain substring assertions on stdout work.
     try env_map.put("NO_COLOR", "1");
+    // Keep network-bound subprocesses below the CI job timeout. The
+    // production default is intentionally generous, but the e2e harness must
+    // fail with captured stdout/stderr instead of being killed by CI.
+    try env_map.put("ZVM_DOWNLOAD_TIMEOUT_SECONDS", e2e_download_timeout_seconds);
 }
 
 // ---------------------------------------------------------------------------

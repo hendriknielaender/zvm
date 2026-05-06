@@ -234,7 +234,7 @@ const FetchTask = struct {
         util_output.trace("GET {any}", .{self.uri});
 
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
-        const result = client.fetch(.{
+        const result = safe_fetch(&client, .{
             .location = .{ .uri = self.uri },
             .method = .GET,
             .headers = self.headers,
@@ -310,7 +310,7 @@ const DownloadTask = struct {
         util_output.trace("GET {any} (download)", .{self.uri});
 
         var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
-        const result = client.fetch(.{
+        const result = safe_fetch(&client, .{
             .location = .{ .uri = self.uri },
             .method = .GET,
             .headers = self.headers,
@@ -335,6 +335,75 @@ const DownloadTask = struct {
         };
     }
 };
+
+fn safe_fetch(client: *std.http.Client, options: std.http.Client.FetchOptions) anyerror!std.http.Client.FetchResult {
+    const uri = switch (options.location) {
+        .url => |url| try std.Uri.parse(url),
+        .uri => |parsed| parsed,
+    };
+    const method: std.http.Method = options.method orelse
+        if (options.payload != null) .POST else .GET;
+    const redirect_behavior: std.http.Client.Request.RedirectBehavior = options.redirect_behavior orelse
+        if (options.payload == null) @enumFromInt(3) else .unhandled;
+
+    var request = try std.http.Client.request(client, method, uri, .{
+        .redirect_behavior = redirect_behavior,
+        .headers = options.headers,
+        .extra_headers = options.extra_headers,
+        .privileged_headers = options.privileged_headers,
+        .keep_alive = options.keep_alive,
+    });
+    defer request.deinit();
+
+    if (options.payload) |payload| {
+        request.transfer_encoding = .{ .content_length = payload.len };
+        var body = try request.sendBodyUnflushed(&.{});
+        try body.writer.writeAll(payload);
+        try body.end();
+        try request.connection.?.flush();
+    } else {
+        try request.sendBodiless();
+    }
+
+    const redirect_buffer: []u8 = if (redirect_behavior == .unhandled)
+        &.{}
+    else
+        options.redirect_buffer orelse try client.allocator.alloc(u8, 8 * 1024);
+    defer if (options.redirect_buffer == null and redirect_behavior != .unhandled) {
+        client.allocator.free(redirect_buffer);
+    };
+
+    var response = try request.receiveHead(redirect_buffer);
+
+    const response_writer = options.response_writer orelse {
+        const reader = response.reader(&.{});
+        _ = reader.discardRemaining() catch |err| switch (err) {
+            error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
+        };
+        return .{ .status = response.head.status };
+    };
+
+    const decompress_buffer: []u8 = switch (response.head.content_encoding) {
+        .identity => &.{},
+        .zstd => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.zstd.default_window_len),
+        .deflate, .gzip => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.flate.max_window_len),
+        .compress => return error.UnsupportedCompressionMethod,
+    };
+    defer if (options.decompress_buffer == null and response.head.content_encoding != .identity) {
+        client.allocator.free(decompress_buffer);
+    };
+
+    var transfer_buffer: [64]u8 = undefined;
+    var decompress: std.http.Decompress = undefined;
+    const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
+
+    _ = reader.streamRemaining(response_writer) catch |err| switch (err) {
+        error.ReadFailed => return response.bodyErr() orelse error.ReadFailed,
+        else => |stream_err| return stream_err,
+    };
+
+    return .{ .status = response.head.status };
+}
 
 const InterruptWriter = struct {
     out: *std.Io.Writer,
