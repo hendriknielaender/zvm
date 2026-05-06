@@ -322,18 +322,6 @@ test "completions command with shell detection" {
     }
 }
 
-test "env command with shell option" {
-    const raw_env = try raw_args.parse_raw_args("env", &.{ "--shell", "zsh" });
-    const validated = try validation.validate_command(raw_env);
-
-    switch (validated) {
-        .env => |cmd| {
-            try testing.expectEqual(@as(?validation.ShellType, .zsh), cmd.shell);
-        },
-        else => return error.UnexpectedCommandType,
-    }
-}
-
 test "env command with attached shell option" {
     const raw_env = try raw_args.parse_raw_args("env", &.{"--shell=zsh"});
     const validated = try validation.validate_command(raw_env);
@@ -344,6 +332,18 @@ test "env command with attached shell option" {
         },
         else => return error.UnexpectedCommandType,
     }
+}
+
+test "env command rejects split shell option" {
+    try testing.expectError(error.UnknownFlag, raw_args.parse_raw_args("env", &.{ "--shell", "zsh" }));
+}
+
+test "command options reject duplicates" {
+    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("install", &.{ "--zls", "--zls", "0.11.0" }));
+    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("list", &.{ "--all", "--all" }));
+    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("list-remote", &.{ "--zls", "--zls" }));
+    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("clean", &.{ "--all", "--all" }));
+    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("env", &.{ "--shell=zsh", "--shell=bash" }));
 }
 
 test "list-remote command with tool selection" {

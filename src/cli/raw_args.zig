@@ -68,6 +68,7 @@ fn parse_version_and_tool_args(args: []const []const u8) !VersionAndToolArgs {
                 break;
             }
             if (std.mem.eql(u8, arg, "--zls")) {
+                if (is_zls) return error.DuplicateOption;
                 is_zls = true;
                 continue;
             }
@@ -80,6 +81,7 @@ fn parse_version_and_tool_args(args: []const []const u8) !VersionAndToolArgs {
         }
 
         if (std.mem.eql(u8, arg, "--zls")) {
+            if (is_zls) return error.DuplicateOption;
             is_zls = true;
             continue;
         }
@@ -355,6 +357,7 @@ fn parse_list_args(args: []const []const u8) !RawArgs.ListArgs {
             break;
         }
         if (std.mem.eql(u8, arg, "--all")) {
+            if (list_args.show_all) return error.DuplicateOption;
             list_args.show_all = true;
         } else {
             return error.UnknownFlag;
@@ -375,6 +378,7 @@ fn parse_list_remote_args(args: []const []const u8) !RawArgs.ListRemoteArgs {
             break;
         }
         if (std.mem.eql(u8, arg, "--zls")) {
+            if (list_remote_args.is_zls) return error.DuplicateOption;
             list_remote_args.is_zls = true;
         } else {
             return error.UnknownFlag;
@@ -395,6 +399,7 @@ fn parse_clean_args(args: []const []const u8) !RawArgs.CleanArgs {
             break;
         }
         if (std.mem.eql(u8, arg, "--all")) {
+            if (clean_args.remove_all) return error.DuplicateOption;
             clean_args.remove_all = true;
         } else {
             return error.UnknownFlag;
@@ -416,31 +421,12 @@ fn parse_env_args(args: []const []const u8) !RawArgs.EnvArgs {
             break;
         }
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "--shell")) {
-            if (i + 1 >= args.len) {
-                return error.UnknownFlag;
-            }
-
-            const shell_arg = args[i + 1];
-            if (shell_arg.len == 0) {
-                return error.EmptyShellArgument;
-            }
-            if (shell_arg.len > max_shell_name_length) {
-                return error.ShellNameTooLong;
-            }
-
-            env_args.shell_name = std.mem.zeroes([max_shell_name_length]u8);
-            @memcpy(env_args.shell_name.?[0..shell_arg.len], shell_arg);
-            env_args.shell_length = @intCast(shell_arg.len);
-            i += 2;
-            continue;
-        }
-
         if (!std.mem.startsWith(u8, arg, "--shell=")) {
             return error.UnknownFlag;
         }
 
         const shell_arg = arg["--shell=".len..];
+        if (env_args.shell_length != 0) return error.DuplicateOption;
         if (shell_arg.len == 0) {
             return error.EmptyShellArgument;
         }

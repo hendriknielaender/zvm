@@ -27,9 +27,9 @@ pub const GlobalConfig = struct {
     assume_yes: bool,
     /// Refuse to prompt; non-interactive invocations should fail fast.
     no_input: bool,
-    /// Verbosity level for diagnostic output. Set via `--verbose` / `-v`
-    /// (repeatable: `-vv` raises to trace). The legacy `ZVM_DEBUG` env var
-    /// is honored separately in main.zig for backward compatibility.
+    /// Verbosity level for diagnostic output. Set via `--verbose` or
+    /// `--trace`. The legacy `ZVM_DEBUG` env var is honored separately in
+    /// main.zig for backward compatibility.
     verbose: util_output.VerboseLevel,
 
     pub fn validate(self: GlobalConfig) void {
@@ -89,7 +89,7 @@ fn is_help_option(arg: []const u8) bool {
 }
 
 fn is_version_option(arg: []const u8) bool {
-    return std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-V");
+    return std.mem.eql(u8, arg, "--version");
 }
 
 fn is_prefixed_option(arg: []const u8) bool {
@@ -136,13 +136,11 @@ const global_option_names = [_][]const u8{
     "--no-color",
     "--yes",
     "--verbose",
+    "--trace",
     "--no-input",
     "--help",
     "-h",
     "--version",
-    "-V",
-    "-q",
-    "-v",
 };
 
 /// Tracks which global option groups have already been set.
@@ -155,6 +153,7 @@ const GlobalOptionTracker = struct {
     standard_command_set: bool = false,
     assume_yes_set: bool = false,
     no_input_set: bool = false,
+    verbose_set: bool = false,
 };
 
 fn apply_long_global_option(
@@ -213,11 +212,15 @@ fn apply_long_global_option(
         return;
     }
     if (std.mem.eql(u8, arg, "--verbose")) {
-        // Verbose is the documented exception to the no-duplicates rule:
-        // `--verbose --verbose` (and `-vv`) is the conventional way to ask
-        // for trace-level output. Each occurrence promotes one step,
-        // saturating at trace.
-        global_config.verbose = global_config.verbose.promote();
+        if (tracker.verbose_set) return error.DuplicateGlobalOption;
+        tracker.verbose_set = true;
+        global_config.verbose = .debug;
+        return;
+    }
+    if (std.mem.eql(u8, arg, "--trace")) {
+        if (tracker.verbose_set) return error.DuplicateGlobalOption;
+        tracker.verbose_set = true;
+        global_config.verbose = .trace;
         return;
     }
     if (std.mem.eql(u8, arg, "--no-input")) {
@@ -240,37 +243,21 @@ fn apply_long_global_option(
 }
 
 fn apply_short_global_option(
-    global_config: *GlobalConfig,
     standard_command: *?StandardCommand,
     tracker: *GlobalOptionTracker,
     option: u8,
 ) !void {
     switch (option) {
-        'q' => {
-            if (tracker.output_mode_set) return error.DuplicateGlobalOption;
-            tracker.output_mode_set = true;
-            global_config.output_mode = .silent_errors_only;
-        },
-        'v' => {
-            // Repeatable on purpose: `-vv` is trace. Saturating promotion.
-            global_config.verbose = global_config.verbose.promote();
-        },
         'h' => {
             if (tracker.standard_command_set) return error.DuplicateGlobalOption;
             tracker.standard_command_set = true;
             standard_command.* = .help;
-        },
-        'V' => {
-            if (tracker.standard_command_set) return error.DuplicateGlobalOption;
-            tracker.standard_command_set = true;
-            standard_command.* = .version;
         },
         else => return error.UnknownGlobalShortOption,
     }
 }
 
 fn apply_short_global_options(
-    global_config: *GlobalConfig,
     standard_command: *?StandardCommand,
     tracker: *GlobalOptionTracker,
     arg: []const u8,
@@ -278,7 +265,7 @@ fn apply_short_global_options(
     assert(is_short_option_cluster(arg));
 
     for (arg[1..]) |option| {
-        try apply_short_global_option(global_config, standard_command, tracker, option);
+        try apply_short_global_option(standard_command, tracker, option);
     }
 }
 
@@ -320,7 +307,7 @@ fn parse_global_prefix(arguments: []const []const u8) !GlobalPrefix {
             break;
         }
         if (is_short_option_cluster(arg)) {
-            try apply_short_global_options(&global_config, &standard_command, &tracker, arg);
+            try apply_short_global_options(&standard_command, &tracker, arg);
         } else if (is_long_option(arg)) {
             try apply_long_global_option(&global_config, &standard_command, &tracker, arg);
         } else {
@@ -351,7 +338,7 @@ fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
         if (!is_prefixed_option(arg)) break;
 
         if (is_short_option_cluster(arg)) {
-            apply_short_global_options(&global_config, &standard_command, &tracker, arg) catch return arg;
+            apply_short_global_options(&standard_command, &tracker, arg) catch return arg;
         } else if (is_long_option(arg)) {
             apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch return arg;
         } else {
@@ -411,7 +398,7 @@ fn command_option_suggestion(command_name: []const u8, flag: []const u8) ?[]cons
 
     const version_tool_options = [_][]const u8{"--zls"};
     const list_options = [_][]const u8{"--all"};
-    const env_options = [_][]const u8{"--shell"};
+    const env_options = [_][]const u8{"--shell=<shell>"};
 
     if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
         return edit_distance.nearest(flag, &version_tool_options);
@@ -461,6 +448,13 @@ fn fatal_unknown_global_option(flag: []const u8) noreturn {
 }
 
 fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) noreturn {
+    if (std.mem.eql(u8, command_name, "env") and std.mem.eql(u8, flag, "--shell")) {
+        util_output.fatal(
+            .invalid_arguments,
+            "unknown flag '{s}' in env command\n\n  Use '--shell=<shell>' (for example, '--shell=zsh').",
+            .{flag},
+        );
+    }
     if (command_option_suggestion(command_name, flag)) |suggestion| {
         util_output.fatal(
             .invalid_arguments,
@@ -523,6 +517,13 @@ fn parse_raw_command_or_fatal(
         },
         error.TooManyArguments => {
             util_output.fatal(.invalid_arguments, "too many arguments for {s} command", .{command_name});
+        },
+        error.DuplicateOption => {
+            const flag = find_invalid_command_option(command_name, remaining_args);
+            util_output.fatal(.invalid_arguments, "duplicate option in {s} command: '{s}'", .{
+                command_name,
+                flag,
+            });
         },
     };
 }
@@ -627,33 +628,27 @@ test "global option parsing honors the double dash terminator" {
     try testing.expectEqual(util_output.ColorMode.never_use_color, parsed.global_config.color_mode);
 }
 
-test "parse_command_line accepts standard short aliases" {
+test "parse_command_line accepts help short alias" {
     const testing = std.testing;
     const help_parsed = try parse_command_line(&.{ "zvm", "-h" });
-    const version_parsed = try parse_command_line(&.{ "zvm", "-V" });
 
     try testing.expect(std.meta.activeTag(help_parsed.command) == .help);
-    try testing.expect(std.meta.activeTag(version_parsed.command) == .version);
 }
 
-test "clustered short global options are supported" {
+test "non-help short global options are rejected" {
     const testing = std.testing;
-    const help_parsed = try parse_command_line(&.{ "zvm", "-qh" });
-    const version_parsed = try parse_command_line(&.{ "zvm", "-qV" });
-
-    try testing.expect(std.meta.activeTag(help_parsed.command) == .help);
-    try testing.expectEqual(util_output.OutputMode.silent_errors_only, help_parsed.global_config.output_mode);
-
-    try testing.expect(std.meta.activeTag(version_parsed.command) == .version);
-    try testing.expectEqual(util_output.OutputMode.silent_errors_only, version_parsed.global_config.output_mode);
+    try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-q" }));
+    try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-v" }));
+    try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-V" }));
+    try testing.expectError(error.UnknownGlobalShortOption, parse_global_prefix(&.{ "zvm", "-qh" }));
 }
 
 test "standard commands remain global regardless of prefix ordering" {
     const testing = std.testing;
-    const help_parsed = try parse_command_line(&.{ "zvm", "-h", "-q" });
-    const help_reversed = try parse_command_line(&.{ "zvm", "-q", "-h" });
     const version_parsed = try parse_command_line(&.{ "zvm", "--version", "--json" });
     const version_reversed = try parse_command_line(&.{ "zvm", "--json", "--version" });
+    const help_parsed = try parse_command_line(&.{ "zvm", "-h", "--quiet" });
+    const help_reversed = try parse_command_line(&.{ "zvm", "--quiet", "-h" });
 
     try testing.expect(std.meta.activeTag(help_parsed.command) == .help);
     try testing.expectEqual(util_output.OutputMode.silent_errors_only, help_parsed.global_config.output_mode);
@@ -755,17 +750,6 @@ test "parse_global_prefix rejects --help --version conflict" {
     try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--version", "--help" }));
 }
 
-test "parse_global_prefix rejects duplicate -q" {
-    const testing = std.testing;
-    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-q", "-q" }));
-}
-
-test "parse_global_prefix rejects -q and --quiet as duplicate" {
-    const testing = std.testing;
-    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-q", "--quiet" }));
-    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--quiet", "-q" }));
-}
-
 test "parse_global_prefix accepts --yes" {
     const testing = std.testing;
     const parsed = try parse_global_prefix(&.{ "zvm", "--yes", "remove" });
@@ -807,28 +791,21 @@ test "parse_global_prefix promotes verbose with --verbose long flag" {
     try testing.expectEqual(util_output.VerboseLevel.debug, parsed.global_config.verbose);
 }
 
-test "parse_global_prefix promotes to trace with two --verbose flags" {
+test "parse_global_prefix rejects duplicate --verbose" {
     const testing = std.testing;
-    const parsed = try parse_global_prefix(&.{ "zvm", "--verbose", "--verbose", "list" });
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--verbose", "--verbose", "list" }));
+}
+
+test "parse_global_prefix promotes to trace with --trace" {
+    const testing = std.testing;
+    const parsed = try parse_global_prefix(&.{ "zvm", "--trace", "list" });
     try testing.expectEqual(util_output.VerboseLevel.trace, parsed.global_config.verbose);
 }
 
-test "parse_global_prefix promotes verbose with -v short flag" {
+test "parse_global_prefix rejects --verbose --trace conflict" {
     const testing = std.testing;
-    const parsed = try parse_global_prefix(&.{ "zvm", "-v", "list" });
-    try testing.expectEqual(util_output.VerboseLevel.debug, parsed.global_config.verbose);
-}
-
-test "parse_global_prefix promotes to trace with clustered -vv" {
-    const testing = std.testing;
-    const parsed = try parse_global_prefix(&.{ "zvm", "-vv", "list" });
-    try testing.expectEqual(util_output.VerboseLevel.trace, parsed.global_config.verbose);
-}
-
-test "parse_global_prefix saturates at trace beyond two -v flags" {
-    const testing = std.testing;
-    const parsed = try parse_global_prefix(&.{ "zvm", "-vvvv", "list" });
-    try testing.expectEqual(util_output.VerboseLevel.trace, parsed.global_config.verbose);
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--verbose", "--trace", "list" }));
+    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "--trace", "--verbose", "list" }));
 }
 
 test "parse_global_prefix accepts --plain and forces never_use_color" {
@@ -870,6 +847,4 @@ test "parse_global_prefix rejects --plain --no-color conflict" {
 test "parse_global_prefix rejects duplicate short standard commands" {
     const testing = std.testing;
     try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-h", "-h" }));
-    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-V", "-V" }));
-    try testing.expectError(error.DuplicateGlobalOption, parse_global_prefix(&.{ "zvm", "-h", "-V" }));
 }

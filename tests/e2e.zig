@@ -451,7 +451,7 @@ fn test_list_empty(suite: *const Suite, sandbox: []const u8) !void {
 }
 
 fn test_env_bash(suite: *const Suite, sandbox: []const u8) !void {
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell", "bash" });
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=bash" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env bash");
     try assert_contains(outcome.stdout, "export PATH=", "env bash export");
@@ -460,7 +460,7 @@ fn test_env_bash(suite: *const Suite, sandbox: []const u8) !void {
 }
 
 fn test_env_zsh(suite: *const Suite, sandbox: []const u8) !void {
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell", "zsh" });
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=zsh" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env zsh");
     try assert_contains(outcome.stdout, "export PATH=", "env zsh export");
@@ -468,14 +468,14 @@ fn test_env_zsh(suite: *const Suite, sandbox: []const u8) !void {
 }
 
 fn test_env_fish(suite: *const Suite, sandbox: []const u8) !void {
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell", "fish" });
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=fish" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env fish");
     try assert_contains(outcome.stdout, "set -gx PATH", "env fish set -gx");
 }
 
 fn test_env_powershell(suite: *const Suite, sandbox: []const u8) !void {
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell", "powershell" });
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=powershell" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env powershell");
     try assert_contains(outcome.stdout, "$env:Path", "env powershell $env:Path");
@@ -574,7 +574,7 @@ fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
 fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
     // env output must reflect the ZVM_HOME we passed in, not any default
     // .zm beneath the developer's real HOME.
-    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell", "bash" });
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=bash" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "env bash override");
     try assert_contains(outcome.stdout, sandbox, "env bash uses ZVM_HOME");

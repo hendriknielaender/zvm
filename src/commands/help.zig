@@ -14,15 +14,15 @@ const general_help_text =
     \\GLOBAL OPTIONS:
     \\    --json              Output in JSON format (machine-readable)
     \\    --plain             Tabular output for shell pipelines (no headers, no color)
-    \\    --quiet, -q         Suppress non-error output
-    \\    --verbose, -v       Show debug output on stderr (repeat -vv for trace level
-    \\                        with HTTP request/response details and file paths)
+    \\    --quiet             Suppress non-error output
+    \\    --verbose           Show debug output on stderr
+    \\    --trace             Show trace output with HTTP details and file paths
     \\    --no-color          Disable colored output
     \\    --color             Force colored output
     \\    --yes               Skip confirmation prompts for destructive operations
     \\    --no-input          Refuse to prompt; non-interactive runs fail fast
     \\    --help, -h          Show this help message
-    \\    --version, -V       Show version information
+    \\    --version           Show version information
     \\
     \\COMMANDS:
     \\    install, i [--zls] <version>    Install a specific Zig or ZLS version
@@ -41,7 +41,7 @@ const general_help_text =
     \\COMMAND OPTIONS:
     \\    --zls                   For install/remove/use/list-remote, manage ZLS instead
     \\    --all                   For list/clean, include Zig and ZLS versions
-    \\    --shell <shell>         For env, specify shell type
+    \\    --shell=<shell>         For env, specify shell type
     \\
     \\ENVIRONMENT VARIABLES:
     \\    ZVM_HOME                          Override the zvm install/data directory
@@ -60,7 +60,7 @@ const general_help_text =
     \\    zvm list --help
     \\    zvm help install
     \\    zvm env --shell=zsh
-    \\    zvm -V
+    \\    zvm --version
     \\
 ;
 
@@ -193,19 +193,16 @@ const clean_help_text =
 
 const env_help_text =
     \\USAGE:
-    \\    zvm [GLOBAL_OPTIONS] env [--shell <shell>]
     \\    zvm [GLOBAL_OPTIONS] env [--shell=<shell>]
     \\
     \\DESCRIPTION:
     \\    Print shell setup instructions.
     \\
     \\OPTIONS:
-    \\    --shell <shell>         Explicit shell type: bash, zsh, fish, powershell
-    \\    --shell=<shell>         Equivalent attached-value form
+    \\    --shell=<shell>         Explicit shell type: bash, zsh, fish, powershell
     \\
     \\EXAMPLES:
     \\    zvm env
-    \\    zvm env --shell zsh
     \\    zvm env --shell=zsh
     \\
 ;
@@ -227,7 +224,6 @@ const version_help_text =
     \\USAGE:
     \\    zvm [GLOBAL_OPTIONS] version
     \\    zvm [GLOBAL_OPTIONS] --version
-    \\    zvm [GLOBAL_OPTIONS] -V
     \\
     \\DESCRIPTION:
     \\    Print the ZVM version.
@@ -235,7 +231,6 @@ const version_help_text =
     \\EXAMPLES:
     \\    zvm version
     \\    zvm --version
-    \\    zvm -V
     \\
 ;
 

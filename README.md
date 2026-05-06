@@ -179,8 +179,8 @@ zvm list --help
 # Use attached long-option values
 zvm env --shell=zsh
 
-# Use the short version alias
-zvm -V
+# Show the zvm version
+zvm --version
 
 # End option parsing explicitly
 zvm -- list
@@ -195,11 +195,11 @@ zvm -- list
 | Flag | Description |
 |------|-------------|
 | `--json` | Output in JSON format |
-| `--quiet`, `-q` | Suppress non-error output |
+| `--quiet` | Suppress non-error output |
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
 | `--help`, `-h` | Show help |
-| `--version`, `-V` | Show version |
+| `--version` | Show version |
 
 ### Environment Variables
 
