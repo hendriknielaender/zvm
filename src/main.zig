@@ -8,6 +8,7 @@ const memory_static = @import("memory/static_memory.zig");
 const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
 const paths = @import("platform/paths.zig");
+const signals = @import("platform/signals.zig");
 const metadata = @import("metadata.zig");
 const build_options = @import("options");
 
@@ -121,6 +122,7 @@ fn append_argument_to_static_storage(
 
 pub fn main(process_init: std.process.Init) !void {
     util_tool.set_environment_map(process_init.environ_map);
+    signals.install_handler();
 
     var arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
     var arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
@@ -267,6 +269,9 @@ pub fn main(process_init: std.process.Init) !void {
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
         root_node.end();
+        if (err == error.Interrupted) {
+            std.process.exit(@intFromEnum(util_output.ExitCode.interrupted));
+        }
         // Surface a debugging hint only when verbose is off — otherwise the
         // operator already has the trace lines and a second nudge is noise.
         if (!util_output.debug_enabled()) {

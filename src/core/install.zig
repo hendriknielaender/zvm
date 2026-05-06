@@ -13,9 +13,11 @@ const util_minimumisign = @import("../io/minisign.zig");
 const context = @import("../Context.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
+const signals = @import("../platform/signals.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.install);
 const Progress = std.Progress;
+const cleanup_timeout_seconds: u32 = 10;
 
 /// Helper function to download a file with hash verification
 /// This wraps HttpClient.downloadFile to provide the same interface as the old download_static
@@ -28,6 +30,7 @@ pub fn download_file_with_verification(
     progress_node: std.Progress.Node,
 ) !std.Io.File {
     defer progress_node.end();
+    try signals.check();
     var store_path_buffer = try ctx.acquire_path_buffer();
     defer store_path_buffer.reset();
     const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
@@ -44,6 +47,7 @@ pub fn download_file_with_verification(
             var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
             var file_reader = file.reader(ctx.io, &reader_buffer);
             while (true) {
+                try signals.check();
                 const byte_nums = try file_reader.interface.readSliceShort(&buffer);
                 if (byte_nums == 0) break;
                 sha256.update(buffer[0..byte_nums]);
@@ -63,6 +67,7 @@ pub fn download_file_with_verification(
     errdefer new_file.close(ctx.io);
 
     try http_client.HttpClient.download_file(ctx, uri, .{}, new_file, progress_node);
+    try signals.check();
 
     if (size) |expected_size| {
         const file_stat = try new_file.stat(ctx.io);
@@ -78,6 +83,7 @@ pub fn download_file_with_verification(
         var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
         var file_reader = new_file.reader(ctx.io, &reader_buffer);
         while (true) {
+            try signals.check();
             const bytes_read = try file_reader.interface.readSliceShort(&buffer);
             if (bytes_read == 0) break;
             sha256.update(buffer[0..bytes_read]);
@@ -170,11 +176,17 @@ fn install_zig(
         }
     }
 
+    errdefer |err| if (err == error.Interrupted) {
+        cleanup_interrupted_install(ctx, extract_path);
+    };
+
+    try signals.check();
     const tarball_file = try download_with_mirrors(ctx, version_data, root_node, &items_done);
     defer tarball_file.close(ctx.io);
 
     root_node.setCompletedItems(items_done);
 
+    try signals.check();
     try download_and_verify_signature(ctx, version_data, &items_done, root_node);
 
     var tarball_path_buffer = try ctx.acquire_path_buffer();
@@ -182,9 +194,22 @@ fn install_zig(
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
     const tarball_file_name = std.fs.path.basename(version_data.tarball());
     var tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
-    const tarball_path_slice = try std.fmt.bufPrint(&tarball_path_storage, "{s}/{s}", .{ zvm_store_path, tarball_file_name });
+    const tarball_path_slice = try std.fmt.bufPrint(
+        &tarball_path_storage,
+        "{s}/{s}",
+        .{ zvm_store_path, tarball_file_name },
+    );
 
-    try extract_and_install(ctx, extract_path, tarball_file, tarball_path_slice, false, &items_done, root_node);
+    try extract_and_install(
+        ctx,
+        extract_path,
+        tarball_file,
+        tarball_path_slice,
+        false,
+        &items_done,
+        root_node,
+    );
+    try signals.check();
     try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, false);
@@ -203,6 +228,77 @@ fn resolve_zig_version_root(
     assert(path.len <= storage.len);
     @memcpy(storage[0..path.len], path);
     return storage[0..path.len];
+}
+
+fn cleanup_interrupted_install(ctx: *context.CliContext, extract_path: []const u8) void {
+    assert(extract_path.len > 0);
+
+    signals.begin_cleanup();
+    defer signals.end_cleanup();
+
+    var stderr_buffer: [128]u8 = undefined;
+    var stderr_writer = std.Io.File.stderr().writer(ctx.io, &stderr_buffer);
+    stderr_writer.interface.writeAll("\ninterrupted, cleaning up...\n") catch {};
+    stderr_writer.interface.flush() catch {};
+
+    cleanup_delete_tree_with_timeout(ctx, extract_path) catch |err| {
+        log.warn("Interrupted cleanup failed for {s}: {s}", .{ extract_path, @errorName(err) });
+    };
+}
+
+fn cleanup_delete_tree_with_timeout(ctx: *context.CliContext, extract_path: []const u8) !void {
+    assert(extract_path.len > 0);
+    assert(cleanup_timeout_seconds > 0);
+
+    const Outcome = union(enum) {
+        completed: anyerror!void,
+        timed_out: void,
+    };
+
+    var select_buffer: [2]Outcome = undefined;
+    var select: std.Io.Select(Outcome) = .init(ctx.io, &select_buffer);
+    select.concurrent(.completed, cleanup_delete_tree, .{
+        ctx.io,
+        extract_path,
+    }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => return cleanup_delete_tree(ctx.io, extract_path),
+    };
+    select.concurrent(.timed_out, cleanup_sleep, .{
+        ctx.io,
+        cleanup_timeout_seconds,
+    }) catch |err| switch (err) {
+        error.ConcurrencyUnavailable => {
+            const outcome = select.await() catch |await_err| switch (await_err) {
+                error.Canceled => return error.Canceled,
+            };
+            return switch (outcome) {
+                .completed => |result| result,
+                .timed_out => unreachable,
+            };
+        },
+    };
+
+    const winner = select.await() catch |err| switch (err) {
+        error.Canceled => {
+            _ = select.cancel();
+            return error.Canceled;
+        },
+    };
+    _ = select.cancel();
+
+    switch (winner) {
+        .completed => |result| return result,
+        .timed_out => return error.CleanupTimeout,
+    }
+}
+
+fn cleanup_delete_tree(io: std.Io, extract_path: []const u8) !void {
+    try std.Io.Dir.cwd().deleteTree(io, extract_path);
+}
+
+fn cleanup_sleep(io: std.Io, seconds: u32) void {
+    const duration: std.Io.Duration = .fromSeconds(@intCast(seconds));
+    std.Io.sleep(io, duration, .awake) catch return;
 }
 
 fn compose_extract_path(
@@ -449,6 +545,8 @@ fn extract_and_install(
     assert(items_done.* >= 0);
 
     const extract_node = root_node.start("extracting zig", 0);
+    errdefer extract_node.end();
+    try signals.check();
 
     if (util_tool.does_path_exist(ctx.io, extract_path)) {
         try std.Io.Dir.cwd().deleteTree(ctx.io, extract_path);
@@ -662,6 +760,11 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     }
 
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
+    errdefer |err| if (err == error.Interrupted) {
+        cleanup_interrupted_install(ctx, extract_path);
+    };
+
+    try signals.check();
     const tarball_file = try download_zls(ctx, version_data, root_node);
     defer tarball_file.close(ctx.io);
 
@@ -673,6 +776,7 @@ fn install_zls(ctx: *context.CliContext, version: []const u8, root_node: Progres
     const zls_tarball_path = try std.fmt.bufPrint(&zls_tarball_path_storage, "{s}/{s}", .{ zvm_store_path, zls_tarball_name });
 
     try extract_zls(ctx, extract_path, tarball_file, zls_tarball_path, root_node);
+    try signals.check();
     try util_data.write_version_manifest(extract_path, version_data.version());
 
     try alias.set_version(ctx, version, true);
@@ -751,6 +855,7 @@ fn extract_zls(
     assert(extract_path.len > 0);
     assert(tarball_path.len > 0);
 
+    try signals.check();
     try util_tool.try_create_path(ctx.io, extract_path);
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
     defer extract_dir.close(ctx.io);
