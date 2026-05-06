@@ -88,6 +88,22 @@ pub fn clean(
     }
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.CleanCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try clean(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.CleanCommand) u16 {
+    if (command.remove_all) {
+        return 10;
+    } else {
+        return 5;
+    }
+}
+
 fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanup {
     var store_buffer = try ctx.scratch_path();
     defer store_buffer.release();

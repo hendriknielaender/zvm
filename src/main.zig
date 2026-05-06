@@ -34,16 +34,7 @@ comptime {
     _ = std.SemanticVersion.parse("0.13.0") catch @compileError("Semantic version parsing failed");
 }
 
-const alias = @import("core/alias.zig");
-const clean = @import("core/clean.zig");
-const completions = @import("core/completions.zig");
-const env = @import("core/env.zig");
-const help = @import("core/help.zig");
-const install = @import("core/install.zig");
-const list = @import("core/list.zig");
-const list_remote = @import("core/list_remote.zig");
-const remove_installed = @import("core/remove_installed.zig");
-const upgrade = @import("core/upgrade.zig");
+const command_runner = @import("core/command.zig");
 const shim = @import("shim.zig");
 
 // SAFETY: global_static_buffer is initialized before first use in main().
@@ -313,20 +304,7 @@ fn read_zvm_debug_env() bool {
 }
 
 fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedCommand) u16 {
-    return switch (command) {
-        .install => 5,
-        .remove => 2,
-        .list => 1,
-        .use => 2,
-        .list_remote => 3,
-        .list_mirrors => 0,
-        .help => 0,
-        .version => 0,
-        .clean => |opts| if (opts.remove_all) 10 else 5,
-        .env => 1,
-        .completions => 1,
-        .upgrade => 4,
-    };
+    return command_runner.progress_items(command);
 }
 
 fn execute_command(
@@ -334,83 +312,5 @@ fn execute_command(
     command: validation.ValidatedCommand,
     progress_node: std.Progress.Node,
 ) !void {
-    switch (command) {
-        .help => |opts| try help.emit_help(ctx, opts, progress_node),
-        .version => {
-            emit_version();
-        },
-        .list => |opts| try list.list_installed(ctx, opts, progress_node),
-        .list_remote => |opts| try list_remote.list_remote(ctx, opts, progress_node),
-        .list_mirrors => {
-            emit_mirrors();
-        },
-        .install => |opts| {
-            const version = opts.get_version();
-            try install.install(ctx, version, opts.tool == .zls, progress_node);
-        },
-        .remove => |opts| try remove_installed.remove_installed(ctx, opts, progress_node),
-        .use => |opts| {
-            const version = opts.get_version();
-            try alias.set_version(ctx, version, opts.tool == .zls);
-        },
-        .clean => |opts| try clean.clean(ctx, opts, progress_node),
-        .env => |opts| try env.emit_env(ctx, opts, progress_node),
-        .completions => |opts| try completions.generate_completions(ctx, opts, progress_node),
-        .upgrade => |opts| try upgrade.upgrade(ctx, opts, progress_node),
-    }
-}
-
-fn emit_version() void {
-    const emitter = util_output.get_global();
-
-    if (emitter.config.mode == .machine_json) {
-        const fields = [_]util_output.JsonField{
-            .{ .key = "name", .value = .{ .string = "zvm" } },
-            .{ .key = "version", .value = .{ .string = build_options.version } },
-        };
-        util_output.json_object(&fields);
-        return;
-    }
-
-    util_output.info("zvm {s}\n", .{build_options.version});
-}
-
-fn emit_mirrors() void {
-    const emitter = util_output.get_global();
-
-    if (emitter.config.mode == .machine_json) {
-        var mirror_urls: [metadata.zig_mirrors.len][]const u8 = undefined;
-        for (metadata.zig_mirrors, 0..) |mirror_info, index| {
-            mirror_urls[index] = mirror_info[0];
-        }
-        util_output.json_array("mirrors", mirror_urls[0..metadata.zig_mirrors.len]);
-        return;
-    }
-
-    if (emitter.config.mode == .plain) {
-        var line_buffer: [512]u8 = undefined;
-        for (metadata.zig_mirrors, 0..) |mirror_info, index| {
-            assert(index < 1024);
-            const url = mirror_info[0];
-            const maintainer = mirror_info[1];
-            assert(url.len > 0);
-            assert(maintainer.len > 0);
-            const line = std.fmt.bufPrint(
-                &line_buffer,
-                "{d}\t{s}\t{s}",
-                .{ index, url, maintainer },
-            ) catch continue;
-            util_output.print_text(line);
-        }
-        return;
-    }
-
-    util_output.info("Available download mirrors:\n", .{});
-    for (metadata.zig_mirrors, 0..) |mirror_info, index| {
-        const url = mirror_info[0];
-        const maintainer = mirror_info[1];
-        util_output.info("  {d}: {s} ({s})\n", .{ index, url, maintainer });
-    }
-    util_output.info("Usage: ZVM_MIRROR=<index> zvm install <version>\n", .{});
-    util_output.info("Example: ZVM_MIRROR=1 zvm install master\n", .{});
+    try command_runner.run(ctx, command, progress_node);
 }

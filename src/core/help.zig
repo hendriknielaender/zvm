@@ -321,6 +321,19 @@ pub fn emit_help(
     util_output.print_text(text);
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.HelpCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try emit_help(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.HelpCommand) u16 {
+    _ = command;
+    return 0;
+}
+
 test "help command executes without error" {
     const output_config = util_output.OutputConfig{
         .mode = .human_readable,

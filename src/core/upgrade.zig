@@ -98,6 +98,19 @@ pub fn upgrade(
     util_output.success("Upgraded zvm to {s}.", .{latest_tag});
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.UpgradeCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try upgrade(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.UpgradeCommand) u16 {
+    _ = command;
+    return 4;
+}
+
 /// Strip an optional `v`/`V` prefix that GitHub release tags conventionally carry.
 fn strip_release_tag_prefix(tag: []const u8) []const u8 {
     assert(tag.len > 0);

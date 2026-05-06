@@ -61,6 +61,19 @@ pub fn list_remote(
     }
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.ListRemoteCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try list_remote(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.ListRemoteCommand) u16 {
+    _ = command;
+    return 3;
+}
+
 fn load_version_entries(
     ctx: *context.CliContext,
     tool: validation.ToolType,

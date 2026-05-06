@@ -29,6 +29,19 @@ pub fn list_installed(
     try emit_all_versions(zig_versions[0..zig_count], zls_versions[0..zls_count]);
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.ListCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try list_installed(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.ListCommand) u16 {
+    _ = command;
+    return 1;
+}
+
 fn collect_versions(
     ctx: *context.CliContext,
     tool: validation.ToolType,

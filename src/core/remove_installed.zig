@@ -74,6 +74,19 @@ pub fn remove_installed(
     util_output.success("Removed {s} version {s}", .{ command.tool.to_string(), version_str });
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.RemoveCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try remove_installed(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.RemoveCommand) u16 {
+    _ = command;
+    return 2;
+}
+
 /// Decide whether removing `version_str` would tear down the active install.
 /// Why: removing an inactive version is low risk and shouldn't prompt; only
 /// the active install changes the user's PATH-resolved tool out from under them.

@@ -11,6 +11,7 @@ const util_tool = @import("../util/tool.zig");
 const http_client = @import("../io/http_client.zig");
 const util_minimumisign = @import("../io/minisign.zig");
 const context = @import("../Context.zig");
+const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
 const signals = @import("../platform/signals.zig");
 const assert = std.debug.assert;
@@ -274,6 +275,20 @@ pub fn install(
         try resolve_zig_release(ctx, &release, version);
     }
     try install_release(ctx, &release, root_node);
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.InstallCommand,
+    progress_node: Progress.Node,
+) !void {
+    const version = command.get_version();
+    try install(ctx, version, command.tool == .zls, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.InstallCommand) u16 {
+    _ = command;
+    return 5;
 }
 
 fn resolve_zig_release(

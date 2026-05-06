@@ -272,3 +272,16 @@ pub fn generate_completions(
 
     util_output.print_text(script);
 }
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.CompletionsCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try generate_completions(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.CompletionsCommand) u16 {
+    _ = command;
+    return 1;
+}

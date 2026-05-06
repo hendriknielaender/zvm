@@ -70,6 +70,19 @@ pub fn emit_env(
     util_output.print_text(text);
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.EnvCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try emit_env(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.EnvCommand) u16 {
+    _ = command;
+    return 1;
+}
+
 fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     assert(buffer.len > 0);
     const home_dir = ctx.get_home_dir();

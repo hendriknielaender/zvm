@@ -8,6 +8,7 @@ const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const util_output = @import("../util/output.zig");
 const context = @import("../Context.zig");
+const validation = @import("../cli/validation.zig");
 const object_pools = @import("../memory/object_pools.zig");
 const limits = @import("../memory/limits.zig");
 
@@ -70,6 +71,22 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try save_default_version(ctx, version);
         try verify_zig_version(ctx, version);
     }
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.UseCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    _ = progress_node;
+
+    const version = command.get_version();
+    try set_version(ctx, version, command.tool == .zls);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.UseCommand) u16 {
+    _ = command;
+    return 2;
 }
 
 fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, version: []const u8) !void {
