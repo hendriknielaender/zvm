@@ -268,6 +268,10 @@ pub fn install(
     assert(version.len > 0);
     assert(version.len < 100); // Reasonable version length
 
+    if (try switch_to_installed_release(ctx, version, is_zls)) {
+        return;
+    }
+
     var release: Release = undefined;
     if (is_zls) {
         try resolve_zls_release(ctx, &release, version);
@@ -275,6 +279,38 @@ pub fn install(
         try resolve_zig_release(ctx, &release, version);
     }
     try install_release(ctx, &release, root_node);
+}
+
+fn switch_to_installed_release(
+    ctx: *context.CliContext,
+    version: []const u8,
+    is_zls: bool,
+) !bool {
+    assert(version.len > 0);
+    assert(version.len < 100);
+
+    var version_root_buffer = try ctx.scratch(.path);
+    defer version_root_buffer.release();
+    const version_root = if (is_zls)
+        try util_data.get_zvm_zls_version(version_root_buffer)
+    else
+        try util_data.get_zvm_zig_version(version_root_buffer);
+
+    var install_path_buffer = try ctx.scratch(.path);
+    defer install_path_buffer.release();
+    const install_path = try install_path_buffer.set(
+        try std.fmt.bufPrint(install_path_buffer.slice(), "{s}/{s}", .{
+            version_root,
+            version,
+        }),
+    );
+
+    if (util_tool.does_path_exist(ctx.io, install_path)) {
+        try alias.set_version(ctx, version, is_zls);
+        return true;
+    }
+
+    return false;
 }
 
 pub fn run(

@@ -308,6 +308,8 @@ fn run_offline_suite(
         .{ .name = "command alias resolves without suggestion", .run = test_alias_no_suggestion },
         .{ .name = "install missing version exits non-zero", .run = test_install_missing_arg },
         .{ .name = "install bogus version exits non-zero", .run = test_install_bogus_version },
+        .{ .name = "install uses installed Zig before metadata", .run = test_install_uses_local_zig },
+        .{ .name = "install uses installed ZLS before metadata", .run = test_install_uses_local_zls },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
@@ -561,6 +563,59 @@ fn test_install_bogus_version(suite: *const Suite, sandbox: []const u8) !void {
     var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "install", "abc.def.ghi" });
     defer outcome.deinit(suite.gpa);
     try assert_exit_non_zero(outcome, "install bogus version");
+}
+
+fn test_install_uses_local_zig(suite: *const Suite, sandbox: []const u8) !void {
+    const version = "0.13.0";
+    try place_installed_version(suite, sandbox, "zig", version);
+
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "install", version });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "install local Zig");
+    try assert_contains(outcome.stdout, "Now using zig version 0.13.0", "install local Zig selected");
+}
+
+fn test_install_uses_local_zls(suite: *const Suite, sandbox: []const u8) !void {
+    const version = "0.13.0";
+    try place_installed_version(suite, sandbox, "zls", version);
+
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "install", "--zls", version });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "install local ZLS");
+    try assert_contains(outcome.stdout, "Now using zls version 0.13.0", "install local ZLS selected");
+}
+
+fn place_installed_version(
+    suite: *const Suite,
+    sandbox: []const u8,
+    tool: []const u8,
+    version: []const u8,
+) !void {
+    assert(sandbox.len > 0);
+    assert(tool.len > 0);
+    assert(version.len > 0);
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+
+    var version_path_buffer: [sandbox_path_max]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(
+        &version_path_buffer,
+        ".zm{c}version{c}{s}{c}{s}",
+        .{ std.fs.path.sep, std.fs.path.sep, tool, std.fs.path.sep, version },
+    );
+    try sandbox_dir.createDirPath(suite.process_init.io, version_path);
+
+    var manifest_path_buffer: [sandbox_path_max]u8 = undefined;
+    const manifest_path = try std.fmt.bufPrint(
+        &manifest_path_buffer,
+        "{s}{c}.zvm-version",
+        .{ version_path, std.fs.path.sep },
+    );
+    try sandbox_dir.writeFile(suite.process_init.io, .{
+        .sub_path = manifest_path,
+        .data = version,
+    });
 }
 
 fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
