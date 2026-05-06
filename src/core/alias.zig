@@ -9,7 +9,7 @@ const util_tool = @import("../util/tool.zig");
 const util_output = @import("../util/output.zig");
 const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
 
 const log = std.log.scoped(.alias);
@@ -19,20 +19,20 @@ const log = std.log.scoped(.alias);
 /// For Windows, this will copy the directory.
 pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) !void {
     // Create current directory path.
-    var current_dir_buffer = try ctx.scratch_path();
+    var current_dir_buffer = try ctx.scratch(.path);
     defer current_dir_buffer.release();
     const current_dir = try util_data.get_zvm_path_segment(current_dir_buffer, "current");
     try util_tool.try_create_path(ctx.io, current_dir);
 
     // Get version path.
-    var base_path_buffer = try ctx.scratch_path();
+    var base_path_buffer = try ctx.scratch(.path);
     defer base_path_buffer.release();
     const base_path = if (is_zls)
         try util_data.get_zvm_zls_version(base_path_buffer)
     else
         try util_data.get_zvm_zig_version(base_path_buffer);
 
-    var version_path_buffer = try ctx.scratch_path();
+    var version_path_buffer = try ctx.scratch(.path);
     defer version_path_buffer.release();
     const version_path = try version_path_buffer.set(
         try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
@@ -55,7 +55,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     };
 
     // Get symlink path.
-    var symlink_path_buffer = try ctx.scratch_path();
+    var symlink_path_buffer = try ctx.scratch(.path);
     defer symlink_path_buffer.release();
     const symlink_path = if (is_zls)
         try util_data.get_zvm_current_zls(symlink_path_buffer)
@@ -108,7 +108,7 @@ fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, v
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
-    var default_version_path_buffer = try ctx.scratch_path();
+    var default_version_path_buffer = try ctx.scratch(.path);
     defer default_version_path_buffer.release();
 
     const default_version_path = try util_data.get_zvm_path_segment(
@@ -159,7 +159,7 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
 
 /// Verify the current Zig version.
 fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !void {
-    var path_buffer = try ctx.scratch_path();
+    var path_buffer = try ctx.scratch(.path);
     defer path_buffer.release();
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
@@ -184,7 +184,7 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
 
 /// Verify the current zls version.
 fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !void {
-    var path_buffer = try ctx.scratch_path();
+    var path_buffer = try ctx.scratch(.path);
     defer path_buffer.release();
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 

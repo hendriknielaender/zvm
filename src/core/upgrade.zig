@@ -52,7 +52,7 @@ pub fn upgrade(
         .{ options.version, latest_tag },
     );
 
-    var platform_pool_buffer = try ctx.scratch_path();
+    var platform_pool_buffer = try ctx.scratch(.path);
     defer platform_pool_buffer.release();
     const platform_str = try core_install.get_platform_string_into_buffer(false, platform_pool_buffer);
 
@@ -227,7 +227,7 @@ fn extract_release_archive(
 ) ![]const u8 {
     assert(tag.len > 0);
 
-    var store_buffer = try ctx.scratch_path();
+    var store_buffer = try ctx.scratch(.path);
     defer store_buffer.release();
     const store_path = try util_data.get_zvm_path_segment(store_buffer, "store");
 
@@ -242,7 +242,7 @@ fn extract_release_archive(
     var archive_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const archive_path = try std.fmt.bufPrint(&archive_path_storage, "{s}/{s}", .{ store_path, archive_name });
 
-    var extract_op = try ctx.scratch_extract();
+    var extract_op = try ctx.scratch(.extract);
     defer extract_op.release();
 
     const extract_node = progress_node.start("extracting zvm release", 0);
@@ -255,7 +255,7 @@ fn extract_release_archive(
     // selects the strip behavior, not the tool.
     try util_extract.extract_static(
         ctx.io,
-        extract_op.operation,
+        extract_op.operation(),
         extract_dir,
         archive_file,
         file_type,

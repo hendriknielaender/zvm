@@ -118,7 +118,7 @@ const Release = struct {
         assert(version_root.len > 0);
         assert(version_text.len > 0);
 
-        var path_buffer = try ctx.scratch_path();
+        var path_buffer = try ctx.scratch(.path);
         defer path_buffer.release();
         const install_path = try path_buffer.set(
             try std.fmt.bufPrint(path_buffer.slice(), "{s}/{s}", .{ version_root, version_text }),
@@ -179,7 +179,7 @@ pub fn download_file_with_verification(
 ) !std.Io.File {
     defer progress_node.end();
     try signals.check();
-    var store_path_buffer = try ctx.scratch_path();
+    var store_path_buffer = try ctx.scratch(.path);
     defer store_path_buffer.release();
     const zvm_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
     var store = try std.Io.Dir.cwd().createDirPathOpen(ctx.io, zvm_path, .{});
@@ -301,7 +301,7 @@ fn resolve_zig_release(
 
     const is_master = util_tool.is_master_like_version(version);
 
-    var platform_buffer = try ctx.scratch_path();
+    var platform_buffer = try ctx.scratch(.path);
     defer platform_buffer.release();
     const platform_str = try get_platform_string_into_buffer(is_master, platform_buffer);
     const version_data = try fetch_version_data(ctx, platform_str, version);
@@ -345,7 +345,7 @@ fn resolve_zls_release(
 
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
 
-    var version_path_buffer = try ctx.scratch_path();
+    var version_path_buffer = try ctx.scratch(.path);
     defer version_path_buffer.release();
     const version_root = try util_data.get_zvm_zls_version(version_path_buffer);
 
@@ -443,7 +443,7 @@ fn release_add_mirror_url(
     assert(mirror_index < config.zig_mirrors.len);
     assert(file_name.len > 0);
 
-    var mirror_uri_buffer = try ctx.scratch_path();
+    var mirror_uri_buffer = try ctx.scratch(.path);
     defer mirror_uri_buffer.release();
     const mirror_url = config.zig_mirrors[mirror_index][0];
     const mirror_uri = try construct_mirror_url(mirror_uri_buffer, mirror_url, file_name);
@@ -470,7 +470,7 @@ fn acquire_release(
             continue;
         };
 
-        var node_name_buffer = try ctx.scratch_path();
+        var node_name_buffer = try ctx.scratch(.path);
         defer node_name_buffer.release();
         const label = if (release.kind == .zig) "download zig" else "download zls";
         _ = try std.fmt.bufPrint(node_name_buffer.slice(), "{s}: {s}", .{ label, download_url });
@@ -509,7 +509,7 @@ fn verify_release_signature(
     const tarball_name = std.fs.path.basename(tarball_url);
     assert(tarball_name.len > 0);
 
-    var sig_name_buffer = try ctx.scratch_path();
+    var sig_name_buffer = try ctx.scratch(.path);
     defer sig_name_buffer.release();
     const signature_file_name = try sig_name_buffer.print("{s}.minisig", .{tarball_name});
 
@@ -537,7 +537,7 @@ fn stage_release(
 ) !void {
     assert(release.extract_path().len > 0);
 
-    var tarball_path_buffer = try ctx.scratch_path();
+    var tarball_path_buffer = try ctx.scratch(.path);
     defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
     const tarball_file_name = std.fs.path.basename(release.download_url(0));
@@ -564,7 +564,7 @@ fn resolve_zig_version_root(
 ) ![]const u8 {
     assert(storage.len > 0);
 
-    var path_buffer = try ctx.scratch_path();
+    var path_buffer = try ctx.scratch(.path);
     defer path_buffer.release();
     const path = try util_data.get_zvm_zig_version(path_buffer);
     assert(path.len > 0);
@@ -728,11 +728,11 @@ fn verify_signature(
     assert(file_name.len > 0);
     assert(signature_file_name.len > 0);
 
-    var store_path_buffer = try ctx.scratch_path();
+    var store_path_buffer = try ctx.scratch(.path);
     defer store_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(store_path_buffer, "store");
 
-    var tarball_path_buffer = try ctx.scratch_path();
+    var tarball_path_buffer = try ctx.scratch(.path);
     defer tarball_path_buffer.release();
     const tarball_path = try tarball_path_buffer.set(
         try std.fmt.bufPrint(tarball_path_buffer.slice(), "{s}/{s}", .{
@@ -741,7 +741,7 @@ fn verify_signature(
         }),
     );
 
-    var sig_path_buffer = try ctx.scratch_path();
+    var sig_path_buffer = try ctx.scratch(.path);
     defer sig_path_buffer.release();
     const sig_path = try sig_path_buffer.set(
         try std.fmt.bufPrint(sig_path_buffer.slice(), "{s}/{s}", .{
@@ -787,7 +787,7 @@ fn extract_and_install(
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
     defer extract_dir.close(ctx.io);
 
-    var extract_op = try ctx.scratch_extract();
+    var extract_op = try ctx.scratch(.extract);
     defer extract_op.release();
 
     const file_type: util_extract.ExtractFileType = if (builtin.os.tag == .windows)
@@ -797,7 +797,7 @@ fn extract_and_install(
 
     util_extract.extract_static(
         ctx.io,
-        extract_op.operation,
+        extract_op.operation(),
         extract_dir,
         tarball_file,
         file_type,

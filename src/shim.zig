@@ -6,7 +6,7 @@ const Context = @import("Context.zig");
 const detect_version = @import("core/detect_version.zig");
 const install = @import("core/install.zig");
 const memory_limits = @import("memory/limits.zig");
-const memory_static = @import("memory/static_memory.zig");
+const memory_static = @import("memory.zig");
 const paths = @import("platform/paths.zig");
 const util_tool = @import("util/tool.zig");
 

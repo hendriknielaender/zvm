@@ -3,7 +3,7 @@ const std = @import("std");
 const config = @import("../metadata.zig");
 const limits = @import("../memory/limits.zig");
 const util_tool = @import("../util/tool.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const assert = std.debug.assert;
 
 const Token = std.json.Token;

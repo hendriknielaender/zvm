@@ -5,7 +5,7 @@ const validation = @import("../cli/validation.zig");
 const config = @import("../metadata.zig");
 const http_client = @import("../io/http_client.zig");
 const meta = @import("meta.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
 const version_entries_max = 100;
 

@@ -1,6 +1,6 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const paths = @import("../platform/paths.zig");
 const assert = std.debug.assert;
 

@@ -103,7 +103,7 @@ pub fn progress_items(command: validation.ValidatedCommand.CleanCommand) u16 {
 }
 
 fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanup {
-    var store_buffer = try ctx.scratch_path();
+    var store_buffer = try ctx.scratch(.path);
     defer store_buffer.release();
 
     const store_path = try util_data.get_zvm_store(store_buffer);
@@ -217,7 +217,7 @@ fn count_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.scratch_path();
+    var versions_path_buffer = try ctx.scratch(.path);
     defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
@@ -247,7 +247,7 @@ fn read_current_version(
     tool: validation.ToolType,
     version_buffer: []u8,
 ) !?[]const u8 {
-    var current_path_buffer = try ctx.scratch_path();
+    var current_path_buffer = try ctx.scratch(.path);
     defer current_path_buffer.release();
 
     const current_path = switch (tool) {
@@ -280,7 +280,7 @@ fn clean_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.scratch_path();
+    var versions_path_buffer = try ctx.scratch(.path);
     defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {

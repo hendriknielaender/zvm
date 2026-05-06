@@ -48,7 +48,7 @@ fn collect_versions(
     versions: *[limits.limits.versions_maximum][]const u8,
     storage: *[limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8,
 ) !usize {
-    var versions_path_buffer = try ctx.scratch_path();
+    var versions_path_buffer = try ctx.scratch(.path);
     defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {

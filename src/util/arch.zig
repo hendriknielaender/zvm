@@ -1,6 +1,6 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const context = @import("../Context.zig");
 const log = std.log.scoped(.arch);
 
@@ -99,7 +99,7 @@ pub fn platform_str_static(buffer: anytype, params: DetectParams) !?[]const u8 {
 
 /// Platform string for ZLS using static allocation.
 pub fn platform_str_for_zls(ctx: *context.CliContext) !?[]const u8 {
-    var buffer = try ctx.scratch_path();
+    var buffer = try ctx.scratch(.path);
     defer buffer.release();
 
     const params = DetectParams{

@@ -1,5 +1,5 @@
 const std = @import("std");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const assert = std.debug.assert;
 
 var environment_map: ?*const std.process.Environ.Map = null;
