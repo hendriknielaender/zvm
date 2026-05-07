@@ -37,6 +37,96 @@ pub const Zls = struct {
         }
     };
 
+    /// Parsed payload of the ZLS `select-version` endpoint, used for master
+    /// and pinned dev installs. Mirrors `VersionData` but carries a sha256
+    /// `shasum` (the GitHub releases path has no per-asset hash) and no
+    /// numeric asset id.
+    pub const MasterVersionData = struct {
+        version_buffer: [limits.limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
+        version_len: u32 = 0,
+        tarball_buffer: [limits.limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.limits.url_length_maximum]u8),
+        tarball_len: u32 = 0,
+        shasum: [64]u8 = std.mem.zeroes([64]u8),
+        size: u64 = 0,
+
+        pub fn version(self: *const MasterVersionData) []const u8 {
+            assert(self.version_len > 0);
+            return self.version_buffer[0..self.version_len];
+        }
+
+        pub fn tarball(self: *const MasterVersionData) []const u8 {
+            assert(self.tarball_len > 0);
+            return self.tarball_buffer[0..self.tarball_len];
+        }
+    };
+
+    /// Parses the response of the ZLS `select-version` endpoint and extracts
+    /// the entry for `platform_str` (e.g. `x86_64-linux`).
+    ///
+    /// Returns null when the endpoint reports an error payload (an object
+    /// containing `code`/`message` rather than per-platform entries) or when
+    /// the requested platform is missing from the response. The caller then
+    /// surfaces an `UnsupportedVersion` error with context.
+    pub fn get_master_version_data(
+        raw: []const u8,
+        platform_str: []const u8,
+    ) !?MasterVersionData {
+        assert(raw.len > 0);
+        assert(platform_str.len > 0);
+
+        var scanner: TokenScanner = undefined;
+        try scanner.init(raw);
+        defer scanner.deinit();
+
+        var version_data: MasterVersionData = .{};
+        var has_version = false;
+        var has_platform = false;
+        var has_error_code = false;
+
+        try scanner.expect_object_begin();
+        while (true) {
+            switch (try scanner.peek_token_type()) {
+                .object_end => {
+                    try scanner.expect_object_end();
+                    break;
+                },
+                .string => {
+                    var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                    const key = try scanner.next_string(key_buffer[0..]);
+                    if (util_tool.eql_str(key, "version")) {
+                        const parsed_version = try scanner.next_string(
+                            version_data.version_buffer[0..],
+                        );
+                        assert(parsed_version.len > 0);
+                        version_data.version_len = @intCast(parsed_version.len);
+                        has_version = true;
+                    } else if (util_tool.eql_str(key, "code")) {
+                        // Error payload sentinel: numeric `code` plus `message`.
+                        // Skip the value and remember to bail out at the end.
+                        try scanner.skip_value();
+                        has_error_code = true;
+                    } else if (util_tool.eql_str(key, platform_str)) {
+                        try parse_master_platform_entry(&scanner, &version_data);
+                        has_platform = true;
+                    } else {
+                        try scanner.skip_value();
+                    }
+                },
+                else => return error.UnexpectedToken,
+            }
+        }
+
+        if (has_error_code) return null;
+        if (!has_version) return null;
+        if (!has_platform) return null;
+        assert(version_data.version_len > 0);
+        assert(version_data.tarball_len > 0);
+        assert(version_data.size > 0);
+        return version_data;
+    }
+
     pub fn get_version_data(
         raw: []const u8,
         version: []const u8,
@@ -208,6 +298,46 @@ fn parse_asset(
     return true;
 }
 
+fn parse_master_platform_entry(
+    scanner: *TokenScanner,
+    version_data: *Zls.MasterVersionData,
+) !void {
+    try scanner.expect_object_begin();
+    var has_tarball = false;
+    var has_shasum = false;
+    var has_size = false;
+    while (true) {
+        switch (try scanner.peek_token_type()) {
+            .object_end => break,
+            .string => {
+                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                const key = try scanner.next_string(key_buffer[0..]);
+                if (util_tool.eql_str(key, "tarball")) {
+                    const tarball = try scanner.next_string(version_data.tarball_buffer[0..]);
+                    assert(tarball.len > 0);
+                    version_data.tarball_len = @intCast(tarball.len);
+                    has_tarball = true;
+                } else if (util_tool.eql_str(key, "shasum")) {
+                    const shasum = try scanner.next_string(version_data.shasum[0..]);
+                    if (shasum.len != version_data.shasum.len) return error.InvalidData;
+                    has_shasum = true;
+                } else if (util_tool.eql_str(key, "size")) {
+                    version_data.size = try scanner.next_u64();
+                    has_size = true;
+                } else {
+                    try scanner.skip_value();
+                }
+            },
+            else => return error.UnexpectedToken,
+        }
+    }
+    try scanner.expect_object_end();
+
+    if (!has_tarball) return error.InvalidData;
+    if (!has_shasum) return error.InvalidData;
+    if (!has_size) return error.InvalidData;
+}
+
 fn parse_tag_name(scanner: *TokenScanner, target_buffer: []u8) !?[]const u8 {
     try scanner.expect_object_begin();
     var tag_name: ?[]const u8 = null;
@@ -280,4 +410,67 @@ test "zls metadata parser rejects malformed top-level object" {
         error.UnexpectedToken,
         Zls.get_version_data(raw, "0.13.0", "aarch64-macos"),
     );
+}
+
+test "zls master parser extracts the requested platform entry" {
+    const raw =
+        \\{
+        \\  "version": "0.16.0-dev.418+abcdef0",
+        \\  "date": "2026-04-22",
+        \\  "x86_64-linux": {
+        \\    "tarball": "https://builds.zigtools.org/zls-x86_64-linux-0.16.0-dev.418+abcdef0.tar.xz",
+        \\    "shasum": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        \\    "size": "12345"
+        \\  },
+        \\  "aarch64-macos": {
+        \\    "tarball": "https://builds.zigtools.org/zls-aarch64-macos-0.16.0-dev.418+abcdef0.tar.xz",
+        \\    "shasum": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+        \\    "size": "23456"
+        \\  }
+        \\}
+    ;
+
+    const version_data = try Zls.get_master_version_data(raw, "x86_64-linux") orelse {
+        return error.ExpectedVersionData;
+    };
+
+    try std.testing.expectEqualStrings("0.16.0-dev.418+abcdef0", version_data.version());
+    try std.testing.expectEqualStrings(
+        "https://builds.zigtools.org/zls-x86_64-linux-0.16.0-dev.418+abcdef0.tar.xz",
+        version_data.tarball(),
+    );
+    try std.testing.expectEqual(@as(u64, 12345), version_data.size);
+    try std.testing.expectEqualStrings(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        version_data.shasum[0..],
+    );
+}
+
+test "zls master parser returns null for error payload" {
+    const raw =
+        \\{
+        \\  "code": 0,
+        \\  "message": "Zig 0.16.0-dev.X is not supported by ZLS"
+        \\}
+    ;
+
+    const version_data = try Zls.get_master_version_data(raw, "x86_64-linux");
+    try std.testing.expect(version_data == null);
+}
+
+test "zls master parser returns null when platform is missing" {
+    const raw =
+        \\{
+        \\  "version": "0.16.0-dev.418+abcdef0",
+        \\  "date": "2026-04-22",
+        \\  "aarch64-macos": {
+        \\    "tarball": "https://builds.zigtools.org/zls-aarch64-macos-0.16.0-dev.418+abcdef0.tar.xz",
+        \\    "shasum": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+        \\    "size": "23456"
+        \\  }
+        \\}
+    ;
+
+    const version_data = try Zls.get_master_version_data(raw, "x86_64-linux");
+    try std.testing.expect(version_data == null);
 }

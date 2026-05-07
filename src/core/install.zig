@@ -379,6 +379,14 @@ fn resolve_zls_release(
     }
     const platform_str = platform_str_buffer[0..platform_str_temp.len];
 
+    // Stable releases live in the GitHub releases index. Master and pinned
+    // dev builds live behind the `select-version` endpoint, which returns a
+    // different JSON shape (per-platform tarball + shasum + size).
+    if (util_tool.is_master_like_version(version)) {
+        try resolve_zls_master_release(ctx, release, version, platform_str);
+        return;
+    }
+
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
 
     var version_path_buffer = try ctx.scratch(.path);
@@ -394,6 +402,35 @@ fn resolve_zls_release(
 
     assert(release.download_urls_count == 1);
     assert(release.signature_url() == null);
+}
+
+fn resolve_zls_master_release(
+    ctx: *context.CliContext,
+    release: *Release,
+    version: []const u8,
+    platform_str: []const u8,
+) !void {
+    assert(version.len > 0);
+    assert(version.len < 100);
+    assert(platform_str.len > 0);
+    assert(util_tool.is_master_like_version(version));
+
+    const version_data = try fetch_zls_master_version_data(ctx, platform_str, version);
+
+    var version_path_buffer = try ctx.scratch(.path);
+    defer version_path_buffer.release();
+    const version_root = try util_data.get_zvm_zls_version(version_path_buffer);
+
+    release.init(.zls);
+    try release.set_version(version_data.version());
+    try release.set_extract_path_from_parts(ctx, version_root, release.version());
+    release.hash = version_data.shasum;
+    release.size = version_data.size;
+    try release.add_download_url(version_data.tarball());
+
+    assert(release.download_urls_count == 1);
+    assert(release.signature_url() == null);
+    assert(release.hash != null);
 }
 
 fn install_release(
@@ -919,6 +956,54 @@ fn fetch_zls_version_data(
         return error.UnsupportedVersion;
     };
 
+    assert(version_data.tarball().len > 0);
+    assert(version_data.size > 0);
+
+    return version_data;
+}
+
+/// Fetches and parses the ZLS `select-version` payload for a master/dev
+/// install. The endpoint expects the user-requested ZLS version (`master` or
+/// a pinned dev pin) as the `zig_version` query parameter, and we constrain
+/// compatibility to runtime so the response is the prebuilt tarball matching
+/// the active toolchain.
+fn fetch_zls_master_version_data(
+    ctx: *context.CliContext,
+    platform_str: []const u8,
+    version: []const u8,
+) !meta.Zls.MasterVersionData {
+    assert(platform_str.len > 0);
+    assert(version.len > 0);
+    assert(util_tool.is_master_like_version(version));
+
+    var url_buffer = try ctx.scratch(.path);
+    defer url_buffer.release();
+    const url = try url_buffer.set(try std.fmt.bufPrint(
+        url_buffer.slice(),
+        "{s}?zig_version={s}&compatibility=only-runtime",
+        .{ config.zls_select_version_url_base, version },
+    ));
+    assert(url.len > 0);
+    assert(url.len <= limits.limits.url_length_maximum);
+
+    const uri = std.Uri.parse(url) catch |err| {
+        log.err("Invalid ZLS select-version URL '{s}': {s}", .{ url, @errorName(err) });
+        return error.InvalidMetadataUrl;
+    };
+
+    const res = try http_client.HttpClient.fetch(ctx, uri, .{});
+    assert(res.len > 0);
+
+    const version_data = try meta.Zls.get_master_version_data(res, platform_str) orelse {
+        log.err("Unsupported ZLS master build for Zig '{s}' on platform '{s}'. The ZLS " ++
+            "select-version endpoint did not return an entry for this combination.", .{
+            version,
+            platform_str,
+        });
+        return error.UnsupportedVersion;
+    };
+
+    assert(version_data.version().len > 0);
     assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
 
