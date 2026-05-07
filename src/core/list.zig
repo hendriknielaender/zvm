@@ -5,7 +5,7 @@ const util_data = @import("../util/data.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
 
-pub fn execute(
+pub fn list_installed(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.ListCommand,
     progress_node: std.Progress.Node,
@@ -29,14 +29,27 @@ pub fn execute(
     try emit_all_versions(zig_versions[0..zig_count], zls_versions[0..zls_count]);
 }
 
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.ListCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try list_installed(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.ListCommand) u16 {
+    _ = command;
+    return 1;
+}
+
 fn collect_versions(
     ctx: *context.CliContext,
     tool: validation.ToolType,
     versions: *[limits.limits.versions_maximum][]const u8,
     storage: *[limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch(.path);
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
@@ -83,49 +96,47 @@ fn emit_plain_tagged_versions(tool_tag: []const u8, versions: []const []const u8
             "{s}\t{s}",
             .{ tool_tag, version },
         ) catch continue;
-        util_output.print_text(line);
+        util_output.emit_json(.{ .text = line });
     }
 }
 
 fn emit_zig_versions(versions: []const []const u8, version_count: usize) !void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
-        util_output.json_array("installed", versions);
+    if (util_output.output_mode() == .machine_json) {
+        util_output.emit_json(.{ .string_array = .{ .field_name = .installed, .items = versions } });
         return;
     }
 
-    if (emitter.config.mode == .plain) {
+    if (util_output.output_mode() == .plain) {
         // Plain: one version per line, no header. Why: `zvm --plain list | wc -l`
         // must return the installed count exactly.
         for (versions) |version| {
-            util_output.print_text(version);
+            util_output.emit_json(.{ .text = version });
         }
         return;
     }
 
     if (version_count == 0) {
-        util_output.warn("No Zig versions installed.", .{});
+        util_output.emit(.warning, "No Zig versions installed.", .{});
         return;
     }
 
-    util_output.info("Installed Zig versions:", .{});
+    util_output.emit(.info, "Installed Zig versions:", .{});
     for (versions) |version| {
-        util_output.info("  {s}", .{version});
+        util_output.emit(.info, "  {s}", .{version});
     }
 }
 
 fn emit_all_versions(zig_versions: []const []const u8, zls_versions: []const []const u8) !void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "zig", .value = .{ .array_strings = zig_versions } },
             .{ .key = "zls", .value = .{ .array_strings = zls_versions } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    if (emitter.config.mode == .plain) {
+    if (util_output.output_mode() == .plain) {
         // Plain --all: tool\tversion per line. Why: a single column would
         // collapse zig and zls entries together; the tool tag disambiguates.
         emit_plain_tagged_versions("zig", zig_versions);
@@ -134,25 +145,25 @@ fn emit_all_versions(zig_versions: []const []const u8, zls_versions: []const []c
     }
 
     if (zig_versions.len == 0 and zls_versions.len == 0) {
-        util_output.warn("No Zig or ZLS versions installed.", .{});
+        util_output.emit(.warning, "No Zig or ZLS versions installed.", .{});
         return;
     }
 
     if (zig_versions.len > 0) {
-        util_output.info("Installed Zig versions:", .{});
+        util_output.emit(.info, "Installed Zig versions:", .{});
         for (zig_versions) |version| {
-            util_output.info("  {s}", .{version});
+            util_output.emit(.info, "  {s}", .{version});
         }
     }
 
     if (zls_versions.len > 0) {
         if (zig_versions.len > 0) {
-            util_output.print_text("\n");
+            util_output.emit_json(.{ .text = "\n" });
         }
 
-        util_output.info("Installed ZLS versions:", .{});
+        util_output.emit(.info, "Installed ZLS versions:", .{});
         for (zls_versions) |version| {
-            util_output.info("  {s}", .{version});
+            util_output.emit(.info, "  {s}", .{version});
         }
     }
 }

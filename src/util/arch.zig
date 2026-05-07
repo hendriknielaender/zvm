@@ -1,6 +1,6 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const context = @import("../Context.zig");
 const log = std.log.scoped(.arch);
 
@@ -72,7 +72,7 @@ pub fn platform_str(comptime params: DetectParams) !?[]const u8 {
 }
 
 /// Runtime version of platform_str using static allocation.
-pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParams) !?[]const u8 {
+pub fn platform_str_static(buffer: anytype, params: DetectParams) !?[]const u8 {
     const os_str = os_to_string(params.os) orelse {
         log.err("Unsupported operating system: {s}. Supported: windows, linux, macos", .{@tagName(params.os)});
         return error.UnsupportedSystem;
@@ -99,8 +99,8 @@ pub fn platform_str_static(buffer: *object_pools.PathBuffer, params: DetectParam
 
 /// Platform string for ZLS using static allocation.
 pub fn platform_str_for_zls(ctx: *context.CliContext) !?[]const u8 {
-    var buffer = try ctx.acquire_path_buffer();
-    defer buffer.reset();
+    var buffer = try ctx.scratch(.path);
+    defer buffer.release();
 
     const params = DetectParams{
         .os = @import("builtin").os.tag,

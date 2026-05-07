@@ -1,7 +1,6 @@
 const std = @import("std");
 const limits = @import("memory/limits.zig");
-const object_pools = @import("memory/object_pools.zig");
-const static_memory = @import("memory/static_memory.zig");
+const memory = @import("memory.zig");
 const paths = @import("platform/paths.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.context);
@@ -10,7 +9,7 @@ const log = std.log.scoped(.context);
 /// Global application context containing all pre-allocated resources.
 pub const CliContext = struct {
     /// Pre-allocated object pools.
-    pools: object_pools.ObjectPools,
+    pools: memory.ObjectPools,
 
     /// Home directory buffer.
     home_dir_buffer: [limits.limits.home_dir_length_maximum]u8 = [_]u8{0} ** limits.limits.home_dir_length_maximum,
@@ -20,7 +19,7 @@ pub const CliContext = struct {
     arguments_count: u32 = 0,
 
     /// Static memory system for any remaining allocations.
-    static_mem: static_memory.StaticMemory,
+    static_mem: memory.StaticMemory,
 
     /// Process-owned I/O implementation.
     io: std.Io,
@@ -43,7 +42,7 @@ pub const CliContext = struct {
     ) !*CliContext {
         // context_storage is a pointer, not optional - can't be null in Zig
         assert(static_buffer.len > 0);
-        assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
+        assert(static_buffer.len == memory.StaticMemory.calculate_memory_size());
         assert(arguments.len > 0);
         assert(arguments.len <= limits.limits.arguments_maximum);
 
@@ -72,16 +71,28 @@ pub const CliContext = struct {
         return context_storage;
     }
 
+    /// Initialize a context and freeze startup allocation before runtime work.
+    pub fn init_locked(
+        context_storage: *CliContext,
+        static_buffer: []u8,
+        arguments: []const []const u8,
+        io: std.Io,
+    ) !*CliContext {
+        const context = try init(context_storage, static_buffer, arguments, io);
+        context.static_mem.lock();
+        return context;
+    }
+
     /// Initialize core systems (memory and pools)
     fn init_core_systems(context_storage: *CliContext, static_buffer: []u8) !void {
         assert(static_buffer.len > 0);
-        assert(static_buffer.len == static_memory.StaticMemory.calculate_memory_size());
+        assert(static_buffer.len == memory.StaticMemory.calculate_memory_size());
 
         // Initialize static memory system
-        context_storage.static_mem = static_memory.StaticMemory.init(static_buffer);
+        context_storage.static_mem = memory.StaticMemory.init(static_buffer);
 
         // Initialize object pools in place to avoid copying large scratch buffers on the stack.
-        object_pools.ObjectPools.init(&context_storage.pools);
+        memory.ObjectPools.init(&context_storage.pools);
     }
 
     /// Copy command line arguments into pre-allocated buffer
@@ -175,23 +186,13 @@ pub const CliContext = struct {
         return result;
     }
 
-    /// Get a path buffer from the pool.
-    pub fn acquire_path_buffer(self: *CliContext) !*object_pools.PathBuffer {
-        return self.pools.acquire_path_buffer();
-    }
-
-    /// Get an HTTP operation from the pool.
-    pub fn acquire_http_operation(self: *CliContext) !*object_pools.HttpOperation {
-        return self.pools.acquire_http_operation();
-    }
-
-    /// Get an extract operation from the pool.
-    pub fn acquire_extract_operation(self: *CliContext) !*object_pools.ExtractOperation {
-        return self.pools.acquire_extract_operation();
+    /// Get a scoped path scratch buffer from the static pool.
+    pub fn scratch(self: *CliContext, comptime kind: memory.ScratchKind) !memory.Scratch(kind) {
+        return memory.acquire_scratch(&self.pools, kind);
     }
 
     /// Get a version entry from the pool.
-    pub fn acquire_version_entry(self: *CliContext) !*object_pools.VersionEntry {
+    pub fn acquire_version_entry(self: *CliContext) !*memory.VersionEntry {
         return self.pools.acquire_version_entry();
     }
 
@@ -205,15 +206,10 @@ pub const CliContext = struct {
         var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
         const zvm_root = try paths.get_zvm_root(&zvm_root_buf, self.get_home_dir());
 
-        var path_buffer = try self.acquire_path_buffer();
-        defer path_buffer.reset();
+        var path_buffer = try self.scratch(.path);
+        defer path_buffer.release();
 
-        const result = try std.fmt.bufPrint(
-            path_buffer.slice(),
-            "{s}/{s}",
-            .{ zvm_root, segment },
-        );
-        const path = try path_buffer.set(result);
+        const path = try path_buffer.print("{s}/{s}", .{ zvm_root, segment });
 
         assert(path.len > 0);
         assert(path.len <= limits.limits.path_length_maximum);
@@ -227,7 +223,7 @@ pub const CliContext = struct {
     }
 
     /// Get the process buffer.
-    pub fn get_process_buffer(self: *CliContext) *object_pools.ProcessBuffer {
+    pub fn get_process_buffer(self: *CliContext) *memory.ProcessBuffer {
         return self.pools.get_process_buffer();
     }
 
@@ -240,7 +236,7 @@ pub const CliContext = struct {
     }
 
     /// Get memory usage statistics.
-    pub fn get_memory_usage(self: *const CliContext) static_memory.StaticMemory.MemoryUsage {
+    pub fn get_memory_usage(self: *const CliContext) memory.StaticMemory.MemoryUsage {
         const usage = self.static_mem.get_usage();
         assert(usage.used <= usage.total);
         assert(usage.available == usage.total - usage.used);
@@ -248,7 +244,7 @@ pub const CliContext = struct {
     }
 
     /// Get pool usage statistics.
-    pub fn get_pool_stats(self: *const CliContext) object_pools.ObjectPools.PoolStats {
+    pub fn get_pool_stats(self: *const CliContext) memory.ObjectPools.PoolStats {
         return self.pools.get_stats();
     }
 

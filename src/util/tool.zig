@@ -1,15 +1,11 @@
 const std = @import("std");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const assert = std.debug.assert;
 
 var environment_map: ?*const std.process.Environ.Map = null;
 
 pub fn set_environment_map(map: *const std.process.Environ.Map) void {
     environment_map = map;
-}
-
-pub fn get_environment_map() ?*const std.process.Environ.Map {
-    return environment_map;
 }
 
 /// Cross-platform environment variable getter

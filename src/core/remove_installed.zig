@@ -5,12 +5,12 @@ const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
-const remove = @import("../core/remove.zig");
-const detect_version = @import("../core/detect_version.zig");
+const remove = @import("remove.zig");
+const detect_version = @import("detect_version.zig");
 const confirm = @import("../util/confirm.zig");
 const assert = std.debug.assert;
 
-pub fn execute(
+pub fn remove_installed(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.RemoveCommand,
     progress_node: std.Progress.Node,
@@ -20,14 +20,13 @@ pub fn execute(
 
     const version_str = command.get_version();
     const is_zls = command.tool == .zls;
-    const emitter = util_output.get_global();
-    const json_mode = emitter.config.mode == .machine_json;
+    const json_mode = util_output.output_mode() == .machine_json;
 
     const removing_active = is_active_version(ctx, version_str, is_zls);
 
     if (!ctx.assume_yes and removing_active) {
         if (json_mode) {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "removing the active {s} version requires --yes in --json mode",
                 .{command.tool.to_string()},
@@ -42,19 +41,19 @@ pub fn execute(
         ) catch unreachable;
 
         const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
-            error.RequiresConfirmation => util_output.fatal(
+            error.RequiresConfirmation => util_output.exit_with(
                 .invalid_arguments,
                 "removing the active {s} version requires --yes (stdin is not a terminal or --no-input was set)",
                 .{command.tool.to_string()},
             ),
-            error.StdinReadFailed => util_output.fatal(
+            error.StdinReadFailed => util_output.exit_with(
                 .invalid_arguments,
                 "failed to read confirmation from stdin",
                 .{},
             ),
         };
         if (!confirmed) {
-            util_output.info("Aborted: {s} version {s} not removed.", .{ command.tool.to_string(), version_str });
+            util_output.emit(.info, "Aborted: {s} version {s} not removed.", .{ command.tool.to_string(), version_str });
             return;
         }
     }
@@ -67,11 +66,24 @@ pub fn execute(
             .{ .key = "version", .value = .{ .string = version_str } },
             .{ .key = "status", .value = .{ .string = "removed" } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.success("Removed {s} version {s}", .{ command.tool.to_string(), version_str });
+    util_output.emit(.success, "Removed {s} version {s}", .{ command.tool.to_string(), version_str });
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.RemoveCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try remove_installed(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.RemoveCommand) u16 {
+    _ = command;
+    return 2;
 }
 
 /// Decide whether removing `version_str` would tear down the active install.
@@ -92,10 +104,10 @@ fn is_active_version(ctx: *context.CliContext, version_str: []const u8, is_zls: 
         }
     }
 
-    var path_buffer = ctx.acquire_path_buffer() catch return false;
-    defer path_buffer.reset();
+    var path_buffer = ctx.scratch(.path) catch return false;
+    defer path_buffer.release();
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-    const current = util_data.get_current_version(path_buffer, &output_buffer, is_zls) catch return false;
+    const current = util_data.get_current_version(ctx.io, path_buffer, &output_buffer, is_zls) catch return false;
     return util_tool.eql_str(current, version_str);
 }

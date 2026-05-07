@@ -5,7 +5,7 @@ const util_output = @import("../util/output.zig");
 const util_tool = @import("../util/tool.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
-const detect_version = @import("../core/detect_version.zig");
+const detect_version = @import("detect_version.zig");
 const confirm = @import("../util/confirm.zig");
 const assert = std.debug.assert;
 
@@ -23,22 +23,20 @@ const VersionCleanup = struct {
     }
 };
 
-pub fn execute(
+pub fn clean(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.CleanCommand,
     progress_node: std.Progress.Node,
 ) !void {
     _ = progress_node;
-
-    const emitter = util_output.get_global();
-    const emit_human = emitter.config.mode == .human_readable;
-    const json_mode = emitter.config.mode == .machine_json;
+    const emit_human = util_output.output_mode() == .human_readable;
+    const json_mode = util_output.output_mode() == .machine_json;
 
     if (command.remove_all and !ctx.assume_yes) {
         const pending = try count_removable_versions(ctx);
         if (pending > 0) {
             if (json_mode) {
-                util_output.fatal(
+                util_output.exit_with(
                     .invalid_arguments,
                     "clean --all requires --yes in --json mode ({d} version(s) would be removed)",
                     .{pending},
@@ -53,19 +51,19 @@ pub fn execute(
             ) catch unreachable;
 
             const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
-                error.RequiresConfirmation => util_output.fatal(
+                error.RequiresConfirmation => util_output.exit_with(
                     .invalid_arguments,
                     "clean --all requires --yes (stdin is not a terminal or --no-input was set)",
                     .{},
                 ),
-                error.StdinReadFailed => util_output.fatal(
+                error.StdinReadFailed => util_output.exit_with(
                     .invalid_arguments,
                     "failed to read confirmation from stdin",
                     .{},
                 ),
             };
             if (!confirmed) {
-                util_output.info("Aborted: no installed versions removed.", .{});
+                util_output.emit(.info, "Aborted: no installed versions removed.", .{});
                 return;
             }
         }
@@ -77,26 +75,42 @@ pub fn execute(
     else
         VersionCleanup{};
 
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "download_artifacts_removed", .value = .{ .number = @intCast(store_cleanup.files_removed) } },
             .{ .key = "bytes_freed", .value = .{ .number = @intCast(store_cleanup.bytes_freed) } },
             .{ .key = "zig_versions_removed", .value = .{ .number = @intCast(version_cleanup.zig_removed) } },
             .{ .key = "zls_versions_removed", .value = .{ .number = @intCast(version_cleanup.zls_removed) } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
+    }
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.CleanCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try clean(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.CleanCommand) u16 {
+    if (command.remove_all) {
+        return 10;
+    } else {
+        return 5;
     }
 }
 
 fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanup {
-    var store_buffer = try ctx.acquire_path_buffer();
-    defer store_buffer.reset();
+    var store_buffer = try ctx.scratch(.path);
+    defer store_buffer.release();
 
     const store_path = try util_data.get_zvm_store(store_buffer);
     var store_dir = std.Io.Dir.openDirAbsolute(ctx.io, store_path, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) {
             if (emit_human) {
-                util_output.info("No old download artifacts found to clean.", .{});
+                util_output.emit(.info, "No old download artifacts found to clean.", .{});
             }
             return StoreCleanup{};
         }
@@ -109,12 +123,13 @@ fn clean_download_store(ctx: *context.CliContext, emit_human: bool) !StoreCleanu
     if (!emit_human) return cleanup;
 
     if (cleanup.files_removed == 0) {
-        util_output.info("No old download artifacts found to clean.", .{});
+        util_output.emit(.info, "No old download artifacts found to clean.", .{});
         return cleanup;
     }
 
     const mb_freed = @as(f64, @floatFromInt(cleanup.bytes_freed)) / (1024.0 * 1024.0);
-    util_output.success(
+    util_output.emit(
+        .success,
         "Cleaned up {d} old download artifact(s), freed {d:.2} MB.",
         .{ cleanup.files_removed, mb_freed },
     );
@@ -151,7 +166,7 @@ fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !Version
     const current_zls_version = try read_current_version(ctx, .zls, &current_zls_storage);
 
     if (emit_human) {
-        util_output.print_text("\nCleaning unused versions...\n");
+        util_output.emit_json(.{ .text = "\nCleaning unused versions...\n" });
     }
 
     var cleanup = VersionCleanup{};
@@ -161,17 +176,16 @@ fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !Version
     if (!emit_human) return cleanup;
 
     if (cleanup.total() == 0) {
-        util_output.print_text("\nNo unused versions found.\n");
+        util_output.emit_json(.{ .text = "\nNo unused versions found.\n" });
         return cleanup;
     }
 
-    util_output.print_text(
-        try std.fmt.bufPrint(
-            &current_zig_storage,
-            "\nRemoved {d} unused version(s).\n",
-            .{cleanup.total()},
-        ),
+    const cleanup_message = try std.fmt.bufPrint(
+        &current_zig_storage,
+        "\nRemoved {d} unused version(s).\n",
+        .{cleanup.total()},
     );
+    util_output.emit_json(.{ .text = cleanup_message });
     return cleanup;
 }
 
@@ -203,8 +217,8 @@ fn count_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch(.path);
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
@@ -233,8 +247,8 @@ fn read_current_version(
     tool: validation.ToolType,
     version_buffer: []u8,
 ) !?[]const u8 {
-    var current_path_buffer = try ctx.acquire_path_buffer();
-    defer current_path_buffer.reset();
+    var current_path_buffer = try ctx.scratch(.path);
+    defer current_path_buffer.release();
 
     const current_path = switch (tool) {
         .zig => try util_data.get_zvm_current_zig(current_path_buffer),
@@ -244,6 +258,7 @@ fn read_current_version(
 
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
     const version_output = util_data.get_current_version(
+        ctx.io,
         current_path_buffer,
         &output_buffer,
         tool == .zls,
@@ -266,8 +281,8 @@ fn clean_versions_for_tool(
     tool: validation.ToolType,
     current_version: ?[]const u8,
 ) !usize {
-    var versions_path_buffer = try ctx.acquire_path_buffer();
-    defer versions_path_buffer.reset();
+    var versions_path_buffer = try ctx.scratch(.path);
+    defer versions_path_buffer.release();
 
     const versions_path = switch (tool) {
         .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
@@ -288,7 +303,7 @@ fn clean_versions_for_tool(
         if (current_version) |current| {
             if (std.mem.eql(u8, entry.name, current)) {
                 if (emit_human) {
-                    util_output.info("  Keeping {s} {s} (current)", .{
+                    util_output.emit(.info, "  Keeping {s} {s} (current)", .{
                         tool.to_string(),
                         entry.name,
                     });
@@ -298,7 +313,7 @@ fn clean_versions_for_tool(
         }
 
         if (emit_human) {
-            util_output.info("  Removing {s} {s}", .{ tool.to_string(), entry.name });
+            util_output.emit(.info, "  Removing {s} {s}", .{ tool.to_string(), entry.name });
         }
 
         try versions_dir.deleteTree(ctx.io, entry.name);

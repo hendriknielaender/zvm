@@ -36,8 +36,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     assert(true_version.len <= version.len or is_zls);
 
     // Get current path using path buffer.
-    var current_path_buffer = try ctx.acquire_path_buffer();
-    defer current_path_buffer.reset();
+    var current_path_buffer = try ctx.scratch(.path);
+    defer current_path_buffer.release();
     // current_path_buffer is a pointer, not optional - no need for null check
 
     const current_path = try if (is_zls)
@@ -69,14 +69,15 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
         // Fallback to reading the active installation manifest.
         if (!should_remove_current) {
-            var version_buffer = try ctx.acquire_path_buffer();
-            defer version_buffer.reset();
+            var version_buffer = try ctx.scratch(.path);
+            defer version_buffer.release();
 
             var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
             assert(output_buffer.len >= 256);
             assert(output_buffer.len >= limits.limits.version_string_length_maximum);
 
             const current_version = util_data.get_current_version(
+                ctx.io,
                 version_buffer,
                 &output_buffer,
                 is_zls,
@@ -104,8 +105,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     }
 
     // Get version path.
-    var base_path_buffer = try ctx.acquire_path_buffer();
-    defer base_path_buffer.reset();
+    var base_path_buffer = try ctx.scratch(.path);
+    defer base_path_buffer.release();
     // base_path_buffer is a pointer, not optional - no need for null check
 
     const base_path = try if (is_zls)
@@ -116,8 +117,8 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     assert(base_path.len > 0);
     assert(base_path.len <= limits.limits.path_length_maximum);
 
-    var version_path_buffer = try ctx.acquire_path_buffer();
-    defer version_path_buffer.reset();
+    var version_path_buffer = try ctx.scratch(.path);
+    defer version_path_buffer.release();
     // version_path_buffer is a pointer, not optional - no need for null check
 
     const version_path = try version_path_buffer.set(

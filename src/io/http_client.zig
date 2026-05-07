@@ -8,7 +8,7 @@ const signals = @import("../platform/signals.zig");
 const log = std.log.scoped(.http);
 
 /// Name of the environment variable that overrides the per-request total
-/// timeout. Documented in `commands/help.zig`.
+/// timeout. Documented in `core/help.zig`.
 pub const timeout_env_var_name = "ZVM_DOWNLOAD_TIMEOUT_SECONDS";
 
 /// Default total timeout for one mirror attempt. Picked to be generous enough
@@ -156,6 +156,7 @@ fn run_with_timeout(
     };
 
     var select_buffer: [2]Outcome = undefined;
+    // Race the network operation against a timer and cancel whichever arm loses.
     var select: std.Io.Select(Outcome) = .init(io, &select_buffer);
 
     select.concurrent(.completed, task_fn, .{task_args}) catch |err| switch (err) {
@@ -171,10 +172,16 @@ fn run_with_timeout(
         error.ConcurrencyUnavailable => {
             log.debug("Timer concurrency unavailable; awaiting fetch without timeout for {any}", .{uri});
             const outcome = select.await() catch |await_err| switch (await_err) {
-                error.Canceled => return error.Canceled,
+                error.Canceled => {
+                    _ = select.cancel();
+                    return error.Canceled;
+                },
             };
             return switch (outcome) {
-                .completed => |result| result,
+                .completed => |result| {
+                    _ = select.cancel();
+                    return result;
+                },
                 .timed_out => unreachable,
             };
         },
@@ -200,6 +207,7 @@ fn run_with_timeout(
 
 fn sleep_seconds(io: std.Io, seconds: u32) void {
     const duration: std.Io.Duration = .fromSeconds(@intCast(seconds));
+    // A canceled timer is the losing Select arm, so no error is reported.
     std.Io.sleep(io, duration, .awake) catch return;
 }
 
@@ -212,8 +220,9 @@ const FetchTask = struct {
 
     fn run(self: FetchTask) anyerror!Payload {
         try signals.check();
-        const operation = try self.ctx.acquire_http_operation();
-        defer operation.release();
+        var http_scratch = try self.ctx.scratch(.http);
+        defer http_scratch.release();
+        const operation = http_scratch.operation();
 
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{
@@ -289,8 +298,9 @@ const DownloadTask = struct {
         _ = self.progress_node;
         try signals.check();
 
-        const operation = try self.ctx.acquire_http_operation();
-        defer operation.release();
+        var http_scratch = try self.ctx.scratch(.http);
+        defer http_scratch.release();
+        const operation = http_scratch.operation();
 
         var scratch_fba = std.heap.FixedBufferAllocator.init(operation.scratch_slice());
         var client = std.http.Client{

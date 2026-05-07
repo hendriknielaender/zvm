@@ -2,6 +2,7 @@ const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
+const cli_spec = @import("../cli/spec.zig");
 
 const assert = std.debug.assert;
 
@@ -19,6 +20,8 @@ const zsh_script =
     \\  'env:Show environment setup instructions'
     \\  'clean:Clean up old download artifacts'
     \\  'completions:Generate shell completion script'
+    \\  'list-mirrors:List configured download mirrors'
+    \\  'upgrade:Upgrade zvm'
     \\  'version:Show zvm version'
     \\  'help:Show help message'
     \\)
@@ -52,7 +55,7 @@ const zsh_script =
     \\        ;;
     \\      env)
     \\        _arguments \
-    \\          '--shell[Specify shell]:shell:(bash zsh fish powershell)'
+    \\          '--shell=[Specify shell]:shell:(bash zsh fish powershell)'
     \\        ;;
     \\      completions)
     \\        _arguments \
@@ -71,7 +74,9 @@ const bash_script =
     \\    local cur prev words cword
     \\    _init_completion || return
     \\
-    \\    local commands="list list-remote install use remove env clean completions version help"
+    \\    local commands="
+++ cli_spec.primary_command_words ++
+    \\"
     \\
     \\    if [[ $cword -eq 1 ]]; then
     \\        COMPREPLY=( $( compgen -W "$commands" -- "$cur" ) )
@@ -92,15 +97,20 @@ const bash_script =
     \\                COMPREPLY=( $( compgen -W "--all" -- "$cur" ) )
     \\                ;;
     \\            env)
-    \\                if [[ $prev == "--shell" ]]; then
-    \\                    COMPREPLY=( $( compgen -W "bash zsh fish powershell" -- "$cur" ) )
+    \\                if [[ $cur == --shell=* ]]; then
+    \\                    local shell_prefix="${cur#--shell=}"
+    \\                    COMPREPLY=( $( compgen -P "--shell=" -W "
+++ cli_spec.shell_words ++
+    \\" -- "$shell_prefix" ) )
     \\                else
-    \\                    COMPREPLY=( $( compgen -W "--shell" -- "$cur" ) )
+    \\                    COMPREPLY=( $( compgen -W "--shell=" -- "$cur" ) )
     \\                fi
     \\                ;;
     \\            completions)
     \\                if [[ $cword -eq 2 ]]; then
-    \\                    COMPREPLY=( $( compgen -W "bash zsh fish powershell" -- "$cur" ) )
+    \\                    COMPREPLY=( $( compgen -W "
+++ cli_spec.shell_words ++
+    \\" -- "$cur" ) )
     \\                fi
     \\                ;;
     \\        esac
@@ -142,6 +152,8 @@ const fish_script =
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'env' -d 'Show environment setup instructions'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'clean' -d 'Clean up old download artifacts'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'completions' -d 'Generate shell completion script'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'list-mirrors' -d 'List configured download mirrors'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'upgrade' -d 'Upgrade zvm'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'version' -d 'Show zvm version'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'help' -d 'Show help message'
     \\
@@ -152,8 +164,10 @@ const fish_script =
     \\complete -c zvm -n '__zvm_using_command list' -l all -d 'List Zig and ZLS versions together'
     \\complete -c zvm -n '__zvm_using_command list-remote' -l zls -d 'List ZLS versions instead of Zig'
     \\complete -c zvm -n '__zvm_using_command clean' -l all -d 'Also remove unused versions'
-    \\complete -c zvm -n '__zvm_using_command env' -l shell -d 'Specify shell' -xa 'bash zsh fish powershell'
-    \\complete -c zvm -n '__zvm_using_command completions' -xa 'bash zsh fish powershell'
+    \\complete -c zvm -n '__zvm_using_command env' -a '--shell=bash --shell=zsh --shell=fish --shell=powershell' -d 'Specify shell'
+    \\complete -c zvm -n '__zvm_using_command completions' -xa '
+++ cli_spec.shell_words ++
+    \\'
 ;
 
 const powershell_script =
@@ -174,6 +188,8 @@ const powershell_script =
     \\        @{ Name = 'env';         Description = 'Show environment setup instructions' }
     \\        @{ Name = 'clean';       Description = 'Clean up old download artifacts' }
     \\        @{ Name = 'completions'; Description = 'Generate shell completion script' }
+    \\        @{ Name = 'list-mirrors';Description = 'List configured download mirrors' }
+    \\        @{ Name = 'upgrade';     Description = 'Upgrade zvm' }
     \\        @{ Name = 'version';     Description = 'Show zvm version' }
     \\        @{ Name = 'help';        Description = 'Show help message' }
     \\    )
@@ -217,16 +233,18 @@ const powershell_script =
     \\                '--all', '--all', 'ParameterName', 'Also remove unused versions'))
     \\        }
     \\        'env' {
-    \\            if ($previous -eq '--shell' -or $wordToComplete -notlike '-*') {
+    \\            if ($wordToComplete -like '--shell=*') {
+    \\                $prefix = $wordToComplete.Substring('--shell='.Length)
     \\                return $shells |
-    \\                    Where-Object { $_ -like "$wordToComplete*" } |
+    \\                    Where-Object { $_ -like "$prefix*" } |
     \\                    ForEach-Object {
+    \\                        $completion = "--shell=$_"
     \\                        [System.Management.Automation.CompletionResult]::new(
-    \\                            $_, $_, 'ParameterValue', "Shell: $_")
+    \\                            $completion, $completion, 'ParameterValue', "Shell: $_")
     \\                    }
     \\            }
     \\            return @([System.Management.Automation.CompletionResult]::new(
-    \\                '--shell', '--shell', 'ParameterName', 'Specify shell'))
+    \\                '--shell=', '--shell=', 'ParameterName', 'Specify shell'))
     \\        }
     \\        'completions' {
     \\            if ($effectiveCount -le 3) {
@@ -242,7 +260,7 @@ const powershell_script =
     \\}
 ;
 
-pub fn execute(
+pub fn generate_completions(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.CompletionsCommand,
     progress_node: std.Progress.Node,
@@ -259,16 +277,51 @@ pub fn execute(
         .powershell => powershell_script,
     };
     assert(script.len > 0);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "shell", .value = .{ .string = shell_name } },
             .{ .key = "script", .value = .{ .string = script } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(script);
+    util_output.emit_json(.{ .text = script });
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.CompletionsCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try generate_completions(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.CompletionsCommand) u16 {
+    _ = command;
+    return 1;
+}
+
+test "completion scripts include every primary command from cli spec" {
+    const scripts = [_][]const u8{
+        zsh_script,
+        bash_script,
+        fish_script,
+        powershell_script,
+    };
+
+    for (cli_spec.primary_command_names) |command_name| {
+        for (scripts) |script| {
+            try std.testing.expect(std.mem.indexOf(u8, script, command_name) != null);
+        }
+    }
+}
+
+test "completion scripts use attached shell option syntax" {
+    try std.testing.expect(std.mem.indexOf(u8, bash_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zsh_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fish_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, powershell_script, "--shell=") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bash_script, "prev == \"--shell\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, powershell_script, "previous -eq '--shell'") == null);
 }

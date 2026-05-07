@@ -2,8 +2,8 @@ const std = @import("std");
 const limits = @import("../memory/limits.zig");
 const edit_distance = @import("../util/edit_distance.zig");
 const util_output = @import("../util/output.zig");
-const raw_args = @import("raw_args.zig");
 const validation = @import("validation.zig");
+const cli_spec = @import("spec.zig");
 const assert = std.debug.assert;
 
 const max_argument_count = limits.limits.arguments_maximum;
@@ -109,51 +109,35 @@ const StandardCommand = enum {
     version,
 };
 
-const command_names = [_][]const u8{
-    "install",
-    "i",
-    "remove",
-    "rm",
-    "use",
-    "u",
-    "list",
-    "ls",
-    "list-remote",
-    "clean",
-    "env",
-    "completions",
-    "version",
-    "help",
-    "list-mirrors",
-    "upgrade",
-};
-
-const global_option_names = [_][]const u8{
-    "--json",
-    "--plain",
-    "--quiet",
-    "--color",
-    "--no-color",
-    "--yes",
-    "--verbose",
-    "--trace",
-    "--no-input",
-    "--help",
-    "-h",
-    "--version",
-};
-
 /// Tracks which global option groups have already been set.
 /// Why: silently accepting repeated or conflicting options (e.g.
 /// --color --no-color) produces surprising behavior. Rejecting them
 /// makes operator errors harder to commit.
 const GlobalOptionTracker = struct {
     output_mode_set: bool = false,
+    output_mode_arg: ?[]const u8 = null,
     color_mode_set: bool = false,
+    color_mode_arg: ?[]const u8 = null,
     standard_command_set: bool = false,
+    standard_command_arg: ?[]const u8 = null,
     assume_yes_set: bool = false,
     no_input_set: bool = false,
     verbose_set: bool = false,
+    verbose_arg: ?[]const u8 = null,
+};
+
+fn duplicate_or_conflict(previous: ?[]const u8, current: []const u8) GlobalOptionError {
+    if (previous) |previous_arg| {
+        if (std.mem.eql(u8, previous_arg, current)) return error.DuplicateGlobalOption;
+    }
+    return error.ConflictingGlobalOption;
+}
+
+const GlobalOptionError = error{
+    UnknownGlobalOption,
+    UnknownGlobalShortOption,
+    DuplicateGlobalOption,
+    ConflictingGlobalOption,
 };
 
 fn apply_long_global_option(
@@ -161,16 +145,18 @@ fn apply_long_global_option(
     standard_command: *?StandardCommand,
     tracker: *GlobalOptionTracker,
     arg: []const u8,
-) !void {
+) GlobalOptionError!void {
     assert(arg.len >= 2);
     assert(arg[0] == '-');
     assert(arg[1] == '-');
 
     if (std.mem.eql(u8, arg, "--json")) {
-        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
-        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.output_mode_set) return duplicate_or_conflict(tracker.output_mode_arg, arg);
+        if (tracker.color_mode_set) return duplicate_or_conflict(tracker.color_mode_arg, arg);
         tracker.output_mode_set = true;
+        tracker.output_mode_arg = arg;
         tracker.color_mode_set = true;
+        tracker.color_mode_arg = arg;
         global_config.output_mode = .machine_json;
         global_config.color_mode = .never_use_color;
         return;
@@ -179,29 +165,34 @@ fn apply_long_global_option(
         // Plain mode is mutually exclusive with --json, --quiet, --color, --no-color.
         // Why: plain emits tab-separated records with color forced off; any other
         // output/color flag would create ambiguity for shell pipelines.
-        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
-        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.output_mode_set) return duplicate_or_conflict(tracker.output_mode_arg, arg);
+        if (tracker.color_mode_set) return duplicate_or_conflict(tracker.color_mode_arg, arg);
         tracker.output_mode_set = true;
+        tracker.output_mode_arg = arg;
         tracker.color_mode_set = true;
+        tracker.color_mode_arg = arg;
         global_config.output_mode = .plain;
         global_config.color_mode = .never_use_color;
         return;
     }
     if (std.mem.eql(u8, arg, "--quiet")) {
-        if (tracker.output_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.output_mode_set) return duplicate_or_conflict(tracker.output_mode_arg, arg);
         tracker.output_mode_set = true;
+        tracker.output_mode_arg = arg;
         global_config.output_mode = .silent_errors_only;
         return;
     }
     if (std.mem.eql(u8, arg, "--color")) {
-        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.color_mode_set) return duplicate_or_conflict(tracker.color_mode_arg, arg);
         tracker.color_mode_set = true;
+        tracker.color_mode_arg = arg;
         global_config.color_mode = .always_use_color;
         return;
     }
     if (std.mem.eql(u8, arg, "--no-color")) {
-        if (tracker.color_mode_set) return error.DuplicateGlobalOption;
+        if (tracker.color_mode_set) return duplicate_or_conflict(tracker.color_mode_arg, arg);
         tracker.color_mode_set = true;
+        tracker.color_mode_arg = arg;
         global_config.color_mode = .never_use_color;
         return;
     }
@@ -212,14 +203,16 @@ fn apply_long_global_option(
         return;
     }
     if (std.mem.eql(u8, arg, "--verbose")) {
-        if (tracker.verbose_set) return error.DuplicateGlobalOption;
+        if (tracker.verbose_set) return duplicate_or_conflict(tracker.verbose_arg, arg);
         tracker.verbose_set = true;
+        tracker.verbose_arg = arg;
         global_config.verbose = .debug;
         return;
     }
     if (std.mem.eql(u8, arg, "--trace")) {
-        if (tracker.verbose_set) return error.DuplicateGlobalOption;
+        if (tracker.verbose_set) return duplicate_or_conflict(tracker.verbose_arg, arg);
         tracker.verbose_set = true;
+        tracker.verbose_arg = arg;
         global_config.verbose = .trace;
         return;
     }
@@ -234,6 +227,7 @@ fn apply_long_global_option(
     if (is_help or is_version) {
         if (tracker.standard_command_set) return error.DuplicateGlobalOption;
         tracker.standard_command_set = true;
+        tracker.standard_command_arg = arg;
         assert(is_help != is_version); // Cannot be both help and version.
         standard_command.* = if (is_help) .help else .version;
         return;
@@ -246,7 +240,7 @@ fn apply_short_global_option(
     standard_command: *?StandardCommand,
     tracker: *GlobalOptionTracker,
     option: u8,
-) !void {
+) GlobalOptionError!void {
     switch (option) {
         'h' => {
             if (tracker.standard_command_set) return error.DuplicateGlobalOption;
@@ -261,12 +255,9 @@ fn apply_short_global_options(
     standard_command: *?StandardCommand,
     tracker: *GlobalOptionTracker,
     arg: []const u8,
-) !void {
-    assert(is_short_option_cluster(arg));
-
-    for (arg[1..]) |option| {
-        try apply_short_global_option(standard_command, tracker, option);
-    }
+) GlobalOptionError!void {
+    if (!std.mem.eql(u8, arg, "-h")) return error.UnknownGlobalShortOption;
+    try apply_short_global_option(standard_command, tracker, 'h');
 }
 
 fn command_help_topic(command_name: []const u8) ?validation.HelpTopic {
@@ -287,8 +278,18 @@ const GlobalPrefix = struct {
     standard_command: ?StandardCommand,
 };
 
+const GlobalPrefixFailure = struct {
+    code: GlobalOptionError,
+    arg: []const u8,
+};
+
+const GlobalPrefixDiagnostic = union(enum) {
+    ok: GlobalPrefix,
+    err: GlobalPrefixFailure,
+};
+
 /// Parse global options only while they appear before the command name.
-fn parse_global_prefix(arguments: []const []const u8) !GlobalPrefix {
+fn parse_global_prefix_diagnostic(arguments: []const []const u8) GlobalPrefixDiagnostic {
     assert(arguments.len > 0);
 
     var global_config = GlobalConfig.default;
@@ -307,46 +308,46 @@ fn parse_global_prefix(arguments: []const []const u8) !GlobalPrefix {
             break;
         }
         if (is_short_option_cluster(arg)) {
-            try apply_short_global_options(&standard_command, &tracker, arg);
+            apply_short_global_options(&standard_command, &tracker, arg) catch |err| {
+                return .{ .err = .{ .code = err, .arg = arg } };
+            };
         } else if (is_long_option(arg)) {
-            try apply_long_global_option(&global_config, &standard_command, &tracker, arg);
+            apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch |err| {
+                return .{ .err = .{ .code = err, .arg = arg } };
+            };
         } else {
-            return error.UnknownGlobalOption;
+            return .{ .err = .{ .code = error.UnknownGlobalOption, .arg = arg } };
         }
         command_index += 1;
     }
 
-    return .{
+    return .{ .ok = .{
         .global_config = global_config,
         .command_index = command_index,
         .standard_command = standard_command,
+    } };
+}
+
+fn parse_global_prefix(arguments: []const []const u8) GlobalOptionError!GlobalPrefix {
+    return switch (parse_global_prefix_diagnostic(arguments)) {
+        .ok => |prefix| prefix,
+        .err => |failure| failure.code,
     };
 }
 
-fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
-    assert(arguments.len > 1);
-
-    var global_config = GlobalConfig.default;
-    var standard_command: ?StandardCommand = null;
-    var tracker = GlobalOptionTracker{};
-    var index: usize = 1;
-
-    while (index < arguments.len) : (index += 1) {
-        const arg = arguments[index];
-
-        if (std.mem.eql(u8, arg, "--")) break;
-        if (!is_prefixed_option(arg)) break;
-
-        if (is_short_option_cluster(arg)) {
-            apply_short_global_options(&standard_command, &tracker, arg) catch return arg;
-        } else if (is_long_option(arg)) {
-            apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch return arg;
-        } else {
-            return arg;
-        }
+fn fatal_global_prefix_diagnostic(failure: GlobalPrefixFailure) noreturn {
+    switch (failure.code) {
+        error.UnknownGlobalOption => fatal_unknown_global_option(failure.arg),
+        error.UnknownGlobalShortOption => {
+            util_output.exit_with(.invalid_arguments, "unknown short option in '{s}'", .{failure.arg});
+        },
+        error.DuplicateGlobalOption => {
+            util_output.exit_with(.invalid_arguments, "{s}: duplicate global option", .{failure.arg});
+        },
+        error.ConflictingGlobalOption => {
+            util_output.exit_with(.invalid_arguments, "{s}: conflicting global option", .{failure.arg});
+        },
     }
-
-    return arguments[1];
 }
 
 fn find_invalid_command_option(command_name: []const u8, args: []const []const u8) []const u8 {
@@ -405,103 +406,55 @@ fn command_option_valid(command_name: []const u8, arg: []const u8) bool {
     assert(command_name.len > 0);
     assert(arg.len > 0);
 
-    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
-        return std.mem.eql(u8, arg, "--zls");
-    }
-    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
-        return std.mem.eql(u8, arg, "--zls");
-    }
-    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
-        return std.mem.eql(u8, arg, "--zls");
-    }
-    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
-        return std.mem.eql(u8, arg, "--all");
-    }
-    if (std.mem.eql(u8, command_name, "list-remote")) {
-        return std.mem.eql(u8, arg, "--zls");
-    }
-    if (std.mem.eql(u8, command_name, "clean")) {
-        return std.mem.eql(u8, arg, "--all");
-    }
-    if (std.mem.eql(u8, command_name, "env")) {
-        if (std.mem.eql(u8, arg, "--shell")) return true;
-        return std.mem.startsWith(u8, arg, "--shell=");
-    }
-
-    return false;
+    return cli_spec.valid_option(command_name, arg);
 }
 
 fn command_option_suggestion(command_name: []const u8, flag: []const u8) ?[]const u8 {
     assert(command_name.len > 0);
     assert(flag.len > 0);
 
-    const version_tool_options = [_][]const u8{"--zls"};
-    const list_options = [_][]const u8{"--all"};
-    const env_options = [_][]const u8{"--shell=<shell>"};
-
-    if (std.mem.eql(u8, command_name, "install") or std.mem.eql(u8, command_name, "i")) {
-        return edit_distance.nearest(flag, &version_tool_options);
-    }
-    if (std.mem.eql(u8, command_name, "remove") or std.mem.eql(u8, command_name, "rm")) {
-        return edit_distance.nearest(flag, &version_tool_options);
-    }
-    if (std.mem.eql(u8, command_name, "use") or std.mem.eql(u8, command_name, "u")) {
-        return edit_distance.nearest(flag, &version_tool_options);
-    }
-    if (std.mem.eql(u8, command_name, "list") or std.mem.eql(u8, command_name, "ls")) {
-        return edit_distance.nearest(flag, &list_options);
-    }
-    if (std.mem.eql(u8, command_name, "list-remote")) {
-        return edit_distance.nearest(flag, &version_tool_options);
-    }
-    if (std.mem.eql(u8, command_name, "clean")) {
-        return edit_distance.nearest(flag, &list_options);
-    }
-    if (std.mem.eql(u8, command_name, "env")) {
-        return edit_distance.nearest(flag, &env_options);
-    }
-
-    return null;
+    const options = cli_spec.option_suggestions(command_name) orelse return null;
+    return edit_distance.nearest(flag, options);
 }
 
 fn fatal_unknown_command(command_name: []const u8) noreturn {
-    if (edit_distance.nearest(command_name, &command_names)) |suggestion| {
-        util_output.fatal(
+    if (edit_distance.nearest(command_name, &cli_spec.command_names)) |suggestion| {
+        util_output.exit_with(
             .invalid_arguments,
             "unknown command '{s}'\n\n  Did you mean '{s}'?",
             .{ command_name, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown command '{s}'", .{command_name});
+    util_output.exit_with(.invalid_arguments, "unknown command '{s}'", .{command_name});
 }
 
 fn fatal_unknown_global_option(flag: []const u8) noreturn {
-    if (edit_distance.nearest(flag, &global_option_names)) |suggestion| {
-        util_output.fatal(
+    if (edit_distance.nearest(flag, &cli_spec.global_option_names)) |suggestion| {
+        util_output.exit_with(
             .invalid_arguments,
             "unknown global option '{s}'\n\n  Did you mean '{s}'?",
             .{ flag, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown global option '{s}'", .{flag});
+    util_output.exit_with(.invalid_arguments, "unknown global option '{s}'", .{flag});
 }
 
 fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) noreturn {
     if (std.mem.eql(u8, command_name, "env") and std.mem.eql(u8, flag, "--shell")) {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
-            "unknown flag '{s}' in env command\n\n  Use '--shell=<shell>' (for example, '--shell=zsh').",
+            "{s}: expected value separator '='; use '--shell=<shell>' (for example, '--shell=zsh').",
             .{flag},
         );
     }
     if (command_option_suggestion(command_name, flag)) |suggestion| {
-        util_output.fatal(
+        util_output.exit_with(
             .invalid_arguments,
-            "unknown flag '{s}' in {s} command\n\n  Did you mean '{s}'?",
+            "{s}: unknown flag in {s} command\n\n  Did you mean '{s}'?",
             .{ flag, command_name, suggestion },
         );
     }
-    util_output.fatal(.invalid_arguments, "unknown flag '{s}' in {s} command", .{
+    util_output.exit_with(.invalid_arguments, "{s}: unknown flag in {s} command", .{
         flag,
         command_name,
     });
@@ -514,22 +467,22 @@ fn standard_command_to_validated_command(standard_command: StandardCommand) vali
     };
 }
 
-fn parse_raw_command_or_fatal(
+fn parse_command_args_or_fatal(
     command_name: []const u8,
     remaining_args: []const []const u8,
-) raw_args.RawArgs {
-    return raw_args.parse_raw_args(command_name, remaining_args) catch |err| switch (err) {
+) validation.ValidatedCommand {
+    return validation.parse_command_args(command_name, remaining_args) catch |err| switch (err) {
         error.UnknownCommand => {
             fatal_unknown_command(command_name);
         },
         error.MissingVersionArgument => {
-            util_output.fatal(.invalid_arguments, "{s} command requires a version argument", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command requires a version argument", .{command_name});
         },
         error.EmptyVersionArgument => {
-            util_output.fatal(.invalid_arguments, "{s} command version argument cannot be empty", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command version argument cannot be empty", .{command_name});
         },
         error.VersionStringTooLong => {
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "version string too long (maximum: {d} characters)",
                 .{limits.limits.version_string_length_maximum},
@@ -540,18 +493,18 @@ fn parse_raw_command_or_fatal(
             fatal_unknown_command_option(command_name, flag);
         },
         error.UnexpectedArguments => {
-            util_output.fatal(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
+            util_output.exit_with(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
         },
         error.EmptyShellArgument => {
-            util_output.fatal(.invalid_arguments, "shell argument cannot be empty", .{});
+            util_output.exit_with(.invalid_arguments, "shell argument cannot be empty", .{});
         },
         error.EmptyOptionValue => {
             const flag = option_display_name(find_first_command_option(remaining_args));
-            util_output.fatal(.invalid_arguments, "{s}: argument requires a value", .{flag});
+            util_output.exit_with(.invalid_arguments, "{s}: argument requires a value", .{flag});
         },
         error.MissingOptionValueSeparator => {
             const flag = option_display_name(find_first_command_option(remaining_args));
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
                 "{s}: expected value separator '='; use '{s}=<value>'",
                 .{ flag, flag },
@@ -559,29 +512,35 @@ fn parse_raw_command_or_fatal(
         },
         error.TrailingOption => {
             const flag = find_trailing_command_option(remaining_args);
-            util_output.fatal(
+            util_output.exit_with(
                 .invalid_arguments,
-                "unexpected trailing option '{s}' in {s} command; place options before positional arguments",
+                "{s}: unexpected trailing option in {s} command; place options before positional arguments",
                 .{ flag, command_name },
             );
         },
         error.ShellNameTooLong => {
-            util_output.fatal(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
+            util_output.exit_with(.invalid_arguments, "shell name too long (maximum: 32 characters)", .{});
         },
         error.EmptyHelpTopic => {
-            util_output.fatal(.invalid_arguments, "help topic cannot be empty", .{});
+            util_output.exit_with(.invalid_arguments, "help topic cannot be empty", .{});
         },
         error.HelpTopicTooLong => {
-            util_output.fatal(.invalid_arguments, "help topic too long (maximum: 32 characters)", .{});
+            util_output.exit_with(.invalid_arguments, "help topic too long (maximum: 32 characters)", .{});
         },
         error.TooManyArguments => {
-            util_output.fatal(.invalid_arguments, "too many arguments for {s} command", .{command_name});
+            util_output.exit_with(.invalid_arguments, "too many arguments for {s} command", .{command_name});
         },
         error.DuplicateOption => {
             const flag = find_invalid_command_option(command_name, remaining_args);
-            util_output.fatal(.invalid_arguments, "duplicate option in {s} command: '{s}'", .{
-                command_name,
+            util_output.exit_with(.invalid_arguments, "{s}: duplicate option in {s} command", .{
                 flag,
+                command_name,
+            });
+        },
+        else => {
+            util_output.exit_with(.invalid_arguments, "failed to parse {s} command: {s}", .{
+                command_name,
+                @errorName(err),
             });
         },
     };
@@ -598,16 +557,9 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         assert(arg.len < 1024); // Reasonable argument length
     }
 
-    const global_prefix = parse_global_prefix(arguments) catch |err| switch (err) {
-        error.UnknownGlobalOption => {
-            fatal_unknown_global_option(find_invalid_global_option(arguments));
-        },
-        error.UnknownGlobalShortOption => {
-            util_output.fatal(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
-        },
-        error.DuplicateGlobalOption => {
-            util_output.fatal(.invalid_arguments, "duplicate global option: '{s}'", .{find_invalid_global_option(arguments)});
-        },
+    const global_prefix = switch (parse_global_prefix_diagnostic(arguments)) {
+        .ok => |prefix| prefix,
+        .err => |failure| fatal_global_prefix_diagnostic(failure),
     };
 
     if (global_prefix.standard_command) |standard_command| {
@@ -644,14 +596,7 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         }
     }
 
-    // Stage 1: Parse raw arguments
-    const raw_command = parse_raw_command_or_fatal(command_name, remaining_args);
-
-    // Stage 2: Validate and transform
-    const validated_command = validation.validate_command(raw_command) catch |err| switch (err) {
-        // Validation errors are handled inside validation.zig with detailed messages
-        else => return err,
-    };
+    const validated_command = parse_command_args_or_fatal(command_name, remaining_args);
 
     const result = ParsedCommandLine{
         .global_config = global_prefix.global_config,

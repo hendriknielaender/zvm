@@ -55,20 +55,6 @@ pub const zig_url = std.Uri.parse(zig_meta_url) catch @panic("Invalid zig_meta_u
 /// parsed zls url
 pub const zls_url = std.Uri.parse(zls_meta_url) catch @panic("Invalid zls_meta_url");
 
-/// zig file name
-pub const zig_name = switch (builtin.os.tag) {
-    .windows => "zig.exe",
-    .linux, .macos => "zig",
-    else => @compileError("Current platform not supported"),
-};
-
-/// zig file name
-pub const zls_name = switch (builtin.os.tag) {
-    .windows => "zls.exe",
-    .linux, .macos => "zls",
-    else => @compileError("Current platform not supported"),
-};
-
 /// zig archive_ext
 pub const archive_ext = if (builtin.os.tag == .windows)
     "zip"

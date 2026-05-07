@@ -8,7 +8,8 @@ const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const util_output = @import("../util/output.zig");
 const context = @import("../Context.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const validation = @import("../cli/validation.zig");
+const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
 
 const log = std.log.scoped(.alias);
@@ -18,21 +19,21 @@ const log = std.log.scoped(.alias);
 /// For Windows, this will copy the directory.
 pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) !void {
     // Create current directory path.
-    var current_dir_buffer = try ctx.acquire_path_buffer();
-    defer current_dir_buffer.reset();
+    var current_dir_buffer = try ctx.scratch(.path);
+    defer current_dir_buffer.release();
     const current_dir = try util_data.get_zvm_path_segment(current_dir_buffer, "current");
     try util_tool.try_create_path(ctx.io, current_dir);
 
     // Get version path.
-    var base_path_buffer = try ctx.acquire_path_buffer();
-    defer base_path_buffer.reset();
+    var base_path_buffer = try ctx.scratch(.path);
+    defer base_path_buffer.release();
     const base_path = if (is_zls)
         try util_data.get_zvm_zls_version(base_path_buffer)
     else
         try util_data.get_zvm_zig_version(base_path_buffer);
 
-    var version_path_buffer = try ctx.acquire_path_buffer();
-    defer version_path_buffer.reset();
+    var version_path_buffer = try ctx.scratch(.path);
+    defer version_path_buffer.release();
     const version_path = try version_path_buffer.set(
         try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
     );
@@ -41,7 +42,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         if (err != error.FileNotFound)
             return err;
 
-        util_output.fatal(
+        util_output.exit_with(
             .version_not_found,
             "{s} version {s} is not installed. Please install it before proceeding.",
             .{ if (is_zls) "zls" else "Zig", version },
@@ -54,8 +55,8 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     };
 
     // Get symlink path.
-    var symlink_path_buffer = try ctx.acquire_path_buffer();
-    defer symlink_path_buffer.reset();
+    var symlink_path_buffer = try ctx.scratch(.path);
+    defer symlink_path_buffer.release();
     const symlink_path = if (is_zls)
         try util_data.get_zvm_current_zls(symlink_path_buffer)
     else
@@ -70,6 +71,22 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try save_default_version(ctx, version);
         try verify_zig_version(ctx, version);
     }
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.UseCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    _ = progress_node;
+
+    const version = command.get_version();
+    try set_version(ctx, version, command.tool == .zls);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.UseCommand) u16 {
+    _ = command;
+    return 2;
 }
 
 fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, version: []const u8) !void {
@@ -87,12 +104,12 @@ fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, v
         return;
     }
 
-    try util_data.write_version_manifest(version_path, version);
+    try util_data.write_version_manifest(ctx.io, version_path, version);
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
-    var default_version_path_buffer = try ctx.acquire_path_buffer();
-    defer default_version_path_buffer.reset();
+    var default_version_path_buffer = try ctx.scratch(.path);
+    defer default_version_path_buffer.release();
 
     const default_version_path = try util_data.get_zvm_path_segment(
         default_version_path_buffer,
@@ -142,11 +159,12 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
 
 /// Verify the current Zig version.
 fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !void {
-    var path_buffer = try ctx.acquire_path_buffer();
-    defer path_buffer.reset();
+    var path_buffer = try ctx.scratch(.path);
+    defer path_buffer.release();
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
+        ctx.io,
         path_buffer,
         &output_buffer,
         false,
@@ -167,11 +185,12 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
 
 /// Verify the current zls version.
 fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !void {
-    var path_buffer = try ctx.acquire_path_buffer();
-    defer path_buffer.reset();
+    var path_buffer = try ctx.scratch(.path);
+    defer path_buffer.release();
     var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
+        ctx.io,
         path_buffer,
         &output_buffer,
         true,
@@ -186,18 +205,17 @@ fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !v
 }
 
 fn emit_selected_version(tool_name: []const u8, requested_version: []const u8, active_version: []const u8) void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = tool_name } },
             .{ .key = "requested_version", .value = .{ .string = requested_version } },
             .{ .key = "active_version", .value = .{ .string = active_version } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.success("Now using {s} version {s}", .{ tool_name, active_version });
+    util_output.emit(.success, "Now using {s} version {s}", .{ tool_name, active_version });
 }
 
 fn emit_selected_version_mismatch(
@@ -205,19 +223,19 @@ fn emit_selected_version_mismatch(
     expected_version: []const u8,
     actual_version: []const u8,
 ) void {
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = tool_name } },
             .{ .key = "expected_version", .value = .{ .string = expected_version } },
             .{ .key = "active_version", .value = .{ .string = actual_version } },
             .{ .key = "ok", .value = .{ .boolean = false } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.err(
+    util_output.emit(
+        .error_recoverable,
         "Expected {s} version {s}, but currently using {s}. Please check.",
         .{ tool_name, expected_version, actual_version },
     );

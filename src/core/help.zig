@@ -2,6 +2,7 @@ const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
+const cli_spec = @import("../cli/spec.zig");
 
 const general_help_text =
     \\ZVM - Zig Version Manager
@@ -298,27 +299,38 @@ fn topic_text(topic: validation.HelpTopic) []const u8 {
     };
 }
 
-pub fn execute(
+pub fn emit_help(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.HelpCommand,
     progress_node: std.Progress.Node,
 ) !void {
     _ = ctx;
     _ = progress_node;
-
-    const emitter = util_output.get_global();
     const text = topic_text(command.topic);
 
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "topic", .value = .{ .string = topic_name(command.topic) } },
             .{ .key = "text", .value = .{ .string = text } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(text);
+    util_output.emit_json(.{ .text = text });
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.HelpCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try emit_help(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.HelpCommand) u16 {
+    _ = command;
+    return 0;
 }
 
 test "help command executes without error" {
@@ -326,7 +338,7 @@ test "help command executes without error" {
         .mode = .human_readable,
         .color = .never_use_color,
     };
-    _ = try util_output.init_global(output_config);
+    try util_output.set_mode(output_config);
 
     const command = validation.ValidatedCommand.HelpCommand{ .topic = .general };
     const progress_node = std.Progress.start(std.testing.io, .{ .root_name = "test" });
@@ -334,5 +346,22 @@ test "help command executes without error" {
 
     var mock_ctx: context.CliContext = undefined;
 
-    try execute(&mock_ctx, command, progress_node);
+    try emit_help(&mock_ctx, command, progress_node);
+}
+
+test "general help includes every primary command from cli spec" {
+    for (cli_spec.primary_command_names) |command_name| {
+        try std.testing.expect(std.mem.indexOf(u8, general_help_text, command_name) != null);
+    }
+}
+
+test "help topics map every command in cli spec" {
+    for (cli_spec.command_specs) |command_spec| {
+        const topic = try validation.HelpTopic.parse(command_spec.name);
+        try std.testing.expectEqualStrings(command_spec.name, topic_name(topic));
+        try std.testing.expect(std.mem.indexOf(u8, topic_text(topic), command_spec.name) != null);
+        if (command_spec.alias) |alias| {
+            try std.testing.expectEqual(topic, try validation.HelpTopic.parse(alias));
+        }
+    }
 }

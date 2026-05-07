@@ -4,12 +4,12 @@ const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
 const config = @import("../metadata.zig");
 const http_client = @import("../io/http_client.zig");
-const meta = @import("../core/meta.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const meta = @import("meta.zig");
+const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
 const version_entries_max = 100;
 
-pub fn execute(
+pub fn list_remote(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.ListRemoteCommand,
     progress_node: std.Progress.Node,
@@ -29,36 +29,47 @@ pub fn execute(
 
     var version_names: [limits.limits.versions_maximum][]const u8 = undefined;
     copy_version_names(version_entries_storage[0..version_count], &version_names);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "tool", .value = .{ .string = command.tool.to_string() } },
             .{ .key = "available", .value = .{ .array_strings = version_names[0..version_count] } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    if (emitter.config.mode == .plain) {
+    if (util_output.output_mode() == .plain) {
         // Plain: one version per line, no header. The tool is implicit in
         // the invocation (`zvm --plain ls-remote --zls ...`), so a single
         // column suffices for shell pipelines.
         for (version_names[0..version_count]) |version| {
-            util_output.print_text(version);
+            util_output.emit_json(.{ .text = version });
         }
         return;
     }
 
     if (command.tool == .zls) {
-        util_output.info("Available ZLS versions:", .{});
+        util_output.emit(.info, "Available ZLS versions:", .{});
     } else {
-        util_output.info("Available Zig versions:", .{});
+        util_output.emit(.info, "Available Zig versions:", .{});
     }
 
     for (version_names[0..version_count]) |version| {
-        util_output.info("  {s}", .{version});
+        util_output.emit(.info, "  {s}", .{version});
     }
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.ListRemoteCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try list_remote(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.ListRemoteCommand) u16 {
+    _ = command;
+    return 3;
 }
 
 fn load_version_entries(

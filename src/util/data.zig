@@ -1,20 +1,10 @@
 const std = @import("std");
 const limits = @import("../memory/limits.zig");
-const object_pools = @import("../memory/object_pools.zig");
+const object_pools = @import("../memory.zig");
 const paths = @import("../platform/paths.zig");
 const assert = std.debug.assert;
 
 pub const version_manifest_name = ".zvm-version";
-
-pub const zvm_logo =
-    \\⠀⢸⣾⣷⣿⣾⣷⣿⣾⡷⠃⠀⠀⠀⠀⠀⣴⡷⠞⠀⠀⠀⠀⠀⣼⣾⡂
-    \\⠀⠈⠉⠉⠉⠉⣹⣿⡿⠁⢠⡄⠀⠀⢀⣼⢯⠏⠀⢀⡄⠀⢀⣾⣿⣿⡂
-    \\⠀⠀⠀⠀⠀⣼⣿⡟⠁⠠⣿⣷⡀⢀⣼⣯⡛⠁⢠⣿⣿⣤⣾⣿⣿⣿⡂
-    \\⠀⠀⠀⢀⣾⣿⡟⠀⠀⠀⢻⣿⣷⢾⢷⠏⠀⣠⣿⡋⢿⣿⣿⠏⣿⣿⡂
-    \\⠀⠀⢀⣾⣿⠏⠀⠀⠀⠀⠀⢻⣯⣻⠏⠀⠀⣿⣿⡃⠈⢿⠃⠀⣿⣿⡂
-    \\⠀⢀⣾⣿⣏⣀⣀⣀⣀⣀⠀⠀⢻⠊⠀⠀⠀⣿⣿⡃⠀⠀⠀⠀⣿⣿⡂
-    \\⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⡧⠀⠀⠀⠀⠀⠀⣿⣿⠃⠀⠀⠀⠀⣿⣿⠂
-;
 
 /// Resolve the ZVM root directory into a stack buffer.
 /// This is a private helper used by all path-builder functions
@@ -28,7 +18,7 @@ fn resolve_zvm_root(out_buffer: []u8) ![]const u8 {
 }
 
 /// Get ZVM path segment relative to the ZVM root.
-pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u8) ![]const u8 {
+pub fn get_zvm_path_segment(buffer: anytype, segment: []const u8) ![]const u8 {
     assert(segment.len > 0);
 
     var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
@@ -38,31 +28,31 @@ pub fn get_zvm_path_segment(buffer: *object_pools.PathBuffer, segment: []const u
 }
 
 /// Get the ZVM current/zig directory path.
-pub fn get_zvm_current_zig(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_current_zig(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "current/zig");
 }
 
 /// Get the ZVM current/zls directory path.
-pub fn get_zvm_current_zls(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_current_zls(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "current/zls");
 }
 
 /// Get the ZVM store directory path.
-pub fn get_zvm_store(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_store(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "store");
 }
 
 /// Get the ZVM version/zig directory path.
-pub fn get_zvm_zig_version(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_zig_version(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "version/zig");
 }
 
 /// Get the ZVM version/zls directory path.
-pub fn get_zvm_zls_version(buffer: *object_pools.PathBuffer) ![]const u8 {
+pub fn get_zvm_zls_version(buffer: anytype) ![]const u8 {
     return get_zvm_path_segment(buffer, "version/zls");
 }
 
-pub fn write_version_manifest(install_path: []const u8, version: []const u8) !void {
+pub fn write_version_manifest(io: std.Io, install_path: []const u8, version: []const u8) !void {
     assert(install_path.len > 0);
     assert(version.len > 0);
     assert(version.len <= limits.limits.version_string_length_maximum);
@@ -74,7 +64,6 @@ pub fn write_version_manifest(install_path: []const u8, version: []const u8) !vo
         .{ install_path, version_manifest_name },
     );
 
-    const io = std.Io.Threaded.global_single_threaded.io();
     const manifest_file = try std.Io.Dir.cwd().createFile(io, manifest_path, .{});
     defer manifest_file.close(io);
 
@@ -82,7 +71,7 @@ pub fn write_version_manifest(install_path: []const u8, version: []const u8) !vo
 }
 
 fn build_manifest_path(
-    path_buffer: *object_pools.PathBuffer,
+    path_buffer: anytype,
     install_path: []const u8,
 ) ![]const u8 {
     assert(install_path.len > 0);
@@ -97,14 +86,14 @@ fn build_manifest_path(
 }
 
 pub fn read_version_manifest_absolute(
-    path_buffer: *object_pools.PathBuffer,
+    io: std.Io,
+    path_buffer: anytype,
     install_path: []const u8,
     output_buffer: []u8,
 ) ![]const u8 {
     assert(output_buffer.len > 0);
 
     const manifest_path = try build_manifest_path(path_buffer, install_path);
-    const io = std.Io.Threaded.global_single_threaded.io();
     const manifest_file = try std.Io.Dir.openFileAbsolute(io, manifest_path, .{ .mode = .read_only });
     defer manifest_file.close(io);
 
@@ -120,7 +109,8 @@ pub fn read_version_manifest_absolute(
 
 /// Get the version from the manifest within the active installation.
 pub fn get_current_version(
-    path_buffer: *object_pools.PathBuffer,
+    io: std.Io,
+    path_buffer: anytype,
     output_buffer: []u8,
     is_zls: bool,
 ) ![]const u8 {
@@ -129,7 +119,7 @@ pub fn get_current_version(
     else
         try get_zvm_current_zig(path_buffer);
 
-    return try read_version_manifest_absolute(path_buffer, base_path, output_buffer);
+    return try read_version_manifest_absolute(io, path_buffer, base_path, output_buffer);
 }
 
 test "build_manifest_path handles aliased input and output buffers" {

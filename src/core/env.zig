@@ -33,7 +33,7 @@ const ShellKind = enum {
     }
 };
 
-pub fn execute(
+pub fn emit_env(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.EnvCommand,
     progress_node: std.Progress.Node,
@@ -55,19 +55,30 @@ pub fn execute(
     var text_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
     const text = try build_env_text(shell_kind, zvm_bin_path, zvm_config_dir, &text_buffer);
     assert(text.len > 0);
-
-    const emitter = util_output.get_global();
-    if (emitter.config.mode == .machine_json) {
+    if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
             .{ .key = "shell", .value = .{ .string = shell_name } },
             .{ .key = "config_dir", .value = .{ .string = zvm_config_dir } },
             .{ .key = "text", .value = .{ .string = text } },
         };
-        util_output.json_object(&fields);
+        util_output.emit_json(.{ .object = &fields });
         return;
     }
 
-    util_output.print_text(text);
+    util_output.emit_json(.{ .text = text });
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.EnvCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try emit_env(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.EnvCommand) u16 {
+    _ = command;
+    return 1;
 }
 
 fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {

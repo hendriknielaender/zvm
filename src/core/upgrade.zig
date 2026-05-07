@@ -7,7 +7,7 @@ const util_tool = @import("../util/tool.zig");
 const util_data = @import("../util/data.zig");
 const util_extract = @import("../io/extract.zig");
 const http_client = @import("../io/http_client.zig");
-const core_install = @import("../core/install.zig");
+const core_install = @import("install.zig");
 const limits = @import("../memory/limits.zig");
 const options = @import("options");
 const assert = std.debug.assert;
@@ -27,7 +27,7 @@ comptime {
     assert(tag_max_length <= limits.limits.version_string_length_maximum);
 }
 
-pub fn execute(
+pub fn upgrade(
     ctx: *context.CliContext,
     command: validation.ValidatedCommand.UpgradeCommand,
     progress_node: std.Progress.Node,
@@ -38,20 +38,22 @@ pub fn execute(
     const latest_tag = try fetch_latest_tag(ctx, &tag_storage, progress_node);
 
     if (!is_upgrade_needed(latest_tag, options.version)) {
-        util_output.success(
+        util_output.emit(
+            .success,
             "zvm is already at the latest version (current: {s}, latest tag: {s}).",
             .{ options.version, latest_tag },
         );
         return;
     }
 
-    util_output.info(
+    util_output.emit(
+        .info,
         "Upgrading zvm from {s} to {s}...",
         .{ options.version, latest_tag },
     );
 
-    var platform_pool_buffer = try ctx.acquire_path_buffer();
-    defer platform_pool_buffer.reset();
+    var platform_pool_buffer = try ctx.scratch(.path);
+    defer platform_pool_buffer.release();
     const platform_str = try core_install.get_platform_string_into_buffer(false, platform_pool_buffer);
 
     var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
@@ -95,7 +97,20 @@ pub fn execute(
 
     try replace_self_binary(ctx, self_path, new_binary_path);
 
-    util_output.success("Upgraded zvm to {s}.", .{latest_tag});
+    util_output.emit(.success, "Upgraded zvm to {s}.", .{latest_tag});
+}
+
+pub fn run(
+    ctx: *context.CliContext,
+    command: validation.ValidatedCommand.UpgradeCommand,
+    progress_node: std.Progress.Node,
+) !void {
+    try upgrade(ctx, command, progress_node);
+}
+
+pub fn progress_items(command: validation.ValidatedCommand.UpgradeCommand) u16 {
+    _ = command;
+    return 4;
 }
 
 /// Strip an optional `v`/`V` prefix that GitHub release tags conventionally carry.
@@ -212,8 +227,8 @@ fn extract_release_archive(
 ) ![]const u8 {
     assert(tag.len > 0);
 
-    var store_buffer = try ctx.acquire_path_buffer();
-    defer store_buffer.reset();
+    var store_buffer = try ctx.scratch(.path);
+    defer store_buffer.release();
     const store_path = try util_data.get_zvm_path_segment(store_buffer, "store");
 
     const extract_path = try std.fmt.bufPrint(storage, "{s}/zvm-upgrade-{s}", .{ store_path, tag });
@@ -227,7 +242,7 @@ fn extract_release_archive(
     var archive_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const archive_path = try std.fmt.bufPrint(&archive_path_storage, "{s}/{s}", .{ store_path, archive_name });
 
-    var extract_op = try ctx.acquire_extract_operation();
+    var extract_op = try ctx.scratch(.extract);
     defer extract_op.release();
 
     const extract_node = progress_node.start("extracting zvm release", 0);
@@ -240,7 +255,7 @@ fn extract_release_archive(
     // selects the strip behavior, not the tool.
     try util_extract.extract_static(
         ctx.io,
-        extract_op,
+        extract_op.operation(),
         extract_dir,
         archive_file,
         file_type,

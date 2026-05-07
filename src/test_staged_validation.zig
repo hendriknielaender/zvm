@@ -1,137 +1,136 @@
 const std = @import("std");
 const testing = std.testing;
 
-// Import modules from same directory
-const raw_args = @import("cli/raw_args.zig");
+// CLI validation surface
 const validation = @import("cli/validation.zig");
 const limits = @import("memory/limits.zig");
 
-test "raw args parsing - install command" {
-    const install_raw = try raw_args.parse_raw_args("install", &.{"0.11.0"});
+test "command parsing - install command" {
+    const install_command = try validation.parse_command_args("install", &.{"0.11.0"});
 
-    switch (install_raw) {
+    switch (install_command) {
         .install => |cmd| {
             try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(false, cmd.is_zls);
+            try testing.expectEqual(validation.ToolType.zig, cmd.tool);
         },
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - install command with zls flag" {
-    const install_raw = try raw_args.parse_raw_args("install", &.{ "--zls", "0.11.0" });
+test "command parsing - install command with zls flag" {
+    const install_command = try validation.parse_command_args("install", &.{ "--zls", "0.11.0" });
 
-    switch (install_raw) {
+    switch (install_command) {
         .install => |cmd| {
             try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(true, cmd.is_zls);
+            try testing.expectEqual(validation.ToolType.zls, cmd.tool);
         },
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - install command rejects option after version" {
-    try testing.expectError(error.TrailingOption, raw_args.parse_raw_args("install", &.{ "0.11.0", "--zls" }));
+test "command parsing - install command rejects option after version" {
+    try testing.expectError(error.TrailingOption, validation.parse_command_args("install", &.{ "0.11.0", "--zls" }));
 }
 
-test "raw args parsing - use command with zls flag prefix" {
-    const use_raw = try raw_args.parse_raw_args("use", &.{ "--zls", "0.11.0" });
+test "command parsing - use command with zls flag prefix" {
+    const use_command = try validation.parse_command_args("use", &.{ "--zls", "0.11.0" });
 
-    switch (use_raw) {
+    switch (use_command) {
         .use => |cmd| {
             try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(true, cmd.is_zls);
+            try testing.expectEqual(validation.ToolType.zls, cmd.tool);
         },
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - remove command with zls flag prefix" {
-    const remove_raw = try raw_args.parse_raw_args("remove", &.{ "--zls", "0.11.0" });
+test "command parsing - remove command with zls flag prefix" {
+    const remove_command = try validation.parse_command_args("remove", &.{ "--zls", "0.11.0" });
 
-    switch (remove_raw) {
+    switch (remove_command) {
         .remove => |cmd| {
             try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(true, cmd.is_zls);
+            try testing.expectEqual(validation.ToolType.zls, cmd.tool);
         },
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - install command missing version" {
-    const result = raw_args.parse_raw_args("install", &.{});
+test "command parsing - install command missing version" {
+    const result = validation.parse_command_args("install", &.{});
     try testing.expectError(error.MissingVersionArgument, result);
 }
 
-test "raw args parsing - install command empty version" {
-    const result = raw_args.parse_raw_args("install", &.{""});
+test "command parsing - install command empty version" {
+    const result = validation.parse_command_args("install", &.{""});
     try testing.expectError(error.EmptyVersionArgument, result);
 }
 
-test "raw args parsing - install command unknown flag" {
-    const result = raw_args.parse_raw_args("install", &.{ "0.11.0", "--unknown" });
+test "command parsing - install command unknown flag" {
+    const result = validation.parse_command_args("install", &.{ "0.11.0", "--unknown" });
     try testing.expectError(error.UnknownFlag, result);
 }
 
-test "raw args parsing - install command unknown prefix flag" {
-    const result = raw_args.parse_raw_args("install", &.{ "--unknown", "0.11.0" });
+test "command parsing - install command unknown prefix flag" {
+    const result = validation.parse_command_args("install", &.{ "--unknown", "0.11.0" });
     try testing.expectError(error.UnknownFlag, result);
 }
 
-test "raw args parsing - command aliases" {
-    const install_i = try raw_args.parse_raw_args("i", &.{"0.11.0"});
-    const install_full = try raw_args.parse_raw_args("install", &.{"0.11.0"});
+test "command parsing - command aliases" {
+    const install_i = try validation.parse_command_args("i", &.{"0.11.0"});
+    const install_full = try validation.parse_command_args("install", &.{"0.11.0"});
 
-    // Both should be install commands
+    // Both aliases resolve to install
     try testing.expect(std.meta.activeTag(install_i) == .install);
     try testing.expect(std.meta.activeTag(install_full) == .install);
 
-    const list_ls = try raw_args.parse_raw_args("ls", &.{});
-    const list_full = try raw_args.parse_raw_args("list", &.{});
+    const list_ls = try validation.parse_command_args("ls", &.{});
+    const list_full = try validation.parse_command_args("list", &.{});
 
-    // Both should be list commands
+    // Both aliases resolve to list
     try testing.expect(std.meta.activeTag(list_ls) == .list);
     try testing.expect(std.meta.activeTag(list_full) == .list);
 }
 
-test "raw args parsing - standard options are not commands" {
-    try testing.expectError(error.UnknownCommand, raw_args.parse_raw_args("-h", &.{}));
-    try testing.expectError(error.UnknownCommand, raw_args.parse_raw_args("-V", &.{}));
+test "command parsing - standard options are not commands" {
+    try testing.expectError(error.UnknownCommand, validation.parse_command_args("-h", &.{}));
+    try testing.expectError(error.UnknownCommand, validation.parse_command_args("-V", &.{}));
 }
 
-test "raw args parsing - help command accepts a topic" {
-    const help_raw = try raw_args.parse_raw_args("help", &.{"list"});
+test "command parsing - help command accepts a topic" {
+    const help_command = try validation.parse_command_args("help", &.{"list"});
 
-    switch (help_raw) {
-        .help => |cmd| try testing.expectEqualStrings("list", cmd.get_topic().?),
+    switch (help_command) {
+        .help => |cmd| try testing.expectEqual(validation.HelpTopic.list, cmd.topic),
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - unknown command" {
-    const result = raw_args.parse_raw_args("unknown-cmd", &.{});
+test "command parsing - unknown command" {
+    const result = validation.parse_command_args("unknown-cmd", &.{});
     try testing.expectError(error.UnknownCommand, result);
 }
 
-test "raw args parsing - double dash before install version" {
-    const install_raw = try raw_args.parse_raw_args("install", &.{ "--", "0.11.0" });
+test "command parsing - double dash before install version" {
+    const install_command = try validation.parse_command_args("install", &.{ "--", "0.11.0" });
 
-    switch (install_raw) {
+    switch (install_command) {
         .install => |cmd| {
             try testing.expectEqualStrings("0.11.0", cmd.get_version());
-            try testing.expectEqual(false, cmd.is_zls);
+            try testing.expectEqual(validation.ToolType.zig, cmd.tool);
         },
         else => return error.UnexpectedCommandType,
     }
 }
 
-test "raw args parsing - double dash stops install flags" {
-    const result = raw_args.parse_raw_args("install", &.{ "0.11.0", "--", "--zls" });
+test "command parsing - double dash stops install flags" {
+    const result = validation.parse_command_args("install", &.{ "0.11.0", "--", "--zls" });
     try testing.expectError(error.UnexpectedArguments, result);
 }
 
-test "raw args parsing - double dash stops list flags" {
-    const result = raw_args.parse_raw_args("list", &.{ "--", "--all" });
+test "command parsing - double dash stops list flags" {
+    const result = validation.parse_command_args("list", &.{ "--", "--all" });
     try testing.expectError(error.UnexpectedArguments, result);
 }
 
@@ -236,14 +235,13 @@ test "shell type parsing" {
     try testing.expectEqual(validation.ShellType.zsh, try validation.ShellType.parse("zsh"));
     try testing.expectEqual(validation.ShellType.fish, try validation.ShellType.parse("fish"));
     try testing.expectEqual(validation.ShellType.powershell, try validation.ShellType.parse("powershell"));
-    try testing.expectEqual(validation.ShellType.powershell, try validation.ShellType.parse("pwsh"));
 
+    try testing.expectError(error.UnknownShell, validation.ShellType.parse("pwsh"));
     try testing.expectError(error.UnknownShell, validation.ShellType.parse("unknown"));
 }
 
-test "staged validation - install command" {
-    const raw_install = try raw_args.parse_raw_args("install", &.{"0.11.0"});
-    const validated = try validation.validate_command(raw_install);
+test "validation - install command" {
+    const validated = try validation.parse_command_args("install", &.{"0.11.0"});
 
     switch (validated) {
         .install => |cmd| {
@@ -261,10 +259,9 @@ test "staged validation - install command" {
     }
 }
 
-test "staged validation - install ZLS with compatibility check" {
+test "validation - install ZLS with compatibility check" {
     // Valid ZLS version
-    const raw_install_valid = try raw_args.parse_raw_args("install", &.{ "--zls", "0.11.0" });
-    const validated_valid = try validation.validate_command(raw_install_valid);
+    const validated_valid = try validation.parse_command_args("install", &.{ "--zls", "0.11.0" });
 
     switch (validated_valid) {
         .install => |cmd| {
@@ -303,8 +300,7 @@ test "business rule validation - install command" {
 }
 
 test "completions command with shell detection" {
-    const raw_completions_with_shell = try raw_args.parse_raw_args("completions", &.{"bash"});
-    const validated_with_shell = try validation.validate_command(raw_completions_with_shell);
+    const validated_with_shell = try validation.parse_command_args("completions", &.{"bash"});
 
     switch (validated_with_shell) {
         .completions => |cmd| {
@@ -315,8 +311,7 @@ test "completions command with shell detection" {
 }
 
 test "env command with attached shell option" {
-    const raw_env = try raw_args.parse_raw_args("env", &.{"--shell=zsh"});
-    const validated = try validation.validate_command(raw_env);
+    const validated = try validation.parse_command_args("env", &.{"--shell=zsh"});
 
     switch (validated) {
         .env => |cmd| {
@@ -327,25 +322,24 @@ test "env command with attached shell option" {
 }
 
 test "env command rejects split shell option" {
-    try testing.expectError(error.MissingOptionValueSeparator, raw_args.parse_raw_args("env", &.{ "--shell", "zsh" }));
+    try testing.expectError(error.MissingOptionValueSeparator, validation.parse_command_args("env", &.{ "--shell", "zsh" }));
 }
 
 test "env command rejects malformed attached shell option" {
-    try testing.expectError(error.MissingOptionValueSeparator, raw_args.parse_raw_args("env", &.{"--shell:zsh"}));
-    try testing.expectError(error.EmptyOptionValue, raw_args.parse_raw_args("env", &.{"--shell="}));
+    try testing.expectError(error.MissingOptionValueSeparator, validation.parse_command_args("env", &.{"--shell:zsh"}));
+    try testing.expectError(error.EmptyOptionValue, validation.parse_command_args("env", &.{"--shell="}));
 }
 
 test "command options reject duplicates" {
-    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("install", &.{ "--zls", "--zls", "0.11.0" }));
-    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("list", &.{ "--all", "--all" }));
-    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("list-remote", &.{ "--zls", "--zls" }));
-    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("clean", &.{ "--all", "--all" }));
-    try testing.expectError(error.DuplicateOption, raw_args.parse_raw_args("env", &.{ "--shell=zsh", "--shell=bash" }));
+    try testing.expectError(error.DuplicateOption, validation.parse_command_args("install", &.{ "--zls", "--zls", "0.11.0" }));
+    try testing.expectError(error.DuplicateOption, validation.parse_command_args("list", &.{ "--all", "--all" }));
+    try testing.expectError(error.DuplicateOption, validation.parse_command_args("list-remote", &.{ "--zls", "--zls" }));
+    try testing.expectError(error.DuplicateOption, validation.parse_command_args("clean", &.{ "--all", "--all" }));
+    try testing.expectError(error.DuplicateOption, validation.parse_command_args("env", &.{ "--shell=zsh", "--shell=bash" }));
 }
 
 test "list-remote command with tool selection" {
-    const raw_list_zig = try raw_args.parse_raw_args("list-remote", &.{});
-    const validated_zig = try validation.validate_command(raw_list_zig);
+    const validated_zig = try validation.parse_command_args("list-remote", &.{});
 
     switch (validated_zig) {
         .list_remote => |cmd| {
@@ -354,8 +348,7 @@ test "list-remote command with tool selection" {
         else => return error.UnexpectedCommandType,
     }
 
-    const raw_list_zls = try raw_args.parse_raw_args("list-remote", &.{"--zls"});
-    const validated_zls = try validation.validate_command(raw_list_zls);
+    const validated_zls = try validation.parse_command_args("list-remote", &.{"--zls"});
 
     switch (validated_zls) {
         .list_remote => |cmd| {
@@ -366,8 +359,7 @@ test "list-remote command with tool selection" {
 }
 
 test "help command validates topic aliases" {
-    const raw_help = try raw_args.parse_raw_args("help", &.{"ls"});
-    const validated = try validation.validate_command(raw_help);
+    const validated = try validation.parse_command_args("help", &.{"ls"});
 
     switch (validated) {
         .help => |cmd| try testing.expectEqual(validation.HelpTopic.list, cmd.topic),
@@ -377,7 +369,7 @@ test "help command validates topic aliases" {
 
 test "memory bounds checking" {
     // Ensure struct sizes are within expected bounds
-    try testing.expect(@sizeOf(raw_args.RawArgs) <= 512);
+    try testing.expect(@sizeOf(validation.ValidatedCommand) <= 256);
     try testing.expect(@sizeOf(validation.ValidatedCommand) <= 256);
     try testing.expect(@sizeOf(validation.VersionSpec) <= 16);
 }
