@@ -94,6 +94,46 @@ pub const Zig = struct {
         return error.IndexEntryLimitExceeded;
     }
 
+    /// Reads the resolved dev version string from the `master` entry of the
+    /// Zig `index.json` payload (e.g. `0.16.0-dev.418+abcdef0`). Used by the
+    /// ZLS master install path to translate the user-facing alias `master`
+    /// into a concrete Zig version that the ZLS `select-version` endpoint
+    /// accepts.
+    pub fn get_master_version_string(
+        raw: []const u8,
+        target_buffer: []u8,
+    ) !?[]const u8 {
+        assert(raw.len > 0);
+        assert(target_buffer.len > 0);
+
+        var scanner: TokenScanner = undefined;
+        try scanner.init(raw);
+        defer scanner.deinit();
+
+        try scanner.expect_object_begin();
+        const entries_max: u32 = 4096;
+        var entries_seen: u32 = 0;
+        while (entries_seen < entries_max) : (entries_seen += 1) {
+            switch (try scanner.peek_token_type()) {
+                .object_end => {
+                    try scanner.expect_object_end();
+                    return null;
+                },
+                .string => {
+                    var key_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    const key = try scanner.next_string(key_buffer[0..]);
+                    if (!util_tool.eql_str(key, "master")) {
+                        try scanner.skip_value();
+                        continue;
+                    }
+                    return try parse_master_version_field(&scanner, target_buffer);
+                },
+                else => return error.UnexpectedToken,
+            }
+        }
+        return error.IndexEntryLimitExceeded;
+    }
+
     pub fn get_version_list(
         raw: []const u8,
         version_entries: []*object_pools.VersionEntry,
@@ -173,6 +213,33 @@ fn parse_version_entry(
     if (!has_shasum) return null;
     if (!has_size) return null;
     return version_data;
+}
+
+fn parse_master_version_field(
+    scanner: *TokenScanner,
+    target_buffer: []u8,
+) !?[]const u8 {
+    assert(target_buffer.len > 0);
+
+    try scanner.expect_object_begin();
+    var version_text: ?[]const u8 = null;
+    while (true) {
+        switch (try scanner.peek_token_type()) {
+            .object_end => break,
+            .string => {
+                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                const key = try scanner.next_string(key_buffer[0..]);
+                if (util_tool.eql_str(key, "version")) {
+                    version_text = try scanner.next_string(target_buffer);
+                } else {
+                    try scanner.skip_value();
+                }
+            },
+            else => return error.UnexpectedToken,
+        }
+    }
+    try scanner.expect_object_end();
+    return version_text;
 }
 
 fn parse_platform_entry(
