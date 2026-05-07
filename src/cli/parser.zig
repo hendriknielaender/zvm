@@ -278,8 +278,18 @@ const GlobalPrefix = struct {
     standard_command: ?StandardCommand,
 };
 
+const GlobalPrefixFailure = struct {
+    code: GlobalOptionError,
+    arg: []const u8,
+};
+
+const GlobalPrefixDiagnostic = union(enum) {
+    ok: GlobalPrefix,
+    err: GlobalPrefixFailure,
+};
+
 /// Parse global options only while they appear before the command name.
-fn parse_global_prefix(arguments: []const []const u8) GlobalOptionError!GlobalPrefix {
+fn parse_global_prefix_diagnostic(arguments: []const []const u8) GlobalPrefixDiagnostic {
     assert(arguments.len > 0);
 
     var global_config = GlobalConfig.default;
@@ -298,46 +308,46 @@ fn parse_global_prefix(arguments: []const []const u8) GlobalOptionError!GlobalPr
             break;
         }
         if (is_short_option_cluster(arg)) {
-            try apply_short_global_options(&standard_command, &tracker, arg);
+            apply_short_global_options(&standard_command, &tracker, arg) catch |err| {
+                return .{ .err = .{ .code = err, .arg = arg } };
+            };
         } else if (is_long_option(arg)) {
-            try apply_long_global_option(&global_config, &standard_command, &tracker, arg);
+            apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch |err| {
+                return .{ .err = .{ .code = err, .arg = arg } };
+            };
         } else {
-            return error.UnknownGlobalOption;
+            return .{ .err = .{ .code = error.UnknownGlobalOption, .arg = arg } };
         }
         command_index += 1;
     }
 
-    return .{
+    return .{ .ok = .{
         .global_config = global_config,
         .command_index = command_index,
         .standard_command = standard_command,
+    } };
+}
+
+fn parse_global_prefix(arguments: []const []const u8) GlobalOptionError!GlobalPrefix {
+    return switch (parse_global_prefix_diagnostic(arguments)) {
+        .ok => |prefix| prefix,
+        .err => |failure| failure.code,
     };
 }
 
-fn find_invalid_global_option(arguments: []const []const u8) []const u8 {
-    assert(arguments.len > 1);
-
-    var global_config = GlobalConfig.default;
-    var standard_command: ?StandardCommand = null;
-    var tracker = GlobalOptionTracker{};
-    var index: usize = 1;
-
-    while (index < arguments.len) : (index += 1) {
-        const arg = arguments[index];
-
-        if (std.mem.eql(u8, arg, "--")) break;
-        if (!is_prefixed_option(arg)) break;
-
-        if (is_short_option_cluster(arg)) {
-            apply_short_global_options(&standard_command, &tracker, arg) catch return arg;
-        } else if (is_long_option(arg)) {
-            apply_long_global_option(&global_config, &standard_command, &tracker, arg) catch return arg;
-        } else {
-            return arg;
-        }
+fn fatal_global_prefix_diagnostic(failure: GlobalPrefixFailure) noreturn {
+    switch (failure.code) {
+        error.UnknownGlobalOption => fatal_unknown_global_option(failure.arg),
+        error.UnknownGlobalShortOption => {
+            util_output.exit_with(.invalid_arguments, "unknown short option in '{s}'", .{failure.arg});
+        },
+        error.DuplicateGlobalOption => {
+            util_output.exit_with(.invalid_arguments, "{s}: duplicate global option", .{failure.arg});
+        },
+        error.ConflictingGlobalOption => {
+            util_output.exit_with(.invalid_arguments, "{s}: conflicting global option", .{failure.arg});
+        },
     }
-
-    return arguments[1];
 }
 
 fn find_invalid_command_option(command_name: []const u8, args: []const []const u8) []const u8 {
@@ -547,19 +557,9 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         assert(arg.len < 1024); // Reasonable argument length
     }
 
-    const global_prefix = parse_global_prefix(arguments) catch |err| switch (err) {
-        error.UnknownGlobalOption => {
-            fatal_unknown_global_option(find_invalid_global_option(arguments));
-        },
-        error.UnknownGlobalShortOption => {
-            util_output.exit_with(.invalid_arguments, "unknown short option in '{s}'", .{find_invalid_global_option(arguments)});
-        },
-        error.DuplicateGlobalOption => {
-            util_output.exit_with(.invalid_arguments, "{s}: duplicate global option", .{find_invalid_global_option(arguments)});
-        },
-        error.ConflictingGlobalOption => {
-            util_output.exit_with(.invalid_arguments, "{s}: conflicting global option", .{find_invalid_global_option(arguments)});
-        },
+    const global_prefix = switch (parse_global_prefix_diagnostic(arguments)) {
+        .ok => |prefix| prefix,
+        .err => |failure| fatal_global_prefix_diagnostic(failure),
     };
 
     if (global_prefix.standard_command) |standard_command| {

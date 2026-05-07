@@ -15,47 +15,25 @@ pub const Command = enum {
     upgrade,
 
     pub fn parse(name: []const u8) ?Command {
-        inline for (command_specs) |command_spec| {
-            if (std.mem.eql(u8, name, command_spec.name)) return command_spec.command;
+        inline for (command_specs, 0..) |command_spec, index| {
+            const command: Command = @enumFromInt(index);
+            if (std.mem.eql(u8, name, command_spec.name)) return command;
             if (command_spec.alias) |alias| {
-                if (std.mem.eql(u8, name, alias)) return command_spec.command;
+                if (std.mem.eql(u8, name, alias)) return command;
             }
         }
         return null;
     }
 
     pub fn spec(self: Command) CommandSpec {
-        inline for (command_specs) |command_spec| {
-            if (command_spec.command == self) return command_spec;
-        }
-        unreachable;
+        return command_specs[@intFromEnum(self)];
     }
 };
 
-pub const Option = enum {
-    zls,
-    all,
-    shell,
-};
-
-pub const OptionValue = enum {
-    none,
-    attached,
-};
-
-pub const OptionSpec = struct {
-    option: Option,
-    name: []const u8,
-    display: []const u8,
-    value: OptionValue,
-};
-
 pub const CommandSpec = struct {
-    command: Command,
     name: []const u8,
     alias: ?[]const u8 = null,
     description: []const u8,
-    options: []const OptionSpec = &.{},
 };
 
 pub const CLIArgs = union(enum) {
@@ -105,48 +83,19 @@ pub const HelpArgs = struct {
     topic: ?[]const u8 = null,
 };
 
-pub const option_zls = OptionSpec{
-    .option = .zls,
-    .name = "--zls",
-    .display = "--zls",
-    .value = .none,
-};
-
-pub const option_all = OptionSpec{
-    .option = .all,
-    .name = "--all",
-    .display = "--all",
-    .value = .none,
-};
-
-pub const option_shell = OptionSpec{
-    .option = .shell,
-    .name = "--shell",
-    .display = "--shell=<shell>",
-    .value = .attached,
-};
-
-pub const version_tool_options = [_]OptionSpec{option_zls};
-pub const list_options = [_]OptionSpec{option_all};
-pub const env_options = [_]OptionSpec{option_shell};
-
-const version_tool_option_suggestions = [_][]const u8{option_zls.display};
-const list_option_suggestions = [_][]const u8{option_all.display};
-const env_option_suggestions = [_][]const u8{option_shell.display};
-
 pub const command_specs = [_]CommandSpec{
-    .{ .command = .install, .name = "install", .alias = "i", .description = "Install a Zig or ZLS version", .options = &version_tool_options },
-    .{ .command = .remove, .name = "remove", .alias = "rm", .description = "Remove an installed Zig or ZLS version", .options = &version_tool_options },
-    .{ .command = .use, .name = "use", .alias = "u", .description = "Switch to a Zig or ZLS version", .options = &version_tool_options },
-    .{ .command = .list, .name = "list", .alias = "ls", .description = "List installed Zig versions", .options = &list_options },
-    .{ .command = .list_remote, .name = "list-remote", .description = "List available Zig or ZLS versions", .options = &version_tool_options },
-    .{ .command = .list_mirrors, .name = "list-mirrors", .description = "List configured download mirrors" },
-    .{ .command = .clean, .name = "clean", .description = "Remove cached artifacts and unused versions", .options = &list_options },
-    .{ .command = .env, .name = "env", .description = "Print shell setup instructions", .options = &env_options },
-    .{ .command = .completions, .name = "completions", .description = "Generate shell completion scripts" },
-    .{ .command = .version, .name = "version", .description = "Show zvm version" },
-    .{ .command = .help, .name = "help", .description = "Show help" },
-    .{ .command = .upgrade, .name = "upgrade", .description = "Upgrade zvm" },
+    .{ .name = "install", .alias = "i", .description = "Install a Zig or ZLS version" },
+    .{ .name = "remove", .alias = "rm", .description = "Remove an installed Zig or ZLS version" },
+    .{ .name = "use", .alias = "u", .description = "Switch to a Zig or ZLS version" },
+    .{ .name = "list", .alias = "ls", .description = "List installed Zig versions" },
+    .{ .name = "list-remote", .description = "List available Zig or ZLS versions" },
+    .{ .name = "list-mirrors", .description = "List configured download mirrors" },
+    .{ .name = "clean", .description = "Remove cached artifacts and unused versions" },
+    .{ .name = "env", .description = "Print shell setup instructions" },
+    .{ .name = "completions", .description = "Generate shell completion scripts" },
+    .{ .name = "version", .description = "Show zvm version" },
+    .{ .name = "help", .description = "Show help" },
+    .{ .name = "upgrade", .description = "Upgrade zvm" },
 };
 
 pub const global_option_names = [_][]const u8{
@@ -235,33 +184,114 @@ fn build_shell_words() []const u8 {
 
 pub fn valid_option(command_name: []const u8, arg: []const u8) bool {
     const command = Command.parse(command_name) orelse return false;
-    const command_spec = command.spec();
-    for (command_spec.options) |option| {
-        switch (option.value) {
-            .none => if (std.mem.eql(u8, arg, option.name)) return true,
-            .attached => {
-                if (std.mem.eql(u8, arg, option.name)) return true;
-                if (std.mem.startsWith(u8, arg, option.name) and
-                    arg.len > option.name.len and
-                    arg[option.name.len] == '=') return true;
+    return switch (command) {
+        inline else => |tag| valid_option_for(command_args_type(tag), arg),
+    };
+}
+
+pub fn option_suggestions(command_name: []const u8) ?[]const []const u8 {
+    const command = Command.parse(command_name) orelse return null;
+    return switch (command) {
+        inline else => |tag| option_suggestions_for(command_args_type(tag)),
+    };
+}
+
+fn command_args_type(comptime command: Command) type {
+    comptime {
+        const command_name = @tagName(command);
+        for (@typeInfo(CLIArgs).@"union".fields) |field| {
+            if (std.mem.eql(u8, field.name, command_name)) return field.type;
+        }
+        unreachable;
+    }
+}
+
+fn flag_name(comptime field_name: []const u8) []const u8 {
+    comptime {
+        var result: []const u8 = "--";
+        var index: usize = 0;
+        while (std.mem.indexOfScalar(u8, field_name[index..], '_')) |underscore_index| {
+            result = result ++ field_name[index..][0..underscore_index] ++ "-";
+            index += underscore_index + 1;
+        }
+        return result ++ field_name[index..];
+    }
+}
+
+fn named_end(comptime Args: type) usize {
+    comptime {
+        if (Args == void) return 0;
+        const fields = std.meta.fields(Args);
+        for (fields, 0..) |field, index| {
+            if (std.mem.eql(u8, field.name, "--")) return index;
+        }
+        return fields.len;
+    }
+}
+
+fn option_display(comptime field: std.builtin.Type.StructField) []const u8 {
+    comptime {
+        const flag = flag_name(field.name);
+        return switch (@typeInfo(field.type)) {
+            .bool => flag,
+            .optional => flag ++ "=<" ++ field.name ++ ">",
+            else => flag ++ "=<" ++ field.name ++ ">",
+        };
+    }
+}
+
+fn valid_option_for(comptime Args: type, arg: []const u8) bool {
+    if (comptime Args == void) return false;
+
+    inline for (comptime std.meta.fields(Args)[0..named_end(Args)]) |field| {
+        const flag = comptime flag_name(field.name);
+        switch (@typeInfo(field.type)) {
+            .bool => if (std.mem.eql(u8, arg, flag)) return true,
+            else => {
+                if (std.mem.eql(u8, arg, flag)) return true;
+                if (std.mem.startsWith(u8, arg, flag) and
+                    arg.len > flag.len and
+                    arg[flag.len] == '=') return true;
             },
         }
     }
     return false;
 }
 
-pub fn option_suggestions(command_name: []const u8) ?[]const []const u8 {
-    const command = Command.parse(command_name) orelse return null;
-    return switch (command) {
-        .install, .remove, .use, .list_remote => &version_tool_option_suggestions,
-        .list, .clean => &list_option_suggestions,
-        .env => &env_option_suggestions,
-        .list_mirrors, .completions, .version, .help, .upgrade => null,
+fn named_option_count(comptime Args: type) usize {
+    comptime {
+        if (Args == void) return 0;
+        return named_end(Args);
+    }
+}
+
+fn option_suggestions_for(comptime Args: type) ?[]const []const u8 {
+    const count = comptime named_option_count(Args);
+    if (comptime count == 0) return null;
+    return &OptionSuggestions(Args).values;
+}
+
+fn OptionSuggestions(comptime Args: type) type {
+    return struct {
+        const values = build_option_suggestions(Args);
     };
+}
+
+fn build_option_suggestions(comptime Args: type) [named_option_count(Args)][]const u8 {
+    comptime {
+        var suggestions: [named_option_count(Args)][]const u8 = undefined;
+        for (std.meta.fields(Args)[0..named_end(Args)], 0..) |field, index| {
+            suggestions[index] = option_display(field);
+        }
+        return suggestions;
+    }
 }
 
 comptime {
     std.debug.assert(command_specs.len == @typeInfo(Command).@"enum".fields.len);
+    for (std.meta.fields(Command), 0..) |field, index| {
+        std.debug.assert(std.mem.eql(u8, field.name, @tagName(@as(Command, @enumFromInt(index)))));
+    }
 }
 
 test "command name arrays are derived from command specs" {

@@ -61,6 +61,96 @@ fn positional_start(comptime Args: type) usize {
     }
 }
 
+fn named_end(comptime Args: type) usize {
+    comptime {
+        const fields = std.meta.fields(Args);
+        for (fields, 0..) |field, index| {
+            if (std.mem.eql(u8, field.name, "--")) {
+                assert(field.type == void);
+                return index;
+            }
+        }
+        return fields.len;
+    }
+}
+
+fn named_fields_sorted(comptime Args: type) []const std.builtin.Type.StructField {
+    comptime {
+        const fields = std.meta.fields(Args);
+        const end = named_end(Args);
+        var result = fields[0..end].*;
+
+        for (result[0..], 0..) |*field_right, right_index| {
+            for (result[0..right_index]) |*field_left| {
+                if (field_left.name.len < field_right.name.len) {
+                    std.mem.swap(std.builtin.Type.StructField, field_left, field_right);
+                }
+            }
+        }
+
+        return &result;
+    }
+}
+
+fn assert_valid_value_type(comptime T: type) void {
+    comptime {
+        if (T == []const u8) return;
+        if (@typeInfo(T) == .int) {
+            assert(@typeInfo(T).int.signedness == .unsigned);
+            return;
+        }
+        if (@typeInfo(T) == .@"enum") return;
+        if (@hasDecl(T, "parse_flag_value")) return;
+
+        @compileError("unsupported CLI value type: " ++ @typeName(T));
+    }
+}
+
+fn assert_valid_args_type(comptime Args: type) void {
+    comptime {
+        assert(@typeInfo(Args) == .@"struct");
+
+        const fields = std.meta.fields(Args);
+        const positional_first = positional_start(Args);
+        const positional_count = fields.len - positional_first;
+
+        for (fields[0..named_end(Args)]) |field| {
+            switch (@typeInfo(field.type)) {
+                .bool => {
+                    assert(field.defaultValue() != null);
+                    assert(field.defaultValue().? == false);
+                },
+                .optional => |optional| {
+                    assert(field.defaultValue() != null);
+                    assert(field.defaultValue().? == null);
+                    assert_valid_value_type(optional.child);
+                },
+                else => assert_valid_value_type(field.type),
+            }
+        }
+
+        var optional_tail = false;
+        for (fields[positional_first..]) |field| {
+            if (positional_count == 1 and field.type == []const []const u8) continue;
+
+            if (field.defaultValue() == null) {
+                if (optional_tail) @compileError("optional positional arguments must be trailing");
+            } else {
+                optional_tail = true;
+            }
+
+            switch (@typeInfo(field.type)) {
+                .optional => |optional| {
+                    assert(field.defaultValue() != null);
+                    assert(field.defaultValue().? == null);
+                    assert_valid_value_type(optional.child);
+                },
+                else => assert_valid_value_type(field.type),
+            }
+        }
+    }
+}
+
 fn assign_default_positionals(comptime Args: type, result: *Args, parsed_count: usize) ParseError!void {
     const fields = comptime std.meta.fields(Args);
     const positional_first = comptime positional_start(Args);
@@ -70,6 +160,20 @@ fn assign_default_positionals(comptime Args: type, result: *Args, parsed_count: 
                 .optional => @field(result, field.name) = null,
                 else => return error.MissingRequiredArgument,
             }
+        }
+    }
+}
+
+fn assign_default_named(comptime Args: type, result: *Args, counts: anytype) ParseError!void {
+    inline for (comptime named_fields_sorted(Args)) |field| {
+        switch (@field(counts, field.name)) {
+            0 => switch (@typeInfo(field.type)) {
+                .bool => @field(result, field.name) = false,
+                .optional => @field(result, field.name) = null,
+                else => return error.MissingRequiredArgument,
+            },
+            1 => {},
+            else => return error.DuplicateOption,
         }
     }
 }
@@ -105,44 +209,36 @@ fn parse_value(comptime T: type, value: []const u8) ParseError!T {
 }
 
 fn parse_named(comptime Args: type, result: *Args, counts: anytype, arg: []const u8) ParseError!bool {
-    const fields = comptime std.meta.fields(Args);
-    const positional_first = comptime positional_start(Args);
-    inline for (fields, 0..) |field, index| {
-        if (comptime index < positional_first and !std.mem.eql(u8, field.name, "--")) {
-            const flag = comptime flag_name(field.name);
-            if (std.mem.startsWith(u8, arg, flag)) {
-                @field(counts, field.name) += 1;
-                if (@field(counts, field.name) > 1) return error.DuplicateOption;
+    inline for (comptime named_fields_sorted(Args)) |field| {
+        const flag = comptime flag_name(field.name);
+        if (std.mem.startsWith(u8, arg, flag)) {
+            @field(counts, field.name) += 1;
+            if (@field(counts, field.name) > 1) return error.DuplicateOption;
 
-                switch (@typeInfo(field.type)) {
-                    .bool => {
-                        if (!std.mem.eql(u8, arg, flag)) return error.MissingOptionValueSeparator;
-                        @field(result, field.name) = true;
-                    },
-                    .optional => {
-                        const value = try split_attached_value(flag, arg);
-                        @field(result, field.name) = try parse_value(field.type, value);
-                    },
-                    else => {
-                        const value = try split_attached_value(flag, arg);
-                        @field(result, field.name) = try parse_value(field.type, value);
-                    },
-                }
-                return true;
+            switch (@typeInfo(field.type)) {
+                .bool => {
+                    if (!std.mem.eql(u8, arg, flag)) return error.MissingOptionValueSeparator;
+                    @field(result, field.name) = true;
+                },
+                .optional => {
+                    const value = try split_attached_value(flag, arg);
+                    @field(result, field.name) = try parse_value(field.type, value);
+                },
+                else => {
+                    const value = try split_attached_value(flag, arg);
+                    @field(result, field.name) = try parse_value(field.type, value);
+                },
             }
+            return true;
         }
     }
     return false;
 }
 
 fn is_known_named(comptime Args: type, arg: []const u8) bool {
-    const fields = comptime std.meta.fields(Args);
-    const positional_first = comptime positional_start(Args);
-    inline for (fields, 0..) |field, index| {
-        if (comptime index < positional_first and !std.mem.eql(u8, field.name, "--")) {
-            const flag = comptime flag_name(field.name);
-            if (std.mem.eql(u8, arg, flag) or std.mem.startsWith(u8, arg, flag ++ "=")) return true;
-        }
+    inline for (comptime named_fields_sorted(Args)) |field| {
+        const flag = comptime flag_name(field.name);
+        if (std.mem.eql(u8, arg, flag) or std.mem.startsWith(u8, arg, flag ++ "=")) return true;
     }
     return false;
 }
@@ -155,7 +251,7 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
         return {};
     }
 
-    comptime assert(@typeInfo(Args) == .@"struct");
+    comptime assert_valid_args_type(Args);
 
     var result: Args = std.mem.zeroes(Args);
 
@@ -218,6 +314,7 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
         }
     }
 
+    try assign_default_named(Args, &result, &counts);
     try assign_default_positionals(Args, &result, positional_count);
     return result;
 }
@@ -230,7 +327,7 @@ fn union_payload(comptime Commands: type, comptime tag: std.meta.Tag(Commands)) 
     unreachable;
 }
 
-pub fn parseCommand(comptime Commands: type, command_name: []const u8, args: []const []const u8) ParseError!Commands {
+pub fn parse_command(comptime Commands: type, command_name: []const u8, args: []const []const u8) ParseError!Commands {
     comptime assert(@typeInfo(Commands) == .@"union");
 
     const UnionTag = std.meta.Tag(Commands);
@@ -248,14 +345,14 @@ pub fn parseCommand(comptime Commands: type, command_name: []const u8, args: []c
 }
 
 test "typed parser handles flags and positionals" {
-    const parsed = try parseCommand(cli_spec.CLIArgs, "install", &.{ "--zls", "0.16.0" });
+    const parsed = try parse_command(cli_spec.CLIArgs, "install", &.{ "--zls", "0.16.0" });
     try std.testing.expect(parsed.install.zls);
     try std.testing.expectEqualStrings("0.16.0", parsed.install.version);
 }
 
 test "typed parser enforces attached values" {
-    try std.testing.expectError(error.MissingOptionValueSeparator, parseCommand(cli_spec.CLIArgs, "env", &.{"--shell"}));
-    const parsed = try parseCommand(cli_spec.CLIArgs, "env", &.{"--shell=zsh"});
+    try std.testing.expectError(error.MissingOptionValueSeparator, parse_command(cli_spec.CLIArgs, "env", &.{"--shell"}));
+    const parsed = try parse_command(cli_spec.CLIArgs, "env", &.{"--shell=zsh"});
     try std.testing.expectEqualStrings("zsh", parsed.env.shell.?);
 }
 
@@ -279,7 +376,7 @@ test "typed parser supports ints enums custom values and extended args" {
         },
     };
 
-    const parsed = try parseCommand(Commands, "demo", &.{
+    const parsed = try parse_command(Commands, "demo", &.{
         "--count=7",
         "--mode=fast",
         "--custom=ok",
@@ -292,4 +389,27 @@ test "typed parser supports ints enums custom values and extended args" {
     try std.testing.expectEqualStrings("ok", parsed.demo.custom.value);
     try std.testing.expectEqual(@as(usize, 2), parsed.demo.rest.len);
     try std.testing.expectEqualStrings("-not-a-flag", parsed.demo.rest[0]);
+}
+
+test "typed parser matches longer flags before shorter prefixes" {
+    const Commands = union(enum) {
+        demo: struct {
+            foo: bool = false,
+            foo_bar: bool = false,
+        },
+    };
+
+    const parsed = try parse_command(Commands, "demo", &.{"--foo-bar"});
+    try std.testing.expect(!parsed.demo.foo);
+    try std.testing.expect(parsed.demo.foo_bar);
+}
+
+test "typed parser rejects missing required named options" {
+    const Commands = union(enum) {
+        demo: struct {
+            count: u8,
+        },
+    };
+
+    try std.testing.expectError(error.MissingRequiredArgument, parse_command(Commands, "demo", &.{}));
 }
