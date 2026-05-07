@@ -157,27 +157,40 @@ pub fn build(b: *Build) void {
     const e2e_step = b.step("e2e", "Run end-to-end tests against the built zvm binary");
     e2e_step.dependOn(&run_e2e.step);
 
-    const use_system_zine = b.option(
+    // The Zine site/serve steps are opt-in via `-Dsite=true`. Wiring them up
+    // unconditionally fails on macOS first runs because zine's build.zig
+    // early-returns before installing its artifact while its lazy `frameworks`
+    // dependency is still being fetched, which then panics here when
+    // `zine.website()` looks the artifact up.
+    const enable_site = b.option(
         bool,
-        "zine-system",
-        "Use zine binary from PATH instead of building from source",
+        "site",
+        "Enable the Zine site/serve build steps (requires zine deps)",
     ) orelse false;
-    const zine_loc: @FieldType(zine.Options, "zine") =
-        if (use_system_zine) .{ .path = null } else .source;
 
-    const site_run = zine.website(b, .{
-        .website_root = b.path("static"),
-        .output_path = "site",
-        .force = true,
-        .zine = zine_loc,
-    });
-    const site_step = b.step("site", "Build the Zine website");
-    site_step.dependOn(&site_run.step);
+    if (enable_site) {
+        const use_system_zine = b.option(
+            bool,
+            "zine-system",
+            "Use zine binary from PATH instead of building from source",
+        ) orelse false;
+        const zine_loc: @FieldType(zine.Options, "zine") =
+            if (use_system_zine) .{ .path = null } else .source;
 
-    const serve_run = zine.serve(b, .{
-        .website_root = b.path("static"),
-        .zine = zine_loc,
-    });
-    const serve_step = b.step("serve", "Run the Zine dev server (http://localhost:1990)");
-    serve_step.dependOn(&serve_run.step);
+        const site_run = zine.website(b, .{
+            .website_root = b.path("static"),
+            .output_path = "site",
+            .force = true,
+            .zine = zine_loc,
+        });
+        const site_step = b.step("site", "Build the Zine website");
+        site_step.dependOn(&site_run.step);
+
+        const serve_run = zine.serve(b, .{
+            .website_root = b.path("static"),
+            .zine = zine_loc,
+        });
+        const serve_step = b.step("serve", "Run the Zine dev server (http://localhost:1990)");
+        serve_step.dependOn(&serve_run.step);
+    }
 }
