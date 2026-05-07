@@ -3,11 +3,17 @@
     .version = "0.21.0",
     .fingerprint = 0xec41f701eac68f7f,
     .minimum_zig_version = "0.16.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .zine = .{
+            .url = "git+https://github.com/kristoff-it/zine#acf07577b158475c7d54f3461c3348b8a0a6a6d3",
+            .hash = "zine-0.11.2-ou6nIAVkLQEFYFBWLqQ1Jxyub0CG5kObgTQaeSq9cI9W",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "static",
         "LICENSE",
         "README.md",
     },

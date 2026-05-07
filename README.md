@@ -1,5 +1,5 @@
 <h1 align="center">
-   <img src="logo.png" width="40%" height="40%" alt="zvm logo" title="zvm logo">
+   <img src="static/assets/logo.png" width="40%" height="40%" alt="zvm logo" title="zvm logo">
   <br><br>
   ⚡ Zig Version Manager (<code>zvm</code>)
 </h1>
@@ -12,7 +12,16 @@
 
 </div>
 
-**zvm** is a blazingly fast and intuitive command-line version manager for the [Zig programming language](https://ziglang.org/). Effortlessly install, manage, and switch between multiple Zig versions with automatic project-based version detection.
+**zvm** is a fast, native command-line version manager for the [Zig programming language](https://ziglang.org/). It installs Zig and ZLS releases, switches active versions, detects project requirements from `build.zig.zon`, and keeps automation predictable with JSON/plain output, non-interactive modes, timeouts, and safe cleanup.
+
+## ✨ Highlights
+
+- Manage Zig and ZLS from one CLI: install, use, list, remove, and clean both toolchains.
+- Project-aware shims automatically detect `minimum_zig_version` from `build.zig.zon`.
+- Safer destructive commands: removing the active version and `clean --all` ask for confirmation unless `--yes` is passed.
+- Automation-friendly output: `--json`, `--plain`, `--quiet`, `--no-input`, and predictable exit behavior.
+- Better terminal behavior: color honors `NO_COLOR`, progress output is disabled when stdout is not a TTY, and interrupted installs clean up partial files.
+- Resilient downloads with per-mirror timeouts and mirror fallback.
 
 ## 📦 Installation
 
@@ -33,13 +42,13 @@ curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.
 **Install specific version or rollback:**
 ```sh
 # Install specific version
-curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.15.0"
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.21.0"
 
 # Rollback to previous version
-curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.14.0"
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "v0.20.0"
 
 # Also works with 'zvm-' prefix
-curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.15.0"
+curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.21.0"
 ```
 
 The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
@@ -52,10 +61,10 @@ irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 |
 **Install specific version or rollback:**
 ```powershell
 # Pass a version through the script block
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1))) -Version "v0.15.0"
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1))) -Version "v0.21.0"
 
 # Or set ZVM_VERSION before piping to iex
-$env:ZVM_VERSION = "v0.15.0"; irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
+$env:ZVM_VERSION = "v0.21.0"; irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex
 ```
 
 #### Manual Installation
@@ -74,6 +83,14 @@ zvm env
 export PATH="/home/user/.local/share/zvm/bin:$PATH"
 ```
 
+You can also ask for a specific shell:
+
+```bash
+zvm env --shell=zsh
+zvm env --shell=fish
+zvm env --shell=powershell
+```
+
 ---
 
 ## 📖 Usage Guide
@@ -82,12 +99,22 @@ export PATH="/home/user/.local/share/zvm/bin:$PATH"
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `install` | Install a Zig version | `zvm install 0.13.0` |
-| `use` | Switch to a version | `zvm use 0.13.0` |
-| `list` | List installed versions | `zvm list` |
-| `list-remote` | List available versions | `zvm list-remote` |
-| `remove` | Remove a version | `zvm remove 0.12.0` |
-| `clean` | Clean up cache | `zvm clean` |
+| `install`, `i` | Install a Zig or ZLS version | `zvm install 0.16.0` |
+| `use`, `u` | Switch to a Zig or ZLS version | `zvm use 0.16.0` |
+| `list`, `ls` | List installed versions | `zvm list --all` |
+| `list-remote` | List available Zig or ZLS versions | `zvm list-remote --zls` |
+| `remove`, `rm` | Remove an installed version | `zvm --yes remove 0.15.2` |
+| `clean` | Clean cache and unused versions | `zvm clean --all` |
+| `upgrade` | Upgrade zvm itself | `zvm upgrade` |
+
+Common aliases are available for everyday commands:
+
+```bash
+zvm i 0.16.0       # install
+zvm u 0.16.0       # use
+zvm ls --all       # list
+zvm rm 0.15.2      # remove
+```
 
 ### 🎯 Auto-version detection
 
@@ -98,7 +125,7 @@ Create a `build.zig.zon` in your project root:
 .{
     .name = "my-project",
     .version = "0.1.0",
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{},
 }
 ```
@@ -113,23 +140,23 @@ Now simply run `zig build` or any Zig command - zvm will:
 zig build
 zig run src/main.zig
 # Or specify version explicitly
-zig 0.13.0 build
+zig 0.16.0 build
 ```
 
 ### Installation Examples
 
 ```bash
-# Install latest stable Zig
-zvm install 0.13.0
+# Install a stable Zig release
+zvm install 0.16.0
 
 # Install quietly (errors only)
-zvm --quiet install 0.13.0
+zvm --quiet install 0.16.0
 
 # Install master/development build
 zvm install master
 
 # Install ZLS (Language Server)
-zvm install --zls 0.13.0
+zvm install --zls 0.16.0
 
 # Inspect available ZLS releases before installing
 zvm list-remote --zls
@@ -139,7 +166,7 @@ zvm list-remote --zls
 
 ```bash
 # Switch to specific version
-zvm use 0.13.0
+zvm use 0.16.0
 
 # List installed versions
 zvm list
@@ -151,10 +178,16 @@ zvm list --all
 zvm list-remote
 
 # Remove old version
-zvm remove 0.12.0
+zvm remove 0.15.2
+
+# Remove without prompting, useful in automation
+zvm --yes remove 0.15.2
 
 # Clean up download cache
 zvm clean
+
+# Remove cached artifacts and every non-current Zig/ZLS version
+zvm clean --all
 ```
 
 ### Advanced Usage
@@ -163,14 +196,32 @@ zvm clean
 # JSON output for automation
 zvm --json list
 
+# Plain table output for shell pipelines
+zvm --plain list
+
 # Quiet mode (errors only)
 zvm --quiet install master
+
+# Verbose diagnostics on stderr
+zvm --verbose install 0.16.0
+
+# Trace HTTP/file-path details while debugging downloads
+zvm --trace install master
+
+# Non-interactive runs fail instead of prompting
+zvm --no-input clean --all
 
 # Force colored output
 zvm --color list
 
+# Disable colored output
+zvm --no-color list
+
 # List available download mirrors
 zvm list-mirrors
+
+# Upgrade zvm itself
+zvm upgrade
 
 # Show command-specific help
 zvm help list
@@ -195,9 +246,14 @@ zvm -- list
 | Flag | Description |
 |------|-------------|
 | `--json` | Output in JSON format |
+| `--plain` | Tabular output for shell pipelines, without headers or color |
 | `--quiet` | Suppress non-error output |
+| `--verbose` | Show debug output on stderr |
+| `--trace` | Show trace output with HTTP details and file paths |
 | `--no-color` | Disable colored output |
 | `--color` | Force colored output |
+| `--yes` | Skip confirmation prompts for destructive operations |
+| `--no-input` | Refuse to prompt; non-interactive runs fail fast |
 | `--help`, `-h` | Show help |
 | `--version` | Show version |
 
@@ -205,8 +261,11 @@ zvm -- list
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `XDG_DATA_HOME` | Data directory location | `~/.local/share` |
-| `ZVM_DEBUG` | Enable debug logging | `false` |
+| `ZVM_HOME` | Override the zvm install/data directory | Platform-specific user data directory |
+| `XDG_DATA_HOME` | Base data directory on Unix when `ZVM_HOME` is unset | `~/.local/share` |
+| `ZVM_DEBUG` | Legacy alias for verbose logging | `false` |
+| `NO_COLOR` | Disable colored output when set | unset |
+| `ZVM_DOWNLOAD_TIMEOUT_SECONDS` | Per-mirror download timeout, with mirror fallback | `1800` |
 
 ---
 

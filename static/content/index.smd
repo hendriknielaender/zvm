@@ -1,0 +1,7 @@
+---
+.title = "zvm — Zig Version Manager",
+.description = "Manage Zig and ZLS versions with project detection, safe cleanup, and automation-friendly output.",
+.layout = "index.shtml",
+.date = @date("2026-05-07T00:00:00"),
+.author = "hendriknielaender",
+---
