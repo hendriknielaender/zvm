@@ -50,6 +50,14 @@ pub const ZIG_MINISIGN_PUBLIC_KEY = "RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+
 /// zls meta data url
 pub const zls_meta_url: []const u8 = "https://api.github.com/repos/zigtools/zls/releases";
 
+/// ZLS publishes development builds (master and pinned dev pins) through a
+/// separate "select-version" endpoint instead of the GitHub releases API.
+/// The endpoint expects `zig_version=<X>` and `compatibility=only-runtime`
+/// query parameters and returns a JSON object whose platform-keyed entries
+/// describe the prebuilt tarball, shasum, and size for each target.
+pub const zls_select_version_url_base: []const u8 =
+    "https://releases.zigtools.org/v1/zls/select-version";
+
 /// parsed zig url
 pub const zig_url = std.Uri.parse(zig_meta_url) catch @panic("Invalid zig_meta_url");
 /// parsed zls url

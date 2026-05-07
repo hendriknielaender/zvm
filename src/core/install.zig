@@ -379,6 +379,14 @@ fn resolve_zls_release(
     }
     const platform_str = platform_str_buffer[0..platform_str_temp.len];
 
+    // Stable releases live in the GitHub releases index. Master and pinned
+    // dev builds live behind the `select-version` endpoint, which returns a
+    // different JSON shape (per-platform tarball + shasum + size).
+    if (util_tool.is_master_like_version(version)) {
+        try resolve_zls_master_release(ctx, release, version, platform_str);
+        return;
+    }
+
     const version_data = try fetch_zls_version_data(ctx, platform_str, version);
 
     var version_path_buffer = try ctx.scratch(.path);
@@ -394,6 +402,35 @@ fn resolve_zls_release(
 
     assert(release.download_urls_count == 1);
     assert(release.signature_url() == null);
+}
+
+fn resolve_zls_master_release(
+    ctx: *context.CliContext,
+    release: *Release,
+    version: []const u8,
+    platform_str: []const u8,
+) !void {
+    assert(version.len > 0);
+    assert(version.len < 100);
+    assert(platform_str.len > 0);
+    assert(util_tool.is_master_like_version(version));
+
+    const version_data = try fetch_zls_master_version_data(ctx, platform_str, version);
+
+    var version_path_buffer = try ctx.scratch(.path);
+    defer version_path_buffer.release();
+    const version_root = try util_data.get_zvm_zls_version(version_path_buffer);
+
+    release.init(.zls);
+    try release.set_version(version_data.version());
+    try release.set_extract_path_from_parts(ctx, version_root, release.version());
+    release.hash = version_data.shasum;
+    release.size = version_data.size;
+    try release.add_download_url(version_data.tarball());
+
+    assert(release.download_urls_count == 1);
+    assert(release.signature_url() == null);
+    assert(release.hash != null);
 }
 
 fn install_release(
@@ -919,6 +956,129 @@ fn fetch_zls_version_data(
         return error.UnsupportedVersion;
     };
 
+    assert(version_data.tarball().len > 0);
+    assert(version_data.size > 0);
+
+    return version_data;
+}
+
+/// Percent-encodes the unreserved subset needed for a Zig dev version pin
+/// (`0.17.0-dev.261+3d1fb4fac`) when used as a URL query value. The literal
+/// `+` would otherwise be decoded as a space by the server, so we encode it
+/// as `%2B`. All RFC 3986 unreserved characters and the dev-pin separators
+/// `.` and `-` are passed through; anything else is percent-encoded.
+fn percent_encode_query_value(input: []const u8, output_buffer: []u8) ![]const u8 {
+    assert(input.len > 0);
+    assert(output_buffer.len >= input.len * 3);
+
+    var write_index: usize = 0;
+    for (input) |byte| {
+        const passthrough = (byte >= 'A' and byte <= 'Z') or
+            (byte >= 'a' and byte <= 'z') or
+            (byte >= '0' and byte <= '9') or
+            byte == '-' or byte == '.' or byte == '_' or byte == '~';
+        if (passthrough) {
+            output_buffer[write_index] = byte;
+            write_index += 1;
+        } else {
+            const hex_digits = "0123456789ABCDEF";
+            output_buffer[write_index] = '%';
+            output_buffer[write_index + 1] = hex_digits[(byte >> 4) & 0x0f];
+            output_buffer[write_index + 2] = hex_digits[byte & 0x0f];
+            write_index += 3;
+        }
+    }
+    assert(write_index >= input.len);
+    assert(write_index <= output_buffer.len);
+    return output_buffer[0..write_index];
+}
+
+/// Translates the user-facing `master` alias into the concrete Zig dev
+/// version currently published in `index.json`. Pinned dev pins are copied
+/// through verbatim. The returned slice points into `output_buffer`.
+fn resolve_master_zig_version(
+    ctx: *context.CliContext,
+    version: []const u8,
+    output_buffer: *[limits.limits.version_string_length_maximum]u8,
+) ![]const u8 {
+    assert(version.len > 0);
+    assert(util_tool.is_master_like_version(version));
+
+    if (util_tool.is_dev_version(version)) {
+        assert(version.len <= output_buffer.len);
+        @memcpy(output_buffer[0..version.len], version);
+        return output_buffer[0..version.len];
+    }
+
+    assert(util_tool.eql_str(version, "master"));
+    const res = try http_client.HttpClient.fetch(ctx, config.zig_url, .{});
+    assert(res.len > 0);
+
+    const resolved = try meta.Zig.get_master_version_string(res, output_buffer[0..]) orelse {
+        log.err("Zig index.json has no `master` entry; cannot resolve ZLS master build.", .{});
+        return error.UnsupportedVersion;
+    };
+    if (!util_tool.is_dev_version(resolved)) {
+        log.err("Zig master entry version '{s}' is not a dev pin.", .{resolved});
+        return error.UnsupportedVersion;
+    }
+    return resolved;
+}
+
+/// Fetches and parses the ZLS `select-version` payload for a master/dev
+/// install. The endpoint requires a concrete Zig dev version as the
+/// `zig_version` query parameter (the literal `master` is rejected with HTTP
+/// 400), so the literal `master` alias is first resolved against Zig's
+/// `index.json` to its current dev pin. Pinned dev versions are passed
+/// through unchanged.
+fn fetch_zls_master_version_data(
+    ctx: *context.CliContext,
+    platform_str: []const u8,
+    version: []const u8,
+) !meta.Zls.MasterVersionData {
+    assert(platform_str.len > 0);
+    assert(version.len > 0);
+    assert(util_tool.is_master_like_version(version));
+
+    var resolved_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    const resolved_zig_version = try resolve_master_zig_version(ctx, version, &resolved_buffer);
+    assert(resolved_zig_version.len > 0);
+    assert(util_tool.is_dev_version(resolved_zig_version));
+
+    var encoded_version_buffer: [limits.limits.version_string_length_maximum * 3]u8 = undefined;
+    const encoded_zig_version = try percent_encode_query_value(
+        resolved_zig_version,
+        encoded_version_buffer[0..],
+    );
+
+    var url_buffer = try ctx.scratch(.path);
+    defer url_buffer.release();
+    const url = try url_buffer.set(try std.fmt.bufPrint(
+        url_buffer.slice(),
+        "{s}?zig_version={s}&compatibility=only-runtime",
+        .{ config.zls_select_version_url_base, encoded_zig_version },
+    ));
+    assert(url.len > 0);
+    assert(url.len <= limits.limits.url_length_maximum);
+
+    const uri = std.Uri.parse(url) catch |err| {
+        log.err("Invalid ZLS select-version URL '{s}': {s}", .{ url, @errorName(err) });
+        return error.InvalidMetadataUrl;
+    };
+
+    const res = try http_client.HttpClient.fetch(ctx, uri, .{});
+    assert(res.len > 0);
+
+    const version_data = try meta.Zls.get_master_version_data(res, platform_str) orelse {
+        log.err("Unsupported ZLS master build for Zig '{s}' on platform '{s}'. The ZLS " ++
+            "select-version endpoint did not return an entry for this combination.", .{
+            version,
+            platform_str,
+        });
+        return error.UnsupportedVersion;
+    };
+
+    assert(version_data.version().len > 0);
     assert(version_data.tarball().len > 0);
     assert(version_data.size > 0);
 
