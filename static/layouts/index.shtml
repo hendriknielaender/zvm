@@ -1,0 +1,203 @@
+<extend template="base.shtml">
+<div id="layout-root">
+  <header class="topbar">
+    <nav class="topnav" aria-label="Primary">
+      <a href="#usage">Documentation</a>
+      <a href="https://github.com/hendriknielaender/zvm/releases">Releases</a>
+      <a class="github-link" href="https://github.com/hendriknielaender/zvm" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <h1>Zig Version <span>Manager</span></h1>
+        <p>Manage Zig and ZLS versions with project detection, safe cleanup, and automation-friendly output.</p>
+      </div>
+
+      <div class="terminal hero-terminal">
+        <div class="terminal-tabs">
+          <div class="tabs">
+            <button class="tab active" data-hero-tab="bash">Bash/Curl</button>
+            <button class="tab" data-hero-tab="brew">Homebrew</button>
+          </div>
+          <button class="copy-btn icon-btn" data-icon="copy" data-hero-copy data-copy="curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash" title="Copy to clipboard" aria-label="Copy to clipboard"></button>
+        </div>
+        <div class="terminal-body">
+          <div data-hero-panel="bash">
+            <p class="comment"># Install via curl</p>
+            <div class="command-scroll"><span class="prompt">$</span><code>curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash</code></div>
+          </div>
+          <div data-hero-panel="brew" hidden>
+            <p class="comment"># Install via brew</p>
+            <div class="command-scroll"><span class="prompt">$</span><code>brew tap hendriknielaender/zvm &amp;&amp; brew install zvm</code></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="docs-band">
+      <div class="docs-layout">
+        <aside class="sidebar" aria-label="Documentation sections">
+          <h2>Documentation</h2>
+          <a class="active" data-section-link href="#installation">Installation</a>
+          <a data-section-link href="#usage">Usage Guide</a>
+          <a data-section-link href="#auto-version">Auto-versioning</a>
+          <a data-section-link href="#configuration">Configuration</a>
+        </aside>
+
+        <div class="content">
+          <section id="installation" class="doc-section">
+            <h2><span>⚡</span> Installation</h2>
+            <div class="terminal install-terminal">
+              <div class="terminal-tabs">
+                <div class="tabs">
+                  <button class="tab active" data-install-tab="macos">macOS</button>
+                  <button class="tab" data-install-tab="linux">Linux</button>
+                  <button class="tab" data-install-tab="windows">Windows</button>
+                </div>
+                <button class="copy-btn icon-btn" data-icon="copy" data-install-copy data-copy="brew tap hendriknielaender/zvm &amp;&amp; brew install zvm" title="Copy to clipboard" aria-label="Copy to clipboard"></button>
+              </div>
+              <div class="panel" data-install-panel="macos">
+                <p>Install via Homebrew:</p>
+                <pre><span>$</span> brew tap hendriknielaender/zvm &amp;&amp; brew install zvm</pre>
+              </div>
+              <div class="panel" data-install-panel="linux" hidden>
+                <p>Install via Curl:</p>
+                <pre><span>$</span> curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash</pre>
+              </div>
+              <div class="panel" data-install-panel="windows" hidden>
+                <p>Install via PowerShell:</p>
+                <pre><span>&gt;</span> irm https://raw.githubusercontent.com/hendriknielaender/zvm/master/install.ps1 | iex</pre>
+              </div>
+            </div>
+
+            <div class="terminal">
+              <div class="terminal-head">
+                <h3>Shell Setup</h3>
+                <button class="copy-btn icon-btn" data-icon="copy" data-copy="zvm env" title="Copy to clipboard" aria-label="Copy to clipboard"></button>
+              </div>
+              <div class="panel">
+                <p>After installation, configure your shell environment:</p>
+                <pre class="code-block"><em># Get shell-specific configuration</em>
+<span>$</span> zvm env
+
+<em># Example output:</em>
+<em># Add this to your ~/.bashrc, ~/.profile, or ~/.zshrc:</em>
+export PATH="/home/user/.local/share/zvm/bin:$PATH"</pre>
+              </div>
+            </div>
+          </section>
+
+          <section id="usage" class="doc-section">
+            <h2><span>⚡</span> Usage Guide</h2>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Command</th><th>Description</th><th>Example</th></tr></thead>
+                <tbody>
+                  <tr><td>install, i</td><td>Install a Zig or ZLS version</td><td>zvm install 0.16.0</td></tr>
+                  <tr><td>use, u</td><td>Switch to a Zig or ZLS version</td><td>zvm use 0.16.0</td></tr>
+                  <tr><td>list, ls</td><td>List installed versions</td><td>zvm list --all</td></tr>
+                  <tr><td>list-remote</td><td>List available Zig or ZLS versions</td><td>zvm list-remote --zls</td></tr>
+                  <tr><td>remove, rm</td><td>Remove an installed version</td><td>zvm --yes remove 0.15.2</td></tr>
+                  <tr><td>clean</td><td>Clean cache and unused versions</td><td>zvm clean --all</td></tr>
+                  <tr><td>upgrade</td><td>Upgrade zvm itself</td><td>zvm upgrade</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card-grid">
+              <div class="info-card">
+                <h3>Examples</h3>
+                <pre><em># Install a stable Zig release</em>
+zvm install 0.16.0
+
+<em># Install master/development build</em>
+zvm install master
+
+<em># Install ZLS (Language Server)</em>
+zvm install --zls 0.16.0</pre>
+              </div>
+              <div class="info-card">
+                <h3>Management</h3>
+                <pre><em># Switch to specific version</em>
+zvm use 0.16.0
+
+<em># List installed Zig and ZLS versions</em>
+zvm list --all
+
+<em># Remove old version without prompting</em>
+zvm --yes remove 0.15.2</pre>
+              </div>
+            </div>
+          </section>
+
+          <section id="auto-version" class="doc-section">
+            <h2><span>⚡</span> Auto-version Detection</h2>
+            <p class="lead">zvm automatically detects the required Zig version from your project's <code>build.zig.zon</code> file.</p>
+            <div class="auto-grid">
+              <div class="code-card">
+                <div class="file-label">build.zig.zon</div>
+                <pre><span class="syntax-punct">.</span>{
+    <span class="syntax-field">.name</span> = <span class="syntax-string">"my-project"</span>,
+    <span class="syntax-field">.version</span> = <span class="syntax-string">"0.1.0"</span>,
+    <span class="syntax-accent">.minimum_zig_version</span> = <span class="syntax-string">"0.16.0"</span>,
+    <span class="syntax-field">.dependencies</span> = .{},
+}</pre>
+              </div>
+              <div class="steps">
+                <div><b>1. Detect</b><p>Reads minimum_zig_version from your zon file.</p></div>
+                <div><b>2. Install</b><p>Fetches the version if it is not present.</p></div>
+                <div><b>3. Apply</b><p>Runs your Zig command with the matching binary.</p></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="configuration" class="doc-section">
+            <h2><span>⚡</span> Configuration</h2>
+            <h3>Global Options</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+                <tbody>
+                  <tr><td>--json</td><td>Output machine-readable JSON</td></tr>
+                  <tr><td>--plain</td><td>Tabular pipeline output without headers or color</td></tr>
+                  <tr><td>--quiet</td><td>Suppress non-error output</td></tr>
+                  <tr><td>--verbose</td><td>Show debug output on stderr</td></tr>
+                  <tr><td>--trace</td><td>Show HTTP details and file paths while debugging</td></tr>
+                  <tr><td>--yes</td><td>Skip confirmation prompts for destructive operations</td></tr>
+                  <tr><td>--no-input</td><td>Refuse to prompt; fail fast in automation</td></tr>
+                  <tr><td>--no-color</td><td>Disable colored output</td></tr>
+                  <tr><td>--color</td><td>Force colored output</td></tr>
+                  <tr><td>--help, -h</td><td>Show help</td></tr>
+                  <tr><td>--version</td><td>Show version</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h3>Environment Variables</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Variable</th><th>Description</th><th>Default</th></tr></thead>
+                <tbody>
+                  <tr><td>ZVM_HOME</td><td>Override zvm install/data directory</td><td>platform data dir</td></tr>
+                  <tr><td>XDG_DATA_HOME</td><td>Base data directory on Unix when ZVM_HOME is unset</td><td>~/.local/share</td></tr>
+                  <tr><td>ZVM_DEBUG</td><td>Legacy verbose logging alias</td><td>false</td></tr>
+                  <tr><td>NO_COLOR</td><td>Disable colored output when set</td><td>unset</td></tr>
+                  <tr><td>ZVM_DOWNLOAD_TIMEOUT_SECONDS</td><td>Per-mirror download timeout with fallback</td><td>1800</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <p>Designed for the Zig community. Not affiliated with the ZVM project by @tristanisham.<br>Distributed under MIT License.</p>
+      <div><span>v0.21.0 stable</span><span>macOS/Linux/Windows</span></div>
+    </div>
+  </footer>
+</div>
