@@ -63,6 +63,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
     try update_current(ctx.io, version_path, symlink_path);
+    try ensure_unix_shim(ctx, if (is_zls) "zls" else "zig");
 
     if (is_zls) {
         try verify_zls_version(ctx, version);
@@ -155,6 +156,35 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
     defer current_dir.close(io);
 
     try current_dir.symLinkAtomic(io, zig_path, symlink_basename, .{ .is_directory = true });
+}
+
+/// Ensure the Unix shim points at zvm.
+fn ensure_unix_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
+    assert(tool_name.len > 0);
+    if (builtin.os.tag == .windows) return;
+
+    var bin_dir_buffer = try ctx.scratch(.path);
+    defer bin_dir_buffer.release();
+    const bin_dir = try util_data.get_zvm_path_segment(bin_dir_buffer, "bin");
+    try util_tool.try_create_path(ctx.io, bin_dir);
+
+    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const self_len = try std.process.executablePath(ctx.io, &self_storage);
+    const self_path = self_storage[0..self_len];
+    assert(self_path.len > 0);
+
+    var shim_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, tool_name });
+
+    std.Io.Dir.deleteFileAbsolute(ctx.io, shim_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        error.IsDir => {
+            log.err("Cannot create shim: {s} is a directory", .{shim_path});
+            return err;
+        },
+        else => return err,
+    };
+    try std.Io.Dir.symLinkAbsolute(ctx.io, self_path, shim_path, .{});
 }
 
 /// Verify the current Zig version.
