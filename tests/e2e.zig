@@ -633,8 +633,6 @@ fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
 }
 
 fn test_use_creates_shims(suite: *const Suite, sandbox: []const u8) !void {
-    if (builtin.os.tag == .windows) return;
-
     const version = "0.13.0";
     try place_installed_version(suite, sandbox, "zig", version);
     try place_installed_version(suite, sandbox, "zls", version);
@@ -647,17 +645,20 @@ fn test_use_creates_shims(suite: *const Suite, sandbox: []const u8) !void {
     defer zls_outcome.deinit(suite.gpa);
     try assert_exit_zero(zls_outcome, "use ZLS");
 
+    const zig_name = if (builtin.os.tag == .windows) "zig.exe" else "zig";
+    const zls_name = if (builtin.os.tag == .windows) "zls.exe" else "zls";
+
     var zig_path_buffer: [sandbox_path_max]u8 = undefined;
     const zig_path = try std.fmt.bufPrint(
         &zig_path_buffer,
-        "{s}{c}.zm{c}bin{c}zig",
-        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep },
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zig_name },
     );
     var zls_path_buffer: [sandbox_path_max]u8 = undefined;
     const zls_path = try std.fmt.bufPrint(
         &zls_path_buffer,
-        "{s}{c}.zm{c}bin{c}zls",
-        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep },
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zls_name },
     );
 
     try Io.Dir.cwd().access(suite.process_init.io, zig_path, .{});

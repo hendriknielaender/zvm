@@ -8,6 +8,7 @@ const install = @import("core/install.zig");
 const memory_limits = @import("memory/limits.zig");
 const memory_static = @import("memory.zig");
 const paths = @import("platform/paths.zig");
+const util_output = @import("util/output.zig");
 const util_tool = @import("util/tool.zig");
 
 const log = std.log.scoped(.shim);
@@ -140,9 +141,28 @@ fn exec_tool(
     else
         build_exec_arguments_slice(buffers, &argv_list);
 
+    if (builtin.os.tag == .windows) {
+        return exec_tool_windows(io, argv_slice);
+    }
+
     const err = std.process.replace(io, .{ .argv = argv_slice });
     log.err("Failed to execute {s}: {s}", .{ tool_path, @errorName(err) });
     return err;
+}
+
+fn exec_tool_windows(io: std.Io, argv: []const []const u8) !void {
+    var child = try std.process.spawn(io, .{
+        .argv = argv,
+        .expand_arg0 = .no_expand,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(io);
+    switch (term) {
+        .exited => |code| std.process.exit(code),
+        else => std.process.exit(@intFromEnum(util_output.ExitCode.invalid_arguments)),
+    }
 }
 
 fn adjust_arguments(
