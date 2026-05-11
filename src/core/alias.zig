@@ -160,8 +160,6 @@ fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
     assert(tool_name.len > 0);
 
     switch (builtin.os.tag) {
-        // TODO: Add a Windows shim path instead of returning here.
-        .windows => return,
         .macos => return ensure_shim_with_buffer(ctx, tool_name, 1024),
         else => return ensure_shim_with_buffer(ctx, tool_name, limits.limits.path_length_maximum),
     }
@@ -186,8 +184,16 @@ fn ensure_shim_with_buffer(
     const self_path = self_storage[0..self_len];
     assert(self_path.len > 0);
 
+    var shim_name_storage: [self_path_buffer_len]u8 = undefined;
+    const shim_name = if (builtin.os.tag == .windows)
+        try std.fmt.bufPrint(shim_name_storage[0 .. tool_name.len + 4], "{s}.exe", .{tool_name})
+    else
+        tool_name;
+
     var shim_path_storage: [self_path_buffer_len]u8 = undefined;
-    const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, tool_name });
+    const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, shim_name });
+
+    if (builtin.os.tag == .windows and std.ascii.eqlIgnoreCase(self_path, shim_path)) return;
 
     std.Io.Dir.deleteFileAbsolute(ctx.io, shim_path) catch |err| switch (err) {
         error.FileNotFound => {},
@@ -198,10 +204,15 @@ fn ensure_shim_with_buffer(
         else => return err,
     };
 
+    if (builtin.os.tag == .windows) {
+        try std.Io.Dir.copyFileAbsolute(self_path, shim_path, ctx.io, .{});
+        return;
+    }
+
     var shim_dir = try std.Io.Dir.openDirAbsolute(ctx.io, bin_dir, .{});
     defer shim_dir.close(ctx.io);
 
-    try shim_dir.symLinkAtomic(ctx.io, self_path, tool_name, .{});
+    try shim_dir.symLinkAtomic(ctx.io, self_path, shim_name, .{});
 }
 
 /// Verify the current Zig version.
