@@ -82,9 +82,9 @@
                 <pre class="code-block"><em># Get shell-specific configuration</em>
 <span>$</span> zvm env
 
-<em># Example output:</em>
+<em># Example output on Unix shells:</em>
 <em># Add this to your ~/.bashrc, ~/.profile, or ~/.zshrc:</em>
-export PATH="/home/user/.local/share/zvm/bin:$PATH"</pre>
+export PATH="$HOME/.local/share/.zm/bin:$PATH"</pre>
               </div>
             </div>
           </section>

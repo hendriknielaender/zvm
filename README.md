@@ -78,9 +78,9 @@ After installation, configure your shell environment:
 # Get shell-specific configuration
 zvm env
 
-# Example output:
+# Example output on Unix shells:
 # Add this to your ~/.bashrc, ~/.profile, or ~/.zshrc:
-export PATH="/home/user/.local/share/zvm/bin:$PATH"
+export PATH="$HOME/.local/share/.zm/bin:$PATH"
 ```
 
 You can also ask for a specific shell:
@@ -317,11 +317,7 @@ zig build -Doptimize=ReleaseSafe
 ### Common Issues
 
 **PATH not updated after installation**
-```bash
-# Re-run shell configuration
-zvm env
-source ~/.bashrc  # or ~/.zshrc
-```
+- Follow [Setup Your Shell](#setup-your-shell), then restart or reload your shell.
 
 **Version detection not working**
 - Ensure `build.zig.zon` contains `minimum_zig_version` field
