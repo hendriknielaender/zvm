@@ -311,7 +311,7 @@ fn run_offline_suite(
         .{ .name = "install uses installed Zig before metadata", .run = test_install_uses_local_zig },
         .{ .name = "install uses installed ZLS before metadata", .run = test_install_uses_local_zls },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
-        .{ .name = "use creates Unix shims", .run = test_use_creates_unix_shims },
+        .{ .name = "use creates shims", .run = test_use_creates_shims },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
         .{ .name = "stderr has no ANSI escapes when not a TTY", .run = test_non_tty_stderr_no_ansi },
@@ -632,7 +632,7 @@ fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_zero(outcome_again, "remove non-installed (second time)");
 }
 
-fn test_use_creates_unix_shims(suite: *const Suite, sandbox: []const u8) !void {
+fn test_use_creates_shims(suite: *const Suite, sandbox: []const u8) !void {
     if (builtin.os.tag == .windows) return;
 
     const version = "0.13.0";
@@ -665,7 +665,6 @@ fn test_use_creates_unix_shims(suite: *const Suite, sandbox: []const u8) !void {
 }
 
 fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
-    // env output must reflect the ZVM_HOME we passed in, not any default
     // .zm beneath the developer's real HOME.
     var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=bash" });
     defer outcome.deinit(suite.gpa);

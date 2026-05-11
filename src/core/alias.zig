@@ -11,6 +11,7 @@ const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
 const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
+const paths = @import("../platform/paths.zig");
 
 const log = std.log.scoped(.alias);
 
@@ -32,11 +33,8 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_zig_version(base_path_buffer);
 
-    var version_path_buffer = try ctx.scratch(.path);
-    defer version_path_buffer.release();
-    const version_path = try version_path_buffer.set(
-        try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
-    );
+    var version_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(&version_path_storage, "{s}/{s}", .{ base_path, version });
 
     std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
         if (err != error.FileNotFound)
@@ -63,7 +61,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
     try update_current(ctx.io, version_path, symlink_path);
-    try ensure_unix_shim(ctx, if (is_zls) "zls" else "zig");
+    try ensure_shim(ctx, if (is_zls) "zls" else "zig");
 
     if (is_zls) {
         try verify_zls_version(ctx, version);
@@ -158,22 +156,37 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
     try current_dir.symLinkAtomic(io, zig_path, symlink_basename, .{ .is_directory = true });
 }
 
-/// Ensure the Unix shim points at zvm.
-fn ensure_unix_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
+fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
     assert(tool_name.len > 0);
-    if (builtin.os.tag == .windows) return;
 
-    var bin_dir_buffer = try ctx.scratch(.path);
-    defer bin_dir_buffer.release();
-    const bin_dir = try util_data.get_zvm_path_segment(bin_dir_buffer, "bin");
+    switch (builtin.os.tag) {
+        // TODO: Add a Windows shim path instead of returning here.
+        .windows => return,
+        .macos => return ensure_shim_with_buffer(ctx, tool_name, 1024),
+        else => return ensure_shim_with_buffer(ctx, tool_name, limits.limits.path_length_maximum),
+    }
+}
+
+// macOS needs at least 1024 here; 512 makes `use <version>` fail with `NameTooLong`.
+fn ensure_shim_with_buffer(
+    ctx: *context.CliContext,
+    tool_name: []const u8,
+    comptime self_path_buffer_len: usize,
+) !void {
+    var zvm_root_storage: [self_path_buffer_len]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_storage, ctx.get_home_dir());
+
+    var bin_dir_storage: [self_path_buffer_len]u8 = undefined;
+    const bin_dir = try std.fmt.bufPrint(&bin_dir_storage, "{s}/bin", .{zvm_root});
+
     try util_tool.try_create_path(ctx.io, bin_dir);
 
-    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var self_storage: [self_path_buffer_len]u8 = undefined;
     const self_len = try std.process.executablePath(ctx.io, &self_storage);
     const self_path = self_storage[0..self_len];
     assert(self_path.len > 0);
 
-    var shim_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var shim_path_storage: [self_path_buffer_len]u8 = undefined;
     const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, tool_name });
 
     std.Io.Dir.deleteFileAbsolute(ctx.io, shim_path) catch |err| switch (err) {
@@ -184,7 +197,11 @@ fn ensure_unix_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
         },
         else => return err,
     };
-    try std.Io.Dir.symLinkAbsolute(ctx.io, self_path, shim_path, .{});
+
+    var shim_dir = try std.Io.Dir.openDirAbsolute(ctx.io, bin_dir, .{});
+    defer shim_dir.close(ctx.io);
+
+    try shim_dir.symLinkAtomic(ctx.io, self_path, tool_name, .{});
 }
 
 /// Verify the current Zig version.
