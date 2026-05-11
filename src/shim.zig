@@ -32,7 +32,23 @@ const AutoInstallError = error{
 var alias_static_buffer: [memory_static.StaticMemory.calculate_memory_size()]u8 align(8) = undefined;
 
 pub fn is_shim_name(program_basename: []const u8) bool {
-    return util_tool.eql_str(program_basename, "zig") or util_tool.eql_str(program_basename, "zls");
+    switch (builtin.os.tag) {
+        .windows => return util_tool.eql_str(program_basename, "zig") or
+            util_tool.eql_str(program_basename, "zig.exe") or
+            util_tool.eql_str(program_basename, "zls") or
+            util_tool.eql_str(program_basename, "zls.exe"),
+        else => return util_tool.eql_str(program_basename, "zig") or
+            util_tool.eql_str(program_basename, "zls"),
+    }
+}
+
+fn exe_name(tool_name: []const u8) []const u8 {
+    assert(util_tool.eql_str(tool_name, "zig") or util_tool.eql_str(tool_name, "zls"));
+
+    switch (builtin.os.tag) {
+        .windows => return if (util_tool.eql_str(tool_name, "zig")) "zig.exe" else "zls.exe",
+        else => return tool_name,
+    }
 }
 
 pub fn run(
@@ -41,6 +57,7 @@ pub fn run(
     remaining_arguments: []const []const u8,
 ) !void {
     assert(is_shim_name(program_name));
+    const tool_name = if (util_tool.eql_str(program_name, "zig") or util_tool.eql_str(program_name, "zig.exe")) "zig" else "zls";
 
     var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
     const version = detect_version.detect_version_for_shim(
@@ -51,12 +68,12 @@ pub fn run(
         error.OutOfMemory => @panic("out of memory in shim version detection"),
         else => {
             log.err("Failed to detect version: {s}", .{@errorName(err)});
-            return run_current(io, program_name, remaining_arguments);
+            return run_current(io, tool_name, remaining_arguments);
         },
     };
 
     if (util_tool.eql_str(version, "current")) {
-        return run_current(io, program_name, remaining_arguments);
+        return run_current(io, tool_name, remaining_arguments);
     }
 
     var adjusted_arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
@@ -66,19 +83,19 @@ pub fn run(
         &adjusted_arguments_buffer,
     ) catch return error.TooManyArguments;
 
-    if (try run_versioned_if_available(io, program_name, version, adjusted_arguments)) {
+    if (try run_versioned_if_available(io, tool_name, version, adjusted_arguments)) {
         return;
     }
 
-    if (util_tool.eql_str(program_name, "zig")) {
+    if (util_tool.eql_str(tool_name, "zig")) {
         if (auto_install_version_gracefully(io, version)) {
-            if (try run_versioned_if_available(io, program_name, version, adjusted_arguments)) {
+            if (try run_versioned_if_available(io, tool_name, version, adjusted_arguments)) {
                 return;
             }
         }
     }
 
-    return run_current(io, program_name, remaining_arguments);
+    return run_current(io, tool_name, remaining_arguments);
 }
 
 fn run_current(io: std.Io, program_name: []const u8, arguments: []const []const u8) !void {
@@ -198,26 +215,26 @@ fn get_zvm_home_path(buffers: *ShimBuffers, home: []const u8) ![]const u8 {
     return zvm_home;
 }
 
-fn build_tool_path(buffers: *ShimBuffers, program_name: []const u8, zvm_home: []const u8) ![]const u8 {
-    const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
+fn build_tool_path(buffers: *ShimBuffers, tool_name: []const u8, zvm_home: []const u8) ![]const u8 {
+    const binary_name = exe_name(tool_name);
     return try std.fmt.bufPrint(
         &buffers.tool_path,
         "{s}/current/{s}/{s}",
-        .{ zvm_home, tool_name, tool_name },
+        .{ zvm_home, tool_name, binary_name },
     );
 }
 
 fn build_versioned_tool_path(
     buffers: *ShimBuffers,
-    program_name: []const u8,
+    tool_name: []const u8,
     zvm_home: []const u8,
     version: []const u8,
 ) ![]const u8 {
-    const tool_name = if (util_tool.eql_str(program_name, "zig")) "zig" else "zls";
+    const binary_name = exe_name(tool_name);
     return try std.fmt.bufPrint(
         &buffers.tool_path,
         "{s}/version/{s}/{s}/{s}",
-        .{ zvm_home, tool_name, version, tool_name },
+        .{ zvm_home, tool_name, version, binary_name },
     );
 }
 
@@ -295,13 +312,52 @@ fn build_exec_arguments_slice_windows(
     return argv_list[0..index];
 }
 
+test "shim_names" {
+    try std.testing.expect(is_shim_name("zig"));
+    try std.testing.expect(is_shim_name("zls"));
+    try std.testing.expect(!is_shim_name("zvm"));
+
+    if (builtin.os.tag == .windows) {
+        try std.testing.expect(is_shim_name("zig.exe"));
+        try std.testing.expect(is_shim_name("zls.exe"));
+        try std.testing.expect(!is_shim_name("zvm.exe"));
+    }
+}
+
 test "build_tool_path points at the current tool binary" {
     var buffers: ShimBuffers = undefined;
     buffers.exec_arguments_count = 0;
 
     const zig_path = try build_tool_path(&buffers, "zig", "/tmp/.zm");
-    try std.testing.expectEqualStrings("/tmp/.zm/current/zig/zig", zig_path);
+    const expected_zig = if (builtin.os.tag == .windows)
+        "/tmp/.zm/current/zig/zig.exe"
+    else
+        "/tmp/.zm/current/zig/zig";
+    try std.testing.expectEqualStrings(expected_zig, zig_path);
 
     const zls_path = try build_tool_path(&buffers, "zls", "/tmp/.zm");
-    try std.testing.expectEqualStrings("/tmp/.zm/current/zls/zls", zls_path);
+    const expected_zls = if (builtin.os.tag == .windows)
+        "/tmp/.zm/current/zls/zls.exe"
+    else
+        "/tmp/.zm/current/zls/zls";
+    try std.testing.expectEqualStrings(expected_zls, zls_path);
+}
+
+test "build_versioned_tool_path points at the versioned tool binary" {
+    var buffers: ShimBuffers = undefined;
+    buffers.exec_arguments_count = 0;
+
+    const zig_path = try build_versioned_tool_path(&buffers, "zig", "/tmp/.zm", "0.13.0");
+    const expected_zig = if (builtin.os.tag == .windows)
+        "/tmp/.zm/version/zig/0.13.0/zig.exe"
+    else
+        "/tmp/.zm/version/zig/0.13.0/zig";
+    try std.testing.expectEqualStrings(expected_zig, zig_path);
+
+    const zls_path = try build_versioned_tool_path(&buffers, "zls", "/tmp/.zm", "0.13.0");
+    const expected_zls = if (builtin.os.tag == .windows)
+        "/tmp/.zm/version/zls/0.13.0/zls.exe"
+    else
+        "/tmp/.zm/version/zls/0.13.0/zls";
+    try std.testing.expectEqualStrings(expected_zls, zls_path);
 }
