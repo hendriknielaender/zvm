@@ -159,38 +159,26 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
 fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
     assert(tool_name.len > 0);
 
-    switch (builtin.os.tag) {
-        .macos => return ensure_shim_with_buffer(ctx, tool_name, 1024),
-        else => return ensure_shim_with_buffer(ctx, tool_name, limits.limits.path_length_maximum),
-    }
-}
-
-// macOS needs at least 1024 here; 512 makes `use <version>` fail with `NameTooLong`.
-fn ensure_shim_with_buffer(
-    ctx: *context.CliContext,
-    tool_name: []const u8,
-    comptime self_path_buffer_len: usize,
-) !void {
-    var zvm_root_storage: [self_path_buffer_len]u8 = undefined;
+    var zvm_root_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_storage, ctx.get_home_dir());
 
-    var bin_dir_storage: [self_path_buffer_len]u8 = undefined;
+    var bin_dir_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const bin_dir = try std.fmt.bufPrint(&bin_dir_storage, "{s}/bin", .{zvm_root});
 
     try util_tool.try_create_path(ctx.io, bin_dir);
 
-    var self_storage: [self_path_buffer_len]u8 = undefined;
+    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const self_len = try std.process.executablePath(ctx.io, &self_storage);
     const self_path = self_storage[0..self_len];
     assert(self_path.len > 0);
 
-    var shim_name_storage: [self_path_buffer_len]u8 = undefined;
+    var shim_name_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const shim_name = if (builtin.os.tag == .windows)
         try std.fmt.bufPrint(shim_name_storage[0 .. tool_name.len + 4], "{s}.exe", .{tool_name})
     else
         tool_name;
 
-    var shim_path_storage: [self_path_buffer_len]u8 = undefined;
+    var shim_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, shim_name });
 
     if (builtin.os.tag == .windows and std.ascii.eqlIgnoreCase(self_path, shim_path)) return;
