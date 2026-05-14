@@ -11,6 +11,7 @@ const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
 const object_pools = @import("../memory.zig");
 const limits = @import("../memory/limits.zig");
+const paths = @import("../platform/paths.zig");
 
 const log = std.log.scoped(.alias);
 
@@ -32,11 +33,8 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_zig_version(base_path_buffer);
 
-    var version_path_buffer = try ctx.scratch(.path);
-    defer version_path_buffer.release();
-    const version_path = try version_path_buffer.set(
-        try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, version }),
-    );
+    var version_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(&version_path_storage, "{s}/{s}", .{ base_path, version });
 
     std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
         if (err != error.FileNotFound)
@@ -63,6 +61,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
         try util_data.get_zvm_current_zig(symlink_path_buffer);
 
     try update_current(ctx.io, version_path, symlink_path);
+    try ensure_shim(ctx, if (is_zls) "zls" else "zig");
 
     if (is_zls) {
         try verify_zls_version(ctx, version);
@@ -155,6 +154,53 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
     defer current_dir.close(io);
 
     try current_dir.symLinkAtomic(io, zig_path, symlink_basename, .{ .is_directory = true });
+}
+
+fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
+    assert(tool_name.len > 0);
+
+    var zvm_root_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const zvm_root = try paths.get_zvm_root(&zvm_root_storage, ctx.get_home_dir());
+
+    var bin_dir_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const bin_dir = try std.fmt.bufPrint(&bin_dir_storage, "{s}/bin", .{zvm_root});
+
+    try util_tool.try_create_path(ctx.io, bin_dir);
+
+    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const self_len = try std.process.executablePath(ctx.io, &self_storage);
+    const self_path = self_storage[0..self_len];
+    assert(self_path.len > 0);
+
+    var shim_name_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const shim_name = if (builtin.os.tag == .windows)
+        try std.fmt.bufPrint(shim_name_storage[0 .. tool_name.len + 4], "{s}.exe", .{tool_name})
+    else
+        tool_name;
+
+    var shim_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, shim_name });
+
+    if (builtin.os.tag == .windows and std.ascii.eqlIgnoreCase(self_path, shim_path)) return;
+
+    std.Io.Dir.deleteFileAbsolute(ctx.io, shim_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        error.IsDir => {
+            log.err("Cannot create shim: {s} is a directory", .{shim_path});
+            return err;
+        },
+        else => return err,
+    };
+
+    if (builtin.os.tag == .windows) {
+        try std.Io.Dir.copyFileAbsolute(self_path, shim_path, ctx.io, .{});
+        return;
+    }
+
+    var shim_dir = try std.Io.Dir.openDirAbsolute(ctx.io, bin_dir, .{});
+    defer shim_dir.close(ctx.io);
+
+    try shim_dir.symLinkAtomic(ctx.io, self_path, shim_name, .{});
 }
 
 /// Verify the current Zig version.

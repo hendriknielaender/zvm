@@ -47,7 +47,7 @@ pub const limits = struct {
     pub const versions_maximum: u32 = 256; // More than enough for available versions.
 
     /// Maximum length of a file path.
-    pub const path_length_maximum: u32 = 512; // Reasonable path length.
+    pub const path_length_maximum: u32 = @min(std.Io.Dir.max_path_bytes, 4096);
 
     /// Maximum number of path buffers.
     pub const path_buffers_maximum: u32 = 8; // For concurrent path operations.

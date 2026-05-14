@@ -311,6 +311,7 @@ fn run_offline_suite(
         .{ .name = "install uses installed Zig before metadata", .run = test_install_uses_local_zig },
         .{ .name = "install uses installed ZLS before metadata", .run = test_install_uses_local_zls },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
+        .{ .name = "use creates shims", .run = test_use_creates_shims },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
         .{ .name = "stderr has no ANSI escapes when not a TTY", .run = test_non_tty_stderr_no_ansi },
@@ -631,8 +632,40 @@ fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
     try assert_exit_zero(outcome_again, "remove non-installed (second time)");
 }
 
+fn test_use_creates_shims(suite: *const Suite, sandbox: []const u8) !void {
+    const version = "0.13.0";
+    try place_installed_version(suite, sandbox, "zig", version);
+    try place_installed_version(suite, sandbox, "zls", version);
+
+    var zig_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", version });
+    defer zig_outcome.deinit(suite.gpa);
+    try assert_exit_zero(zig_outcome, "use Zig");
+
+    var zls_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", "--zls", version });
+    defer zls_outcome.deinit(suite.gpa);
+    try assert_exit_zero(zls_outcome, "use ZLS");
+
+    const zig_name = if (builtin.os.tag == .windows) "zig.exe" else "zig";
+    const zls_name = if (builtin.os.tag == .windows) "zls.exe" else "zls";
+
+    var zig_path_buffer: [sandbox_path_max]u8 = undefined;
+    const zig_path = try std.fmt.bufPrint(
+        &zig_path_buffer,
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zig_name },
+    );
+    var zls_path_buffer: [sandbox_path_max]u8 = undefined;
+    const zls_path = try std.fmt.bufPrint(
+        &zls_path_buffer,
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zls_name },
+    );
+
+    try Io.Dir.cwd().access(suite.process_init.io, zig_path, .{});
+    try Io.Dir.cwd().access(suite.process_init.io, zls_path, .{});
+}
+
 fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
-    // env output must reflect the ZVM_HOME we passed in, not any default
     // .zm beneath the developer's real HOME.
     var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "env", "--shell=bash" });
     defer outcome.deinit(suite.gpa);
