@@ -6,6 +6,7 @@ const exit_code_interrupted = 130;
 
 var interrupt_requested = std.atomic.Value(bool).init(false);
 var cleanup_running = std.atomic.Value(bool).init(false);
+var blocking_wait_running = std.atomic.Value(bool).init(false);
 
 pub fn install_handler() void {
     switch (builtin.os.tag) {
@@ -30,12 +31,23 @@ pub fn end_cleanup() void {
     cleanup_running.store(false, .release);
 }
 
+pub fn begin_blocking_wait() void {
+    blocking_wait_running.store(true, .release);
+    if (requested()) std.process.exit(exit_code_interrupted);
+}
+
+pub fn end_blocking_wait() void {
+    blocking_wait_running.store(false, .release);
+}
+
 fn request_interrupt() void {
-    if (cleanup_running.load(.acquire)) {
+    const already_requested = interrupt_requested.swap(true, .acq_rel);
+    if (already_requested or
+        cleanup_running.load(.acquire) or
+        blocking_wait_running.load(.acquire))
+    {
         std.process.exit(exit_code_interrupted);
     }
-
-    interrupt_requested.store(true, .release);
 }
 
 fn install_handler_posix() void {
