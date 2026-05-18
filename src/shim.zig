@@ -59,6 +59,7 @@ pub fn run(
 ) !void {
     assert(is_shim_name(program_name));
     const tool_name = if (util_tool.eql_str(program_name, "zig") or util_tool.eql_str(program_name, "zig.exe")) "zig" else "zls";
+    const is_zls = util_tool.eql_str(tool_name, "zls");
 
     var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
     const version = detect_version.detect_version_for_shim(
@@ -69,12 +70,12 @@ pub fn run(
         error.OutOfMemory => @panic("out of memory in shim version detection"),
         else => {
             log.err("Failed to detect version: {s}", .{@errorName(err)});
-            return run_current(io, tool_name, remaining_arguments);
+            return run_current(io, tool_name, is_zls, remaining_arguments);
         },
     };
 
     if (util_tool.eql_str(version, "current")) {
-        return run_current(io, tool_name, remaining_arguments);
+        return run_current(io, tool_name, is_zls, remaining_arguments);
     }
 
     var adjusted_arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
@@ -88,7 +89,7 @@ pub fn run(
         return;
     }
 
-    if (util_tool.eql_str(tool_name, "zig")) {
+    if (!is_zls) {
         if (auto_install_version_gracefully(io, version)) {
             if (try run_versioned_if_available(io, tool_name, version, adjusted_arguments)) {
                 return;
@@ -96,16 +97,24 @@ pub fn run(
         }
     }
 
-    return run_current(io, tool_name, remaining_arguments);
+    return run_current(io, tool_name, is_zls, remaining_arguments);
 }
 
-fn run_current(io: std.Io, program_name: []const u8, arguments: []const []const u8) !void {
+fn run_current(
+    io: std.Io,
+    program_name: []const u8,
+    is_zls: bool,
+    arguments: []const []const u8,
+) !void {
     var buffers: ShimBuffers = undefined;
     buffers.exec_arguments_count = 0;
 
     const home = try get_home_path(&buffers);
     const zvm_home = try get_zvm_home_path(&buffers, home);
     const tool_path = try build_tool_path(&buffers, program_name, zvm_home);
+    if (!tool_path_exists(io, tool_path)) {
+        report_no_active_version(is_zls);
+    }
     try exec_tool(io, &buffers, tool_path, arguments);
 }
 
@@ -163,6 +172,22 @@ fn exec_tool_windows(io: std.Io, argv: []const []const u8) !void {
         .exited => |code| std.process.exit(code),
         else => std.process.exit(@intFromEnum(util_output.ExitCode.invalid_arguments)),
     }
+}
+
+fn report_no_active_version(is_zls: bool) noreturn {
+    if (!is_zls) {
+        util_output.exit_with(
+            .version_not_found,
+            "No active Zig version selected. Run `zvm use <version>` first.",
+            .{},
+        );
+    }
+
+    util_output.exit_with(
+        .version_not_found,
+        "No active zls version selected. Run `zvm use --zls <version>` first.",
+        .{},
+    );
 }
 
 fn adjust_arguments(

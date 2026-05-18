@@ -139,11 +139,6 @@ pub fn main(process_init: std.process.Init) !void {
 
     metadata.init_config();
 
-    if (shim.is_shim_name(basename)) {
-        try shim.run(process_init.io, basename, arguments[1..]);
-        unreachable;
-    }
-
     // Inspect environment for color-mode resolution before any output is emitted.
     // Color must be resolved before the first emitter is created so that even
     // error messages during parsing respect the terminal and environment.
@@ -170,6 +165,11 @@ pub fn main(process_init: std.process.Init) !void {
         .color = initial_color,
     };
     try util_output.set_mode(default_output_config);
+
+    if (shim.is_shim_name(basename)) {
+        try shim.run(process_init.io, basename, arguments[1..]);
+        unreachable;
+    }
 
     // Pre-scan for verbose flags so parse-error fatals respect --verbose.
     // Why: parser.parse_command_line emits its own fatals (unknown option,
@@ -225,10 +225,13 @@ pub fn main(process_init: std.process.Init) !void {
     };
     context_instance.assume_yes = parsed_command_line.global_config.assume_yes;
     context_instance.no_input = parsed_command_line.global_config.no_input;
+    const progress_item_count = get_progress_item_count(parsed_command_line.command);
     const root_node = std.Progress.start(process_init.io, .{
         .root_name = "zvm",
-        .estimated_total_items = get_progress_item_count(parsed_command_line.command),
-        .disable_printing = final_output_config.mode != .human_readable or !stderr_is_tty,
+        .estimated_total_items = progress_item_count,
+        .disable_printing = progress_item_count == 0 or
+            final_output_config.mode != .human_readable or
+            !stderr_is_tty,
     });
 
     execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {

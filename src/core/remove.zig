@@ -35,6 +35,10 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     assert(true_version.len > 0);
     assert(true_version.len <= version.len or is_zls);
 
+    if (!is_zls) {
+        try clear_default_if_active(ctx, true_version);
+    }
+
     // Get current path using path buffer.
     var current_path_buffer = try ctx.scratch(.path);
     defer current_path_buffer.release();
@@ -140,4 +144,31 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
             assert(!util_tool.does_path_exist(ctx.io, version_path));
         }
     }
+}
+
+fn clear_default_if_active(ctx: *context.CliContext, version: []const u8) !void {
+    assert(version.len > 0);
+    assert(version.len <= limits.limits.version_string_length_maximum);
+
+    var default_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    const default_version = detect_version.find_default_version_in_buffer(
+        ctx,
+        &default_version_buffer,
+    ) catch null;
+
+    const value = default_version orelse return;
+    if (!util_tool.eql_str(value, version)) return;
+
+    var default_version_path_buffer = try ctx.scratch(.path);
+    defer default_version_path_buffer.release();
+
+    const default_version_path = try util_data.get_zvm_path_segment(
+        default_version_path_buffer,
+        "default_version",
+    );
+
+    std.Io.Dir.deleteFileAbsolute(ctx.io, default_version_path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
 }
