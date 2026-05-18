@@ -311,6 +311,8 @@ fn run_offline_suite(
         .{ .name = "install uses installed Zig before metadata", .run = test_install_uses_local_zig },
         .{ .name = "install uses installed ZLS before metadata", .run = test_install_uses_local_zls },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
+        .{ .name = "remove active Zig", .run = test_remove_active_zig },
+        .{ .name = "remove active ZLS", .run = test_remove_active_zls },
         .{ .name = "use creates shims", .run = test_use_creates_shims },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
@@ -421,6 +423,34 @@ fn assert_not_contains(haystack: []const u8, needle: []const u8, label: []const 
         );
         return error.ForbiddenContent;
     }
+}
+
+fn assert_path_exists(suite: *const Suite, path: []const u8, label: []const u8) !void {
+    assert(path.len > 0);
+    Io.Dir.cwd().access(suite.process_init.io, path, .{}) catch |err| {
+        std.debug.print(
+            "    {s}: expected path to exist: {s} ({s})\n",
+            .{ label, path, @errorName(err) },
+        );
+        return error.PathMissing;
+    };
+}
+
+fn assert_path_missing(suite: *const Suite, path: []const u8, label: []const u8) !void {
+    assert(path.len > 0);
+    Io.Dir.cwd().access(suite.process_init.io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => {
+            std.debug.print(
+                "    {s}: failed to stat path {s}: {s}\n",
+                .{ label, path, @errorName(err) },
+            );
+            return err;
+        },
+    };
+
+    std.debug.print("    {s}: expected path to be missing: {s}\n", .{ label, path });
+    return error.PathStillExists;
 }
 
 fn assert_env_config_dir(stdout: []const u8, sandbox: []const u8, label: []const u8) !void {
@@ -630,6 +660,125 @@ fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
     var outcome_again = try run_zvm(suite, sandbox, sandbox, &.{ "remove", "0.0.1" });
     defer outcome_again.deinit(suite.gpa);
     try assert_exit_zero(outcome_again, "remove non-installed (second time)");
+}
+
+fn test_remove_active_zig(suite: *const Suite, sandbox: []const u8) !void {
+    const version = "0.13.0";
+    try place_installed_version(suite, sandbox, "zig", version);
+
+    var use_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", version });
+    defer use_outcome.deinit(suite.gpa);
+    try assert_exit_zero(use_outcome, "use Zig before remove");
+
+    var remove_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "--yes", "remove", version });
+    defer remove_outcome.deinit(suite.gpa);
+    try assert_exit_zero(remove_outcome, "remove active Zig");
+
+    var version_path_buffer: [sandbox_path_max]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(
+        &version_path_buffer,
+        "{s}{c}.zm{c}version{c}zig{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, version },
+    );
+    var current_path_buffer: [sandbox_path_max]u8 = undefined;
+    const current_path = try std.fmt.bufPrint(
+        &current_path_buffer,
+        "{s}{c}.zm{c}current{c}zig",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep },
+    );
+    var default_path_buffer: [sandbox_path_max]u8 = undefined;
+    const default_path = try std.fmt.bufPrint(
+        &default_path_buffer,
+        "{s}{c}.zm{c}default_version",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep },
+    );
+    const zig_name = if (builtin.os.tag == .windows) "zig.exe" else "zig";
+    var shim_path_buffer: [sandbox_path_max]u8 = undefined;
+    const shim_path = try std.fmt.bufPrint(
+        &shim_path_buffer,
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zig_name },
+    );
+
+    try assert_path_missing(suite, version_path, "active version dir");
+    try assert_path_missing(suite, current_path, "active current link");
+    try assert_path_missing(suite, default_path, "active default version");
+    try assert_path_exists(suite, shim_path, "active shim");
+
+    var argv = [_][]const u8{ shim_path, "version" };
+    var env_map = try clone_parent_env(suite);
+    defer env_map.deinit();
+    try apply_sandbox_overrides(&env_map, sandbox);
+
+    const result = try std.process.run(suite.gpa, suite.process_init.io, .{
+        .argv = &argv,
+        .environ_map = &env_map,
+        .cwd = .{ .path = sandbox },
+        .stdout_limit = .limited(stdio_limit_bytes),
+        .stderr_limit = .limited(stdio_limit_bytes),
+    });
+    defer suite.gpa.free(result.stdout);
+    defer suite.gpa.free(result.stderr);
+
+    const exit_code: u8 = switch (result.term) {
+        .exited => |code| code,
+        else => 255,
+    };
+    if (exit_code == 0) {
+        std.debug.print("    shim after active remove unexpectedly exited 0\n", .{});
+        return error.UnexpectedZeroExit;
+    }
+    try assert_contains(result.stderr, "No active Zig version selected", "no active shim");
+    try assert_not_contains(result.stderr, "FileNotFound", "no active shim");
+}
+
+fn test_remove_active_zls(suite: *const Suite, sandbox: []const u8) !void {
+    const version = "0.13.0";
+    try place_installed_version(suite, sandbox, "zls", version);
+
+    var use_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", "--zls", version });
+    defer use_outcome.deinit(suite.gpa);
+    try assert_exit_zero(use_outcome, "use ZLS before remove");
+
+    var remove_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "--yes", "remove", "--zls", version });
+    defer remove_outcome.deinit(suite.gpa);
+    try assert_exit_zero(remove_outcome, "remove active ZLS");
+
+    const zls_name = if (builtin.os.tag == .windows) "zls.exe" else "zls";
+    var shim_path_buffer: [sandbox_path_max]u8 = undefined;
+    const shim_path = try std.fmt.bufPrint(
+        &shim_path_buffer,
+        "{s}{c}.zm{c}bin{c}{s}",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, zls_name },
+    );
+    try assert_path_exists(suite, shim_path, "active ZLS shim");
+
+    var argv = [_][]const u8{ shim_path, "version" };
+    var env_map = try clone_parent_env(suite);
+    defer env_map.deinit();
+    try apply_sandbox_overrides(&env_map, sandbox);
+
+    const result = try std.process.run(suite.gpa, suite.process_init.io, .{
+        .argv = &argv,
+        .environ_map = &env_map,
+        .cwd = .{ .path = sandbox },
+        .stdout_limit = .limited(stdio_limit_bytes),
+        .stderr_limit = .limited(stdio_limit_bytes),
+    });
+    defer suite.gpa.free(result.stdout);
+    defer suite.gpa.free(result.stderr);
+
+    const exit_code: u8 = switch (result.term) {
+        .exited => |code| code,
+        else => 255,
+    };
+    if (exit_code == 0) {
+        std.debug.print("    shim after active remove unexpectedly exited 0\n", .{});
+        return error.UnexpectedZeroExit;
+    }
+    try assert_contains(result.stderr, "No active zls version selected", "no active shim");
+    try assert_contains(result.stderr, "zvm use --zls <version>", "no active shim");
+    try assert_not_contains(result.stderr, "FileNotFound", "no active shim");
 }
 
 fn test_use_creates_shims(suite: *const Suite, sandbox: []const u8) !void {
