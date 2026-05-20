@@ -83,7 +83,7 @@ pub fn run(
 
 pub fn progress_items(command: validation.ValidatedCommand.RemoveCommand) u16 {
     _ = command;
-    return 2;
+    return 0;
 }
 
 /// Decide whether removing `version_str` would tear down the active install.

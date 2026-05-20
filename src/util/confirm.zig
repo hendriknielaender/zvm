@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const signals = @import("../platform/signals.zig");
 
 const max_prompt_length_bytes = 256;
 const max_response_length_bytes = 32;
@@ -94,13 +95,13 @@ pub fn confirm_destructive(
     var read_buffer: [max_response_length_bytes]u8 = undefined;
     var stdin_reader = std.Io.File.stdin().reader(io, &read_buffer);
 
-    var line_buffer: [max_response_length_bytes]u8 = undefined;
-    const bytes_read = stdin_reader.interface.readSliceShort(&line_buffer) catch
+    signals.begin_blocking_wait();
+    defer signals.end_blocking_wait();
+    const line = stdin_reader.interface.takeDelimiter('\n') catch
         return error.StdinReadFailed;
-    if (bytes_read == 0) return !default_no == false; // EOF on TTY: treat as no.
+    if (line == null) return !default_no == false; // EOF on TTY: treat as no.
 
-    const newline_index = std.mem.indexOfScalar(u8, line_buffer[0..bytes_read], '\n') orelse bytes_read;
-    const response = std.mem.trim(u8, line_buffer[0..newline_index], " \t\r");
+    const response = std.mem.trim(u8, line.?, " \t\r");
 
     return interpret_response(response, default_no);
 }
