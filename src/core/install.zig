@@ -908,10 +908,8 @@ fn add_community_mirror_urls(
 ) !void {
     assert(file_name.len > 0);
 
-    const mirror_uri = std.Uri.parse(config.zig_community_mirrors_url) catch unreachable;
-    const mirror_list = try http_client.HttpClient.fetch(ctx, mirror_uri, .{});
     var mirrors = community_mirrors.UrlList.init();
-    try community_mirrors.parse_list(mirror_list, &mirrors);
+    try community_mirrors.load(ctx, &mirrors);
     mirrors.order(ctx.io, config.preferred_mirror);
 
     var index: u32 = 0;

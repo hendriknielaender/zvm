@@ -194,6 +194,10 @@ pub const Verifier = struct {
     },
 
     pub fn init(public_key: PublicKey, signature: *const Signature) !Verifier {
+        if (!mem.eql(u8, &public_key.key_id, &signature.key_id)) {
+            return Error.key_id_mismatch;
+        }
+
         const algorithm = try signature.get_algorithm();
         const ed25519_pk = try Ed25519.PublicKey.fromBytes(public_key.key);
         return Verifier{
@@ -334,4 +338,23 @@ test "trusted comment file field requires token boundary" {
     signature.fix_trusted_comment_slice();
 
     try std.testing.expect(signature.trusted_comment_file_name() == null);
+}
+
+test "verifier rejects mismatched key id before signature work" {
+    const public_key = PublicKey{
+        .key_id = [_]u8{0} ** 8,
+        .key = [_]u8{0} ** 32,
+    };
+    var signature = Signature{
+        .signature_algorithm = "Ed".*,
+        .key_id = [_]u8{1} ** 8,
+        .signature = [_]u8{0} ** 64,
+        .trusted_comment = &.{},
+        .global_signature = [_]u8{0} ** 64,
+    };
+
+    try std.testing.expectError(
+        Error.key_id_mismatch,
+        Verifier.init(public_key, &signature),
+    );
 }

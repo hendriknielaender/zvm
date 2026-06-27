@@ -1,7 +1,5 @@
 const std = @import("std");
 const context = @import("../Context.zig");
-const metadata = @import("../metadata.zig");
-const http_client = @import("../io/http_client.zig");
 const community_mirrors = @import("community_mirrors.zig");
 const validation = @import("../cli/validation.zig");
 const util_output = @import("../util/output.zig");
@@ -15,10 +13,8 @@ pub fn run(
     _ = command;
     _ = progress_node;
 
-    const mirror_uri = std.Uri.parse(metadata.zig_community_mirrors_url) catch unreachable;
-    const mirror_list = try http_client.HttpClient.fetch(ctx, mirror_uri, .{});
     var mirrors = community_mirrors.UrlList.init();
-    try community_mirrors.parse_list(mirror_list, &mirrors);
+    try community_mirrors.load(ctx, &mirrors);
 
     var mirror_urls_buffer: [community_mirrors.max][]const u8 = undefined;
     const mirror_urls = mirrors.slice(&mirror_urls_buffer);

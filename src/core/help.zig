@@ -51,8 +51,8 @@ const general_help_text =
     \\                                      backward compatibility with existing scripts.
     \\    NO_COLOR                          Disable colored output when set to any value
     \\    ZVM_MIRROR                        Prefer a community mirror index from
-    \\                                      list-mirrors; remaining mirrors are
-    \\                                      still shuffled.
+    \\                                      list-mirrors. The live list may change;
+    \\                                      remaining mirrors are still shuffled.
     \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 1800,
     \\                                      range 5..86400). Connect target 10s,
     \\                                      idle target 30s; on timeout zvm falls
