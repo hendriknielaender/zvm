@@ -265,6 +265,7 @@ zvm -- list
 | `XDG_DATA_HOME` | Base data directory on Unix when `ZVM_HOME` is unset | `~/.local/share` |
 | `ZVM_DEBUG` | Legacy alias for verbose logging | `false` |
 | `NO_COLOR` | Disable colored output when set | unset |
+| `ZVM_MIRROR` | Prefer a `list-mirrors` community mirror index; the live list may change, and remaining mirrors are shuffled | unset |
 | `ZVM_DOWNLOAD_TIMEOUT_SECONDS` | Per-mirror download timeout, with mirror fallback | `1800` |
 
 ---

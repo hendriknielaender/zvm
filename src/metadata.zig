@@ -7,16 +7,12 @@ const util_tool = @import("util/tool.zig");
 /// zig meta data url
 pub const zig_meta_url: []const u8 = "https://ziglang.org/download/index.json";
 
-/// Alternative mirrors for downloading Zig binaries
-/// Format: [url, maintainer]
-pub const zig_mirrors = [_][2][]const u8{
-    [_][]const u8{ "https://zigmirror.hryx.net/zig", "hryx <codroid@gmail.com>" },
-    [_][]const u8{ "https://zig.linus.dev/zig", "linusg <mail@linusgroh.de>" },
-    [_][]const u8{ "https://pkg.machengine.org/zig", "slimsag <stephen@hexops.com>" },
-    [_][]const u8{ "https://fs.liujiacai.net/zigbuilds", "jiacai2050 <hello@liujiacai.net>" },
-    [_][]const u8{ "https://zigmirror.nesovic.dev/zig", "kaynetik <aleksandar@nesovic.dev>" },
-    [_][]const u8{ "https://zig.nekos.space/zig", "0t4u <rattley@nekos.space>" },
-};
+/// Live community mirror list published by ziglang.org.
+pub const zig_community_mirrors_url: []const u8 =
+    "https://ziglang.org/download/community-mirrors.txt";
+
+/// Query parameter identifying zvm to community mirror operators.
+pub const mirror_source_query: []const u8 = "source=zvm";
 
 pub var preferred_mirror: ?usize = null;
 
@@ -32,14 +28,10 @@ pub fn init_config() void {
 
     if (get_env_var_cross_platform("ZVM_MIRROR", &buffer)) |mirror_str| {
         if (std.fmt.parseInt(usize, mirror_str, 10)) |mirror_index| {
-            if (mirror_index < zig_mirrors.len) {
-                preferred_mirror = mirror_index;
-                log.debug("Using mirror {d} from ZVM_MIRROR environment variable", .{mirror_index});
-            } else {
-                log.warn("Invalid ZVM_MIRROR value {d}, must be 0-{d}", .{ mirror_index, zig_mirrors.len - 1 });
-            }
+            preferred_mirror = mirror_index;
+            log.debug("Using community mirror index {d} from ZVM_MIRROR environment variable", .{mirror_index});
         } else |_| {
-            log.warn("Invalid ZVM_MIRROR value '{s}', must be a number 0-{d}", .{ mirror_str, zig_mirrors.len - 1 });
+            log.warn("Invalid ZVM_MIRROR value '{s}', must be a non-negative number", .{mirror_str});
         }
     }
 }

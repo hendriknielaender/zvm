@@ -89,7 +89,7 @@ pub const command_specs = [_]CommandSpec{
     .{ .name = "use", .alias = "u", .description = "Switch to a Zig or ZLS version" },
     .{ .name = "list", .alias = "ls", .description = "List installed Zig versions" },
     .{ .name = "list-remote", .description = "List available Zig or ZLS versions" },
-    .{ .name = "list-mirrors", .description = "List configured download mirrors" },
+    .{ .name = "list-mirrors", .description = "List community download mirrors" },
     .{ .name = "clean", .description = "Remove cached artifacts and unused versions" },
     .{ .name = "env", .description = "Print shell setup instructions" },
     .{ .name = "completions", .description = "Generate shell completion scripts" },

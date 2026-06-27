@@ -38,7 +38,7 @@ pub fn remove_installed(
             &prompt_buffer,
             "Remove active {s} version {s}?",
             .{ command.tool.to_string(), version_str },
-        ) catch unreachable;
+        ) catch @panic("remove prompt buffer too small");
 
         const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
             error.RequiresConfirmation => util_output.exit_with(

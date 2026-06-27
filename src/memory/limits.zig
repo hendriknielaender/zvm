@@ -64,6 +64,9 @@ pub const limits = struct {
     /// Maximum URL length.
     pub const url_length_maximum: u32 = 2048;
 
+    /// Maximum community mirrors accepted from the live Zig mirror list.
+    pub const community_mirrors_maximum: u32 = 64;
+
     /// Maximum version string length.
     pub const version_string_length_maximum: u32 = 64;
 

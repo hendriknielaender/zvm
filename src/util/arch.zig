@@ -1,6 +1,5 @@
 //! This file is used to splice os and architecture into the correct file name
 const std = @import("std");
-const object_pools = @import("../memory.zig");
 const context = @import("../Context.zig");
 const log = std.log.scoped(.arch);
 

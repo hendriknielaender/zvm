@@ -106,6 +106,7 @@ fn run_current(
     is_zls: bool,
     arguments: []const []const u8,
 ) !void {
+    // SAFETY: Every field read by exec_tool is initialized through the path builders below.
     var buffers: ShimBuffers = undefined;
     buffers.exec_arguments_count = 0;
 
@@ -124,6 +125,7 @@ fn run_versioned_if_available(
     version: []const u8,
     arguments: []const []const u8,
 ) !bool {
+    // SAFETY: Every field read by exec_tool is initialized through the path builders below.
     var buffers: ShimBuffers = undefined;
     buffers.exec_arguments_count = 0;
 
@@ -219,6 +221,7 @@ fn auto_install_version(io: std.Io, version: []const u8) AutoInstallError!void {
 
     if (util_tool.eql_str(version, "current")) return error.AlreadyCurrent;
 
+    // SAFETY: CliContext.init_locked initializes the full context before use.
     var context_storage: Context.CliContext = undefined;
     const install_args = &[_][]const u8{ "zvm", "install", version };
 

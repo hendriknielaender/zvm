@@ -49,6 +49,31 @@ pub const Signature = struct {
         return if (prehashed) .Prehash else .Legacy;
     }
 
+    pub fn trusted_comment_file_name(self: *const Signature) ?[]const u8 {
+        const needle = "file:";
+        var search_start: usize = 0;
+        while (mem.indexOfPos(u8, self.trusted_comment, search_start, needle)) |pos| {
+            const boundary_before = pos == 0 or std.ascii.isWhitespace(self.trusted_comment[pos - 1]);
+            if (!boundary_before) {
+                search_start = pos + 1;
+                continue;
+            }
+
+            const value_start = pos + needle.len;
+            if (value_start >= self.trusted_comment.len) return null;
+
+            var value_end = value_start;
+            while (value_end < self.trusted_comment.len and
+                !std.ascii.isWhitespace(self.trusted_comment[value_end]))
+            {
+                value_end += 1;
+            }
+            if (value_end == value_start) return null;
+            return self.trusted_comment[value_start..value_end];
+        }
+        return null;
+    }
+
     pub fn decode(lines: []const u8) !Signature {
         var tokenizer = mem.tokenizeScalar(u8, lines, '\n');
 
@@ -169,6 +194,10 @@ pub const Verifier = struct {
     },
 
     pub fn init(public_key: PublicKey, signature: *const Signature) !Verifier {
+        if (!mem.eql(u8, &public_key.key_id, &signature.key_id)) {
+            return Error.key_id_mismatch;
+        }
+
         const algorithm = try signature.get_algorithm();
         const ed25519_pk = try Ed25519.PublicKey.fromBytes(public_key.key);
         return Verifier{
@@ -229,6 +258,16 @@ pub fn verify_static(
     public_key_str: []const u8,
     file_path: []const u8,
 ) !void {
+    return verify_static_with_file(ctx, signature_path, public_key_str, file_path, null);
+}
+
+pub fn verify_static_with_file(
+    ctx: *context.CliContext,
+    signature_path: []const u8,
+    public_key_str: []const u8,
+    file_path: []const u8,
+    expected_file_name: ?[]const u8,
+) !void {
     var sig_buffer: [limits.limits.signature_buffer_size]u8 = undefined;
 
     var signature = try Signature.from_file_static(ctx.io, &sig_buffer, signature_path);
@@ -256,4 +295,66 @@ pub fn verify_static(
 
     var global_data_buffer: [limits.limits.text_buffer_size]u8 = undefined;
     try verifier.finalize_static(&global_data_buffer);
+
+    if (expected_file_name) |expected| {
+        const actual = signature.trusted_comment_file_name() orelse
+            return error.TrustedCommentMissingFile;
+        if (!mem.eql(u8, actual, expected)) return error.TrustedCommentFileMismatch;
+    }
+}
+
+test "trusted comment file field is parsed as one token" {
+    var signature = Signature{
+        .signature_algorithm = "Ed".*,
+        .key_id = [_]u8{0} ** 8,
+        .signature = [_]u8{0} ** 64,
+        .trusted_comment = undefined,
+        .global_signature = [_]u8{0} ** 64,
+    };
+
+    const comment = "timestamp:1710958613 file:zig-x86_64-linux-0.16.0.tar.xz hashed";
+    @memcpy(signature.trusted_comment_buffer[0..comment.len], comment);
+    signature.trusted_comment_len = comment.len;
+    signature.fix_trusted_comment_slice();
+
+    try std.testing.expectEqualStrings(
+        "zig-x86_64-linux-0.16.0.tar.xz",
+        signature.trusted_comment_file_name().?,
+    );
+}
+
+test "trusted comment file field requires token boundary" {
+    var signature = Signature{
+        .signature_algorithm = "Ed".*,
+        .key_id = [_]u8{0} ** 8,
+        .signature = [_]u8{0} ** 64,
+        .trusted_comment = undefined,
+        .global_signature = [_]u8{0} ** 64,
+    };
+
+    const comment = "timestamp:1710958613 profile:ignored";
+    @memcpy(signature.trusted_comment_buffer[0..comment.len], comment);
+    signature.trusted_comment_len = comment.len;
+    signature.fix_trusted_comment_slice();
+
+    try std.testing.expect(signature.trusted_comment_file_name() == null);
+}
+
+test "verifier rejects mismatched key id before signature work" {
+    const public_key = PublicKey{
+        .key_id = [_]u8{0} ** 8,
+        .key = [_]u8{0} ** 32,
+    };
+    var signature = Signature{
+        .signature_algorithm = "Ed".*,
+        .key_id = [_]u8{1} ** 8,
+        .signature = [_]u8{0} ** 64,
+        .trusted_comment = &.{},
+        .global_signature = [_]u8{0} ** 64,
+    };
+
+    try std.testing.expectError(
+        Error.key_id_mismatch,
+        Verifier.init(public_key, &signature),
+    );
 }

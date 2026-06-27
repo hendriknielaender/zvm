@@ -157,12 +157,23 @@ fn extract_zip_dir_static(
     const out_path_len = try out_dir.realPath(io, out_path_buffer.slice());
     const out_path = try out_path_buffer.set(out_path_buffer.slice()[0..out_path_len]);
 
-    var normalized_source_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    var normalized_source_buffer: object_pools.PathBuffer = .{
+        // SAFETY: normalize_archive_root initializes the path buffer before its contents are read.
+        .data = undefined,
+        .used = 0,
+    };
     const copy_source = try normalize_archive_root(io, tmp_dir, tmp_path, &normalized_source_buffer);
 
-    // SAFETY: PathBuffer.data is initialized before first use via copy_dir_static
-    var source_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
-    var dest_buffer: object_pools.PathBuffer = .{ .data = undefined, .used = 0 };
+    var source_buffer: object_pools.PathBuffer = .{
+        // SAFETY: copy_dir_static initializes source paths before reading the buffer contents.
+        .data = undefined,
+        .used = 0,
+    };
+    var dest_buffer: object_pools.PathBuffer = .{
+        // SAFETY: copy_dir_static initializes destination paths before reading the buffer contents.
+        .data = undefined,
+        .used = 0,
+    };
     try tool.copy_dir_static(io, copy_source, out_path, &source_buffer, &dest_buffer);
     try signals.check();
 }
