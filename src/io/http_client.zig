@@ -171,7 +171,7 @@ fn run_with_timeout(
         // Single-threaded builds are the only realistic path here.
         error.ConcurrencyUnavailable => {
             log.debug("Timer concurrency unavailable; awaiting fetch without timeout for {any}", .{uri});
-            const outcome = select.await() catch |await_err| switch (await_err) {
+            const outcome = @field(std.Io.Select(Outcome), "await")(&select) catch |await_err| switch (await_err) {
                 error.Canceled => {
                     _ = select.cancel();
                     return error.Canceled;
@@ -187,7 +187,7 @@ fn run_with_timeout(
         },
     };
 
-    const winner = select.await() catch |err| switch (err) {
+    const winner = @field(std.Io.Select(Outcome), "await")(&select) catch |err| switch (err) {
         error.Canceled => {
             _ = select.cancel();
             return error.Canceled;
@@ -404,6 +404,7 @@ fn safe_fetch(client: *std.http.Client, options: std.http.Client.FetchOptions) a
     };
 
     var transfer_buffer: [64]u8 = undefined;
+    // SAFETY: readerDecompressing initializes this state before it is used by streamRemaining.
     var decompress: std.http.Decompress = undefined;
     const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
 

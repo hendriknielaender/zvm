@@ -76,6 +76,7 @@ pub const Zls = struct {
         assert(raw.len > 0);
         assert(platform_str.len > 0);
 
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -139,6 +140,7 @@ pub const Zls = struct {
             .{ platform_str, config.archive_ext },
         );
 
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -164,6 +166,7 @@ pub const Zls = struct {
         raw: []const u8,
         version_entries: []*object_pools.VersionEntry,
     ) !usize {
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();

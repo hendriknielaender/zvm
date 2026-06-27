@@ -60,6 +60,7 @@ pub const Zig = struct {
         const lookup_key: []const u8 = if (is_dev) "master" else version;
         assert(lookup_key.len > 0);
 
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -106,6 +107,7 @@ pub const Zig = struct {
         assert(raw.len > 0);
         assert(target_buffer.len > 0);
 
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();
@@ -138,6 +140,7 @@ pub const Zig = struct {
         raw: []const u8,
         version_entries: []*object_pools.VersionEntry,
     ) !usize {
+        // SAFETY: scanner.init initializes the scanner before any scanner method is called.
         var scanner: TokenScanner = undefined;
         try scanner.init(raw);
         defer scanner.deinit();

@@ -51,15 +51,19 @@ const Release = struct {
     fn init(self: *Release, kind: ReleaseKind) void {
         self.* = .{
             .kind = kind,
+            // SAFETY: version_buffer is read only after set_version writes version_len bytes.
             .version_buffer = undefined,
             .version_len = 0,
+            // SAFETY: download URL slots are read only after add_download_url writes bytes and length.
             .download_urls_buffer = undefined,
             .download_urls_len = std.mem.zeroes([release_download_urls_max]u32),
             .download_urls_count = 0,
             .hash = null,
             .size = 0,
+            // SAFETY: signature_url_buffer is read only when signature_url_len is non-zero.
             .signature_url_buffer = undefined,
             .signature_url_len = 0,
+            // SAFETY: extract_path_buffer is read only after set_extract_path writes extract_path_len bytes.
             .extract_path_buffer = undefined,
             .extract_path_len = 0,
         };
@@ -178,6 +182,7 @@ const AcquiredRelease = struct {
 
         var acquired = AcquiredRelease{
             .file = file,
+            // SAFETY: download_url_buffer is read only after init copies source_url bytes.
             .download_url_buffer = undefined,
             .download_url_len = @intCast(source_url.len),
         };
@@ -296,6 +301,7 @@ pub fn install(
         return;
     }
 
+    // SAFETY: resolve_*_release initializes release before install_release reads it.
     var release: Release = undefined;
     if (is_zls) {
         try resolve_zls_release(ctx, &release, version);
@@ -658,8 +664,12 @@ fn cleanup_interrupted_install(ctx: *context.CliContext, extract_path: []const u
 
     var stderr_buffer: [128]u8 = undefined;
     var stderr_writer = std.Io.File.stderr().writer(ctx.io, &stderr_buffer);
-    stderr_writer.interface.writeAll("\ninterrupted, cleaning up...\n") catch {};
-    stderr_writer.interface.flush() catch {};
+    stderr_writer.interface.writeAll("\ninterrupted, cleaning up...\n") catch |err| {
+        log.debug("Failed to write interrupted cleanup message: {s}", .{@errorName(err)});
+    };
+    stderr_writer.interface.flush() catch |err| {
+        log.debug("Failed to flush interrupted cleanup message: {s}", .{@errorName(err)});
+    };
 
     cleanup_delete_tree_with_timeout(ctx, extract_path) catch |err| {
         log.warn("Interrupted cleanup failed for {s}: {s}", .{ extract_path, @errorName(err) });
@@ -689,7 +699,7 @@ fn cleanup_delete_tree_with_timeout(ctx: *context.CliContext, extract_path: []co
         cleanup_timeout_seconds,
     }) catch |err| switch (err) {
         error.ConcurrencyUnavailable => {
-            const outcome = select.await() catch |await_err| switch (await_err) {
+            const outcome = @field(std.Io.Select(Outcome), "await")(&select) catch |await_err| switch (await_err) {
                 error.Canceled => {
                     _ = select.cancel();
                     return error.Canceled;
@@ -705,7 +715,7 @@ fn cleanup_delete_tree_with_timeout(ctx: *context.CliContext, extract_path: []co
         },
     };
 
-    const winner = select.await() catch |err| switch (err) {
+    const winner = @field(std.Io.Select(Outcome), "await")(&select) catch |err| switch (err) {
         error.Canceled => {
             _ = select.cancel();
             return error.Canceled;

@@ -6,7 +6,6 @@ const limits = @import("../../memory/limits.zig");
 const mode = @import("mode.zig");
 const assert = std.debug.assert;
 
-const ColorMode = mode.ColorMode;
 const ExitCode = exit_code.ExitCode;
 const JsonArrayFieldName = json.JsonArrayFieldName;
 const JsonField = json.JsonField;

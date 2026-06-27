@@ -48,7 +48,7 @@ pub fn clean(
                 &prompt_buffer,
                 "Remove {d} non-current installed version(s)?",
                 .{pending},
-            ) catch unreachable;
+            ) catch @panic("clean prompt buffer too small");
 
             const confirmed = confirm.confirm_destructive(ctx.io, prompt, true, ctx.no_input) catch |err| switch (err) {
                 error.RequiresConfirmation => util_output.exit_with(

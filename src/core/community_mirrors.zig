@@ -24,6 +24,7 @@ pub const UrlList = struct {
 
     pub fn init() UrlList {
         return .{
+            // SAFETY: entries are read only through get/slice after append writes bytes and length.
             .urls = undefined,
             .lengths = std.mem.zeroes([max]u32),
             .count = 0,
@@ -130,7 +131,8 @@ pub fn load(ctx: *context.CliContext, out: *UrlList) !void {
     };
     if (out.count > 0) return;
 
-    const mirror_uri = std.Uri.parse(metadata.zig_community_mirrors_url) catch unreachable;
+    const mirror_uri = std.Uri.parse(metadata.zig_community_mirrors_url) catch
+        @panic("invalid community mirror URL constant");
     const mirror_list = http_client.HttpClient.fetch(ctx, mirror_uri, .{}) catch |fetch_err| {
         log.warn("Unable to refresh community mirror list: {s}", .{@errorName(fetch_err)});
         out.* = UrlList.init();
@@ -358,6 +360,7 @@ const TestBuffer = struct {
 
     fn init() TestBuffer {
         return .{
+            // SAFETY: tests read only the prefix initialized by set().
             .data = undefined,
             .used = 0,
         };
