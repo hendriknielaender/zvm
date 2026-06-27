@@ -5,7 +5,6 @@ const alias = @import("alias.zig");
 const meta = @import("meta.zig");
 const util_arch = @import("../util/arch.zig");
 const util_data = @import("../util/data.zig");
-const util_output = @import("../util/output.zig");
 const util_extract = @import("../io/extract.zig");
 const util_tool = @import("../util/tool.zig");
 const http_client = @import("../io/http_client.zig");
@@ -13,12 +12,13 @@ const util_minimumisign = @import("../io/minisign.zig");
 const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
+const community_mirrors = @import("community_mirrors.zig");
 const signals = @import("../platform/signals.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.install);
 const Progress = std.Progress;
 const cleanup_timeout_seconds: u32 = 10;
-const release_download_urls_max = config.zig_mirrors.len + 1;
+const release_download_urls_max = limits.limits.community_mirrors_maximum + 1;
 
 const DownloadFile = *const fn (
     ctx: *context.CliContext,
@@ -164,6 +164,30 @@ const InstallProgress = struct {
 
     fn start(self: *InstallProgress, name: []const u8, estimated_total_items: usize) Progress.Node {
         return self.root_node.start(name, estimated_total_items);
+    }
+};
+
+const AcquiredRelease = struct {
+    file: std.Io.File,
+    download_url_buffer: [limits.limits.url_length_maximum]u8,
+    download_url_len: u32,
+
+    fn init(file: std.Io.File, source_url: []const u8) !AcquiredRelease {
+        assert(source_url.len > 0);
+        assert(source_url.len <= limits.limits.url_length_maximum);
+
+        var acquired = AcquiredRelease{
+            .file = file,
+            .download_url_buffer = undefined,
+            .download_url_len = @intCast(source_url.len),
+        };
+        @memcpy(acquired.download_url_buffer[0..source_url.len], source_url);
+        return acquired;
+    }
+
+    fn download_url(self: *const AcquiredRelease) []const u8 {
+        assert(self.download_url_len > 0);
+        return self.download_url_buffer[0..self.download_url_len];
     }
 };
 
@@ -455,19 +479,15 @@ fn install_release(
 
     var progress = InstallProgress.init(root_node);
     try signals.check();
-    const tarball_file = try acquire_release(
+    const acquired = try acquire_release(
         ctx,
         release,
         download_file_with_verification,
         &progress,
     );
-    defer tarball_file.close(ctx.io);
+    defer acquired.file.close(ctx.io);
 
-    if (release.signature_url()) |signature_url| {
-        try verify_release_signature(ctx, release, signature_url, &progress);
-    }
-
-    try stage_release(ctx, release, tarball_file, &progress);
+    try stage_release(ctx, release, acquired.file, &progress);
     try signals.check();
     try util_data.write_version_manifest(ctx.io, extract_path, release.version());
 
@@ -486,41 +506,13 @@ fn resolve_zig_download_urls(
     assert(file_name.len > 0);
     assert(file_name.len <= official_url.len);
 
-    if (config.preferred_mirror) |mirror_index| {
-        if (mirror_index < config.zig_mirrors.len) {
-            try release_add_mirror_url(ctx, release, mirror_index, file_name);
-        } else {
-            log.warn("Specified mirror index {d} is out of range (0-{d})", .{
-                mirror_index,
-                config.zig_mirrors.len - 1,
-            });
-        }
-    }
+    const download_urls_count_before_mirrors = release.download_urls_count;
+    add_community_mirror_urls(ctx, release, file_name) catch |err| {
+        release.download_urls_count = download_urls_count_before_mirrors;
+        log.warn("Unable to use community mirrors: {s}", .{@errorName(err)});
+    };
 
     try release.add_download_url(official_url);
-
-    for (config.zig_mirrors, 0..) |_, mirror_index| {
-        if (config.preferred_mirror) |preferred_mirror| {
-            if (mirror_index == preferred_mirror) continue;
-        }
-        try release_add_mirror_url(ctx, release, mirror_index, file_name);
-    }
-}
-
-fn release_add_mirror_url(
-    ctx: *context.CliContext,
-    release: *Release,
-    mirror_index: usize,
-    file_name: []const u8,
-) !void {
-    assert(mirror_index < config.zig_mirrors.len);
-    assert(file_name.len > 0);
-
-    var mirror_uri_buffer = try ctx.scratch(.path);
-    defer mirror_uri_buffer.release();
-    const mirror_url = config.zig_mirrors[mirror_index][0];
-    const mirror_uri = try construct_mirror_url(mirror_uri_buffer, mirror_url, file_name);
-    try release.add_download_url(mirror_uri);
 }
 
 fn acquire_release(
@@ -528,11 +520,11 @@ fn acquire_release(
     release: *const Release,
     download_file: DownloadFile,
     progress: *InstallProgress,
-) !std.Io.File {
+) !AcquiredRelease {
     assert(release.download_urls_count > 0);
     assert(release.size > 0);
 
-    const file_name = std.fs.path.basename(release.download_url(0));
+    const file_name = community_mirrors.basename(release.download_url(0));
     assert(file_name.len > 0);
 
     var index: u32 = 0;
@@ -562,7 +554,16 @@ fn acquire_release(
             continue;
         };
         progress.finish_item();
-        return file;
+
+        if (release.signature_url() != null) {
+            verify_release_signature(ctx, release, download_url, progress) catch |err| {
+                file.close(ctx.io);
+                log.warn("Failed to verify download from {s}: {s}", .{ download_url, @errorName(err) });
+                continue;
+            };
+        }
+
+        return AcquiredRelease.init(file, download_url);
     }
 
     log.err("All download attempts failed for {s}", .{release.version()});
@@ -572,19 +573,22 @@ fn acquire_release(
 fn verify_release_signature(
     ctx: *context.CliContext,
     release: *const Release,
-    signature_url: []const u8,
+    tarball_url: []const u8,
     progress: *InstallProgress,
 ) !void {
     assert(release.kind == .zig);
-    assert(signature_url.len > 0);
+    assert(tarball_url.len > 0);
 
-    const tarball_url = release.download_url(0);
-    const tarball_name = std.fs.path.basename(tarball_url);
+    const tarball_name = community_mirrors.basename(tarball_url);
     assert(tarball_name.len > 0);
 
     var sig_name_buffer = try ctx.scratch(.path);
     defer sig_name_buffer.release();
     const signature_file_name = try sig_name_buffer.print("{s}.minisig", .{tarball_name});
+
+    var sig_url_buffer = try ctx.scratch(.path);
+    defer sig_url_buffer.release();
+    const signature_url = try community_mirrors.construct_signature_url(sig_url_buffer, tarball_url);
 
     const sig_download_node = progress.start("verifying file signature", 0);
     const minisig_file = try download_file_from_url(
@@ -613,7 +617,7 @@ fn stage_release(
     var tarball_path_buffer = try ctx.scratch(.path);
     defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
-    const tarball_file_name = std.fs.path.basename(release.download_url(0));
+    const tarball_file_name = community_mirrors.basename(release.download_url(0));
     var tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
     const tarball_path = try std.fmt.bufPrint(&tarball_path_storage, "{s}/{s}", .{
         zvm_store_path,
@@ -831,16 +835,13 @@ fn verify_signature(
         }),
     );
 
-    util_minimumisign.verify_static(
+    try util_minimumisign.verify_static_with_file(
         ctx,
         sig_path,
         config.ZIG_MINISIGN_PUBLIC_KEY,
         tarball_path,
-    ) catch |err| {
-        util_output.exit_with(.corruption_detected, "Failed to verify Zig signature: {s}", .{
-            @errorName(err),
-        });
-    };
+        file_name,
+    );
 }
 
 fn extract_and_install(
@@ -900,27 +901,30 @@ fn extract_and_install(
     root_node.setCompletedItems(items_done.*);
 }
 
-fn construct_mirror_url(
-    buffer: anytype,
-    mirror_url: []const u8,
+fn add_community_mirror_urls(
+    ctx: *context.CliContext,
+    release: *Release,
     file_name: []const u8,
-) ![]const u8 {
-    assert(mirror_url.len > 0);
-    assert(mirror_url.len < limits.limits.url_length_maximum / 2);
+) !void {
     assert(file_name.len > 0);
-    assert(file_name.len < limits.limits.path_length_maximum);
 
-    const uri_str = try buffer.set(
-        if (mirror_url[mirror_url.len - 1] == '/')
-            try std.fmt.bufPrint(buffer.slice(), "{s}{s}", .{ mirror_url, file_name })
-        else
-            try std.fmt.bufPrint(buffer.slice(), "{s}/{s}", .{ mirror_url, file_name }),
-    );
+    const mirror_uri = std.Uri.parse(config.zig_community_mirrors_url) catch unreachable;
+    const mirror_list = try http_client.HttpClient.fetch(ctx, mirror_uri, .{});
+    var mirrors = community_mirrors.UrlList.init();
+    try community_mirrors.parse_list(mirror_list, &mirrors);
+    mirrors.order(ctx.io, config.preferred_mirror);
 
-    assert(uri_str.len > 0);
-    assert(uri_str.len <= limits.limits.url_length_maximum);
-
-    return uri_str;
+    var index: u32 = 0;
+    while (index < mirrors.count) : (index += 1) {
+        var mirror_uri_buffer = try ctx.scratch(.path);
+        defer mirror_uri_buffer.release();
+        const mirror_tarball_url = try community_mirrors.construct_tarball_url(
+            mirror_uri_buffer,
+            mirrors.get(index),
+            file_name,
+        );
+        try release.add_download_url(mirror_tarball_url);
+    }
 }
 
 fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {

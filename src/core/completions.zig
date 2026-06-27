@@ -20,7 +20,7 @@ const zsh_script =
     \\  'env:Show environment setup instructions'
     \\  'clean:Clean up old download artifacts'
     \\  'completions:Generate shell completion script'
-    \\  'list-mirrors:List configured download mirrors'
+    \\  'list-mirrors:List community download mirrors'
     \\  'upgrade:Upgrade zvm'
     \\  'version:Show zvm version'
     \\  'help:Show help message'
@@ -152,7 +152,7 @@ const fish_script =
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'env' -d 'Show environment setup instructions'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'clean' -d 'Clean up old download artifacts'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'completions' -d 'Generate shell completion script'
-    \\complete -c zvm -n '__zvm_no_subcommand' -a 'list-mirrors' -d 'List configured download mirrors'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'list-mirrors' -d 'List community download mirrors'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'upgrade' -d 'Upgrade zvm'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'version' -d 'Show zvm version'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'help' -d 'Show help message'
@@ -188,7 +188,7 @@ const powershell_script =
     \\        @{ Name = 'env';         Description = 'Show environment setup instructions' }
     \\        @{ Name = 'clean';       Description = 'Clean up old download artifacts' }
     \\        @{ Name = 'completions'; Description = 'Generate shell completion script' }
-    \\        @{ Name = 'list-mirrors';Description = 'List configured download mirrors' }
+    \\        @{ Name = 'list-mirrors';Description = 'List community download mirrors' }
     \\        @{ Name = 'upgrade';     Description = 'Upgrade zvm' }
     \\        @{ Name = 'version';     Description = 'Show zvm version' }
     \\        @{ Name = 'help';        Description = 'Show help message' }

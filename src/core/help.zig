@@ -31,7 +31,7 @@ const general_help_text =
     \\    use, u [--zls] <version>        Switch to a specific Zig or ZLS version
     \\    list, ls                List installed Zig versions
     \\    list-remote             List available Zig versions
-    \\    list-mirrors            List available download mirrors
+    \\    list-mirrors            List community download mirrors
     \\    clean                   Remove unused Zig versions
     \\    env                     Print shell setup instructions
     \\    completions [shell]     Generate shell completion scripts
@@ -50,6 +50,9 @@ const general_help_text =
     \\                                      Prefer the flag; the env var is kept for
     \\                                      backward compatibility with existing scripts.
     \\    NO_COLOR                          Disable colored output when set to any value
+    \\    ZVM_MIRROR                        Prefer a community mirror index from
+    \\                                      list-mirrors; remaining mirrors are
+    \\                                      still shuffled.
     \\    ZVM_DOWNLOAD_TIMEOUT_SECONDS      Per-mirror download timeout (default 1800,
     \\                                      range 5..86400). Connect target 10s,
     \\                                      idle target 30s; on timeout zvm falls
@@ -162,7 +165,7 @@ const list_mirrors_help_text =
     \\    zvm [GLOBAL_OPTIONS] list-mirrors
     \\
     \\DESCRIPTION:
-    \\    Show the configured download mirrors.
+    \\    Fetch and show the Zig community download mirrors.
     \\
     \\EXAMPLES:
     \\    zvm list-mirrors
