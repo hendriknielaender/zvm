@@ -33,7 +33,7 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     else
         try util_data.get_zvm_zig_version(base_path_buffer);
 
-    var version_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var version_path_storage: [limits.path_length_maximum]u8 = undefined;
     const version_path = try std.fmt.bufPrint(&version_path_storage, "{s}/{s}", .{ base_path, version });
 
     std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
@@ -92,7 +92,7 @@ fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, v
     assert(version_path.len > 0);
     assert(version.len > 0);
 
-    var manifest_path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    var manifest_path_buffer: [limits.path_length_maximum]u8 = undefined;
     const manifest_path = try std.fmt.bufPrint(
         &manifest_path_buffer,
         "{s}/{s}",
@@ -159,26 +159,26 @@ fn update_current(io: std.Io, zig_path: []const u8, symlink_path: []const u8) !v
 fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
     assert(tool_name.len > 0);
 
-    var zvm_root_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_storage: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_storage, ctx.get_home_dir());
 
-    var bin_dir_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var bin_dir_storage: [limits.path_length_maximum]u8 = undefined;
     const bin_dir = try std.fmt.bufPrint(&bin_dir_storage, "{s}/bin", .{zvm_root});
 
     try util_tool.try_create_path(ctx.io, bin_dir);
 
-    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var self_storage: [limits.path_length_maximum]u8 = undefined;
     const self_len = try std.process.executablePath(ctx.io, &self_storage);
     const self_path = self_storage[0..self_len];
     assert(self_path.len > 0);
 
-    var shim_name_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var shim_name_storage: [limits.path_length_maximum]u8 = undefined;
     const shim_name = if (builtin.os.tag == .windows)
         try std.fmt.bufPrint(shim_name_storage[0 .. tool_name.len + 4], "{s}.exe", .{tool_name})
     else
         tool_name;
 
-    var shim_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var shim_path_storage: [limits.path_length_maximum]u8 = undefined;
     const shim_path = try std.fmt.bufPrint(&shim_path_storage, "{s}/{s}", .{ bin_dir, shim_name });
 
     if (builtin.os.tag == .windows and std.ascii.eqlIgnoreCase(self_path, shim_path)) return;
@@ -207,7 +207,7 @@ fn ensure_shim(ctx: *context.CliContext, tool_name: []const u8) !void {
 fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !void {
     var path_buffer = try ctx.scratch(.path);
     defer path_buffer.release();
-    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+    var output_buffer: [limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
         ctx.io,
@@ -233,7 +233,7 @@ fn verify_zig_version(ctx: *context.CliContext, expected_version: []const u8) !v
 fn verify_zls_version(ctx: *context.CliContext, expected_version: []const u8) !void {
     var path_buffer = try ctx.scratch(.path);
     defer path_buffer.release();
-    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+    var output_buffer: [limits.temp_buffer_size]u8 = undefined;
 
     const actual_version = try util_data.get_current_version(
         ctx.io,

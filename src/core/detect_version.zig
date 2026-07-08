@@ -105,7 +105,7 @@ pub fn detect_version_for_shim(
 
     var search_dir: []const u8 = current_dir;
     while (true) {
-        var path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+        var path_buffer: [limits.path_length_maximum]u8 = undefined;
         const path = std.fmt.bufPrint(
             &path_buffer,
             "{s}/build.zig.zon",
@@ -173,7 +173,7 @@ pub fn is_shim_version_argument(argument: []const u8) bool {
 
 pub fn validate_semantic_version(version: []const u8) bool {
     assert(version.len > 0);
-    assert(version.len < 64);
+    assert(version.len <= limits.version_string_length_maximum);
 
     if (std.mem.eql(u8, version, "master")) return true;
     if (std.mem.eql(u8, version, "current")) return true;
@@ -230,7 +230,7 @@ pub fn extract_minimum_zig_version_from_zon(content: []const u8, version_buffer:
 }
 
 test "detect_version_for_shim prefers explicit version argument" {
-    var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var version_buffer: [limits.version_string_length_maximum]u8 = undefined;
     const arguments = &[_][]const u8{ "0.16.0", "build" };
 
     const detected = try detect_version_for_shim(std.testing.io, arguments, &version_buffer);
@@ -256,7 +256,7 @@ test "extract_minimum_zig_version_from_zon parses zon source without allocation"
         \\}
     ;
 
-    var version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var version_buffer: [limits.version_string_length_maximum]u8 = undefined;
     const detected = extract_minimum_zig_version_from_zon(content, &version_buffer) orelse
         return error.ExpectedVersionInZon;
 
@@ -396,7 +396,7 @@ pub fn auto_install_version(ctx: *Context.CliContext, version: []const u8) !void
 fn build_version_path(ctx: *Context.CliContext, version: []const u8) ![]const u8 {
     assert(version.len > 0);
 
-    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
     var buffer = try ctx.scratch(.path);
@@ -440,7 +440,7 @@ pub fn find_default_version_in_buffer(
 ) !?[]const u8 {
     assert(version_buffer.len > 0);
 
-    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
     var config_path_buffer = try ctx.scratch(.path);
@@ -453,7 +453,7 @@ pub fn find_default_version_in_buffer(
     const file = std.Io.Dir.cwd().openFile(ctx.io, config_path, .{}) catch return null;
     defer file.close(ctx.io);
 
-    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
     var file_reader = file.reader(ctx.io, &reader_buffer);
     const bytes_read = file_reader.interface.readSliceShort(version_buffer) catch return null;
     if (bytes_read == 0) return null;
@@ -468,7 +468,7 @@ fn log_version_suggestion() void {
 }
 
 fn would_cause_infinite_loop(ctx: *Context.CliContext) !bool {
-    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, ctx.get_home_dir());
 
     var current_zig_path_buffer = try ctx.scratch(.path);

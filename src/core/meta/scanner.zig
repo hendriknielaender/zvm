@@ -7,7 +7,7 @@ const TokenType = std.json.TokenType;
 
 const scanner_depth_max: usize = 16;
 const scanner_stack_buffer_size: usize = 256;
-const scanner_token_buffer_size: usize = limits.limits.url_length_maximum;
+const scanner_token_buffer_size: usize = limits.url_length_maximum;
 
 pub const TokenScanner = struct {
     scanner: std.json.Scanner,

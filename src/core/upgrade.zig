@@ -22,9 +22,9 @@ const upgrade_user_agent = "zvm-upgrade";
 const tag_max_length: usize = 64;
 
 comptime {
-    assert(release_api_url.len < limits.limits.url_length_maximum);
-    assert(release_download_root.len < limits.limits.url_length_maximum);
-    assert(tag_max_length <= limits.limits.version_string_length_maximum);
+    assert(release_api_url.len < limits.url_length_maximum);
+    assert(release_download_root.len < limits.url_length_maximum);
+    assert(tag_max_length <= limits.version_string_length_maximum);
 }
 
 pub fn upgrade(
@@ -56,12 +56,12 @@ pub fn upgrade(
     defer platform_pool_buffer.release();
     const platform_str = try core_install.get_platform_string_into_buffer(false, platform_pool_buffer);
 
-    var self_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var self_storage: [limits.path_length_maximum]u8 = undefined;
     const self_len = try std.process.executablePath(ctx.io, &self_storage);
     const self_path = self_storage[0..self_len];
     assert(self_path.len > 0);
 
-    var archive_name_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var archive_name_storage: [limits.path_length_maximum]u8 = undefined;
     const archive_name = try build_archive_name(&archive_name_storage, latest_tag, platform_str);
     const archive_uri = try build_archive_uri(latest_tag, platform_str);
 
@@ -78,7 +78,7 @@ pub fn upgrade(
     );
     defer archive_file.close(ctx.io);
 
-    var extract_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var extract_path_storage: [limits.path_length_maximum]u8 = undefined;
     const extract_path = try extract_release_archive(
         ctx,
         latest_tag,
@@ -88,7 +88,7 @@ pub fn upgrade(
         progress_node,
     );
 
-    var binary_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var binary_path_storage: [limits.path_length_maximum]u8 = undefined;
     const new_binary_path = try build_extracted_binary_path(
         &binary_path_storage,
         extract_path,
@@ -195,7 +195,7 @@ fn binary_basename_suffix() []const u8 {
 }
 
 fn build_archive_name(
-    storage: *[limits.limits.path_length_maximum]u8,
+    storage: *[limits.path_length_maximum]u8,
     tag: []const u8,
     platform_str: []const u8,
 ) ![]const u8 {
@@ -207,7 +207,7 @@ fn build_archive_name(
 }
 
 fn build_archive_uri(tag: []const u8, platform_str: []const u8) !std.Uri {
-    var url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
+    var url_buffer: [limits.url_length_maximum]u8 = undefined;
     const url = try std.fmt.bufPrint(&url_buffer, "{s}/{s}/{s}-zvm.{s}", .{
         release_download_root,
         tag,
@@ -222,7 +222,7 @@ fn extract_release_archive(
     tag: []const u8,
     archive_file: std.Io.File,
     archive_name: []const u8,
-    storage: *[limits.limits.path_length_maximum]u8,
+    storage: *[limits.path_length_maximum]u8,
     progress_node: std.Progress.Node,
 ) ![]const u8 {
     assert(tag.len > 0);
@@ -239,7 +239,7 @@ fn extract_release_archive(
     var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
     defer extract_dir.close(ctx.io);
 
-    var archive_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var archive_path_storage: [limits.path_length_maximum]u8 = undefined;
     const archive_path = try std.fmt.bufPrint(&archive_path_storage, "{s}/{s}", .{ store_path, archive_name });
 
     var extract_op = try ctx.scratch(.extract);
@@ -268,7 +268,7 @@ fn extract_release_archive(
 }
 
 fn build_extracted_binary_path(
-    storage: *[limits.limits.path_length_maximum]u8,
+    storage: *[limits.path_length_maximum]u8,
     extract_path: []const u8,
     platform_str: []const u8,
 ) ![]const u8 {
@@ -309,7 +309,7 @@ fn replace_self_binary_windows(
     assert(new_binary_path.len > 0);
     assert(builtin.os.tag == .windows);
 
-    var backup_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var backup_storage: [limits.path_length_maximum]u8 = undefined;
     const backup_path = try std.fmt.bufPrint(&backup_storage, "{s}.old", .{self_path});
     assert(backup_path.len > self_path.len);
 

@@ -1,152 +1,153 @@
+//! Static compile-time limits for the entire application.
+//! These define the maximum capacity for every resource in the system.
+//! All limits are compile-time constants to enable true static allocation.
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Static compile-time limits for the entire application.
-/// These define the maximum capacity for every resource in the system.
-/// All limits are compile-time constants to enable true static allocation.
-pub const limits = struct {
-    /// Maximum number of command line arguments.
-    pub const arguments_maximum: u32 = 32;
+/// Maximum number of command line arguments.
+pub const arguments_maximum: u32 = 32;
 
-    /// Maximum total size of all argument strings combined.
-    pub const arguments_storage_size_maximum: u32 = 8192; // 8KB total for all args.
+/// Maximum total size of all argument strings combined.
+pub const arguments_storage_size_maximum: u32 = 8192; // 8KB total for all args.
 
-    /// Maximum number of concurrent HTTP operations.
-    pub const http_operations_maximum: u32 = 1; // ZVM performs HTTP operations serially.
+/// Maximum number of concurrent HTTP operations.
+pub const http_operations_maximum: u32 = 1; // ZVM performs HTTP operations serially.
 
-    /// Maximum size of a single HTTP response.
-    pub const http_response_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - matches JSON parse size
+/// Maximum size of a single HTTP response.
+pub const http_response_size_maximum: u32 = 2 * 1024 * 1024; // 2MB - matches JSON parse size
 
-    /// Maximum size for HTTP client internal buffers (headers, TLS, etc).
-    pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
+/// Maximum size for HTTP client internal buffers (headers, TLS, etc).
+pub const http_internal_buffer_maximum: u32 = 256 * 1024; // 256KB for HTTP internals.
 
-    /// Maximum size for HTTP client scratch allocations.
-    pub const http_client_scratch_size_maximum: u32 = 2 * 1024 * 1024;
+/// Maximum size for HTTP client scratch allocations.
+pub const http_client_scratch_size_maximum: u32 = 2 * 1024 * 1024;
 
-    /// Maximum size for HTTP decompression scratch.
-    pub const http_decompress_buffer_size_maximum: u32 = 64 * 1024;
+/// Maximum size for HTTP decompression scratch.
+pub const http_decompress_buffer_size_maximum: u32 = 64 * 1024;
 
-    /// Maximum number of HTTP headers.
-    pub const http_headers_maximum: u32 = 64;
+/// Maximum number of HTTP headers.
+pub const http_headers_maximum: u32 = 64;
 
-    /// Maximum size of a single HTTP header.
-    pub const http_header_size_maximum: u32 = 4096;
+/// Maximum size of a single HTTP header.
+pub const http_header_size_maximum: u32 = 4096;
 
-    /// Maximum number of certificates in the system bundle.
-    /// macOS has ~170 certificates, we allocate for 256 to be safe.
-    pub const certificates_maximum: u32 = 256;
+/// Maximum number of certificates in the system bundle.
+/// macOS has ~170 certificates, we allocate for 256 to be safe.
+pub const certificates_maximum: u32 = 256;
 
-    /// Maximum size of a single certificate (most are 1-2KB).
-    pub const certificate_size_maximum: u32 = 4096;
+/// Maximum size of a single certificate (most are 1-2KB).
+pub const certificate_size_maximum: u32 = 4096;
 
-    /// Maximum size for certificate bundle operations.
-    /// This covers parsing the keychain and temporary buffers.
-    pub const certificate_bundle_buffer_maximum: u32 = 512 * 1024;
+/// Maximum size for certificate bundle operations.
+/// This covers parsing the keychain and temporary buffers.
+pub const certificate_bundle_buffer_maximum: u32 = 512 * 1024;
 
-    /// Maximum number of versions that can be listed.
-    pub const versions_maximum: u32 = 256; // More than enough for available versions.
+/// Maximum number of versions that can be listed.
+pub const versions_maximum: u32 = 256; // More than enough for available versions.
 
-    /// Maximum length of a file path.
-    pub const path_length_maximum: u32 = @min(std.Io.Dir.max_path_bytes, 4096);
+/// Maximum length of a file path.
+pub const path_length_maximum: u32 = @min(std.Io.Dir.max_path_bytes, 4096);
 
-    /// Maximum number of path buffers.
-    pub const path_buffers_maximum: u32 = 8; // For concurrent path operations.
+/// Maximum number of path buffers.
+pub const path_buffers_maximum: u32 = 8; // For concurrent path operations.
 
-    /// Maximum number of extract operations.
-    pub const extract_operations_maximum: u32 = 1;
+/// Maximum number of extract operations.
+pub const extract_operations_maximum: u32 = 1;
 
-    /// Maximum size of extract buffer.
-    pub const extract_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
+/// Maximum size of extract buffer.
+pub const extract_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
 
-    /// Maximum process output buffer.
-    pub const process_output_size_maximum: u32 = 4096;
+/// Maximum process output buffer.
+pub const process_output_size_maximum: u32 = 4096;
 
-    /// Maximum URL length.
-    pub const url_length_maximum: u32 = 2048;
+/// Maximum URL length.
+pub const url_length_maximum: u32 = 2048;
 
-    /// Maximum community mirrors accepted from the live Zig mirror list.
-    pub const community_mirrors_maximum: u32 = 64;
+/// Maximum community mirrors accepted from the live Zig mirror list.
+pub const community_mirrors_maximum: u32 = 64;
 
-    /// Maximum version string length.
-    pub const version_string_length_maximum: u32 = 64;
+/// Maximum version string length.
+pub const version_string_length_maximum: u32 = 64;
 
-    /// Maximum home directory path length.
-    pub const home_dir_length_maximum: u32 = 256;
+/// Maximum platform string length (e.g. "x86_64-linux-musl").
+pub const platform_string_length_maximum: u32 = 64;
 
-    /// Maximum number of directory entries we can process.
-    pub const dir_entries_maximum: u32 = 1024;
+/// Maximum home directory path length.
+pub const home_dir_length_maximum: u32 = 256;
 
-    /// Maximum size for temporary string formatting.
-    pub const format_buffer_size_maximum: u32 = 4096;
+/// Maximum number of directory entries we can process.
+pub const dir_entries_maximum: u32 = 1024;
 
-    /// Maximum size for file operations buffer.
-    pub const file_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
+/// Maximum size for temporary string formatting.
+pub const format_buffer_size_maximum: u32 = 4096;
 
-    /// Maximum shell type string length.
-    pub const shell_type_length_maximum: u32 = 32;
+/// Maximum size for file operations buffer.
+pub const file_buffer_size_maximum: u32 = 64 * 1024; // 64KB.
 
-    /// Maximum environment variable value length.
-    pub const env_var_length_maximum: u32 = 512;
+/// Maximum shell type string length.
+pub const shell_type_length_maximum: u32 = 32;
 
-    /// Maximum length for minisign trusted comments.
-    pub const trusted_comment_length_maximum: u32 = 256;
+/// Maximum environment variable value length.
+pub const env_var_length_maximum: u32 = 512;
 
-    /// Maximum size for JSON responses.
-    pub const json_response_size_maximum: u32 = 512 * 1024;
+/// Maximum length for minisign trusted comments.
+pub const trusted_comment_length_maximum: u32 = 256;
 
-    /// Maximum size for stdout/stderr I/O buffers.
-    pub const io_buffer_size_maximum: u32 = 4096;
+/// Maximum size for JSON responses.
+pub const json_response_size_maximum: u32 = 512 * 1024;
 
-    /// Transfer buffer size for HTTP operations (chunked encoding, etc.)
-    pub const http_transfer_buffer_size: u32 = 64;
+/// Maximum size for stdout/stderr I/O buffers.
+pub const io_buffer_size_maximum: u32 = 4096;
 
-    /// Write buffer size for file operations
-    pub const file_write_buffer_size: u32 = 8192;
+/// Transfer buffer size for HTTP operations (chunked encoding, etc.)
+pub const http_transfer_buffer_size: u32 = 64;
 
-    /// Read buffer size for general file operations
-    pub const file_read_buffer_size: u32 = 8192;
+/// Write buffer size for file operations
+pub const file_write_buffer_size: u32 = 8192;
 
-    /// Small buffer size for temporary operations
-    pub const temp_buffer_size: u32 = 512;
+/// Read buffer size for general file operations
+pub const file_read_buffer_size: u32 = 8192;
 
-    /// Medium buffer size for text processing
-    pub const text_buffer_size: u32 = 1024;
+/// Small buffer size for temporary operations
+pub const temp_buffer_size: u32 = 512;
 
-    /// Redirect buffer size for HTTP redirects
-    pub const http_redirect_buffer_size: u32 = 8192;
+/// Medium buffer size for text processing
+pub const text_buffer_size: u32 = 1024;
 
-    /// Buffered read size for HTTP connections.
-    pub const http_read_buffer_size: u32 = 8192;
+/// Redirect buffer size for HTTP redirects
+pub const http_redirect_buffer_size: u32 = 8192;
 
-    /// Buffered write size for HTTP connections.
-    pub const http_write_buffer_size: u32 = 1024;
+/// Buffered read size for HTTP connections.
+pub const http_read_buffer_size: u32 = 8192;
 
-    /// Scratch space for child process setup on Windows.
-    pub const process_scratch_size_maximum: u32 = 64 * 1024;
+/// Buffered write size for HTTP connections.
+pub const http_write_buffer_size: u32 = 1024;
 
-    /// Signature buffer size for minisign operations
-    pub const signature_buffer_size: u32 = 4096;
-};
+/// Scratch space for child process setup on Windows.
+pub const process_scratch_size_maximum: u32 = 64 * 1024;
+
+/// Signature buffer size for minisign operations
+pub const signature_buffer_size: u32 = 4096;
 
 comptime {
     // Compile-time assertions to validate our limits.
     // Ensure args storage can hold at least one max-length arg per allowed arg.
-    assert(limits.arguments_storage_size_maximum >= limits.arguments_maximum * 32);
+    assert(arguments_storage_size_maximum >= arguments_maximum * 32);
 
     // Ensure path length is reasonable.
-    assert(limits.path_length_maximum >= 256);
-    assert(limits.path_length_maximum <= 4096);
+    assert(path_length_maximum >= 256);
+    assert(path_length_maximum <= 4096);
 
     // Ensure version string can hold semantic version plus metadata.
-    assert(limits.version_string_length_maximum >= 32);
+    assert(version_string_length_maximum >= 32);
 
     // Ensure we have enough path buffers for concurrent operations.
-    assert(limits.path_buffers_maximum >= 4);
+    assert(path_buffers_maximum >= 4);
 
     // Ensure extract buffer is large enough for reasonable operations.
-    assert(limits.extract_buffer_size_maximum >= 16 * 1024);
+    assert(extract_buffer_size_maximum >= 16 * 1024);
 
     // Ensure process output buffer is reasonable.
-    assert(limits.process_output_size_maximum >= 1024);
-    assert(limits.process_output_size_maximum <= 16 * 1024);
+    assert(process_output_size_maximum >= 1024);
+    assert(process_output_size_maximum <= 16 * 1024);
 }

@@ -18,7 +18,7 @@ pub fn list_remote(
 
     const meta_url = if (command.tool == .zls) config.zls_url else config.zig_url;
     const response = try http_client.HttpClient.fetch(ctx, meta_url, .{});
-    var version_entries_storage: [limits.limits.versions_maximum]*object_pools.VersionEntry = undefined;
+    var version_entries_storage: [limits.versions_maximum]*object_pools.VersionEntry = undefined;
     const version_count = try load_version_entries(
         ctx,
         command.tool,
@@ -27,7 +27,7 @@ pub fn list_remote(
     );
     defer release_version_entries(version_entries_storage[0..version_entries_max]);
 
-    var version_names: [limits.limits.versions_maximum][]const u8 = undefined;
+    var version_names: [limits.versions_maximum][]const u8 = undefined;
     copy_version_names(version_entries_storage[0..version_count], &version_names);
     if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
@@ -76,7 +76,7 @@ fn load_version_entries(
     ctx: *context.CliContext,
     tool: validation.ToolType,
     response: []const u8,
-    version_entries_storage: *[limits.limits.versions_maximum]*object_pools.VersionEntry,
+    version_entries_storage: *[limits.versions_maximum]*object_pools.VersionEntry,
 ) !usize {
     var entries_count: usize = 0;
     errdefer release_version_entries(version_entries_storage[0..entries_count]);
@@ -95,7 +95,7 @@ fn load_version_entries(
 
 fn copy_version_names(
     version_entries: []const *object_pools.VersionEntry,
-    version_names: *[limits.limits.versions_maximum][]const u8,
+    version_names: *[limits.versions_maximum][]const u8,
 ) void {
     for (version_entries, 0..) |entry, index| {
         version_names[index] = entry.get_name();

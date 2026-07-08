@@ -12,7 +12,7 @@ pub const version_manifest_name = ".zvm-version";
 fn resolve_zvm_root(out_buffer: []u8) ![]const u8 {
     assert(out_buffer.len > 0);
 
-    var home_buf: [limits.limits.home_dir_length_maximum]u8 = undefined;
+    var home_buf: [limits.home_dir_length_maximum]u8 = undefined;
     const home = try paths.get_home_path(&home_buf);
     return try paths.get_zvm_root(out_buffer, home);
 }
@@ -21,7 +21,7 @@ fn resolve_zvm_root(out_buffer: []u8) ![]const u8 {
 pub fn get_zvm_path_segment(buffer: anytype, segment: []const u8) ![]const u8 {
     assert(segment.len > 0);
 
-    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try resolve_zvm_root(&zvm_root_buf);
     const result = try std.fmt.bufPrint(buffer.slice(), "{s}/{s}", .{ zvm_root, segment });
     return try buffer.set(result);
@@ -55,9 +55,9 @@ pub fn get_zvm_zls_version(buffer: anytype) ![]const u8 {
 pub fn write_version_manifest(io: std.Io, install_path: []const u8, version: []const u8) !void {
     assert(install_path.len > 0);
     assert(version.len > 0);
-    assert(version.len <= limits.limits.version_string_length_maximum);
+    assert(version.len <= limits.version_string_length_maximum);
 
-    var manifest_path_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    var manifest_path_buffer: [limits.path_length_maximum]u8 = undefined;
     const manifest_path = try std.fmt.bufPrint(
         &manifest_path_buffer,
         "{s}/{s}",
@@ -76,7 +76,7 @@ fn build_manifest_path(
 ) ![]const u8 {
     assert(install_path.len > 0);
 
-    var manifest_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var manifest_path_storage: [limits.path_length_maximum]u8 = undefined;
     const manifest_path = try std.fmt.bufPrint(
         &manifest_path_storage,
         "{s}/{s}",
@@ -97,7 +97,7 @@ pub fn read_version_manifest_absolute(
     const manifest_file = try std.Io.Dir.openFileAbsolute(io, manifest_path, .{ .mode = .read_only });
     defer manifest_file.close(io);
 
-    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
     var manifest_reader = manifest_file.reader(io, &reader_buffer);
     const bytes_read = try manifest_reader.interface.readSliceShort(output_buffer);
     if (bytes_read == 0) return error.EmptyVersion;

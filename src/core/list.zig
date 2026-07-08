@@ -12,8 +12,8 @@ pub fn list_installed(
 ) !void {
     _ = progress_node;
 
-    var zig_versions: [limits.limits.versions_maximum][]const u8 = undefined;
-    var zig_storage: [limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8 =
+    var zig_versions: [limits.versions_maximum][]const u8 = undefined;
+    var zig_storage: [limits.versions_maximum][limits.version_string_length_maximum]u8 =
         undefined;
     const zig_count = try collect_versions(ctx, .zig, &zig_versions, &zig_storage);
 
@@ -22,8 +22,8 @@ pub fn list_installed(
         return;
     }
 
-    var zls_versions: [limits.limits.versions_maximum][]const u8 = undefined;
-    var zls_storage: [limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8 =
+    var zls_versions: [limits.versions_maximum][]const u8 = undefined;
+    var zls_storage: [limits.versions_maximum][limits.version_string_length_maximum]u8 =
         undefined;
     const zls_count = try collect_versions(ctx, .zls, &zls_versions, &zls_storage);
     try emit_all_versions(zig_versions[0..zig_count], zls_versions[0..zls_count]);
@@ -45,8 +45,8 @@ pub fn progress_items(command: validation.ValidatedCommand.ListCommand) u16 {
 fn collect_versions(
     ctx: *context.CliContext,
     tool: validation.ToolType,
-    versions: *[limits.limits.versions_maximum][]const u8,
-    storage: *[limits.limits.versions_maximum][limits.limits.version_string_length_maximum]u8,
+    versions: *[limits.versions_maximum][]const u8,
+    storage: *[limits.versions_maximum][limits.version_string_length_maximum]u8,
 ) !usize {
     var versions_path_buffer = try ctx.scratch(.path);
     defer versions_path_buffer.release();
@@ -88,7 +88,7 @@ fn emit_plain_tagged_versions(tool_tag: []const u8, versions: []const []const u8
     std.debug.assert(tool_tag.len > 0);
     std.debug.assert(tool_tag.len < 16);
 
-    var line_buffer: [limits.limits.version_string_length_maximum + 32]u8 = undefined;
+    var line_buffer: [limits.version_string_length_maximum + 32]u8 = undefined;
     for (versions) |version| {
         std.debug.assert(version.len > 0);
         const line = std.fmt.bufPrint(

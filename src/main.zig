@@ -23,12 +23,12 @@ pub const std_options: std.Options = .{
 // Compile-time assertions for design assumptions
 comptime {
     // Validate memory limits are reasonable
-    assert(memory_limits.limits.arguments_maximum > 0);
-    assert(memory_limits.limits.arguments_maximum <= 1024);
+    assert(memory_limits.arguments_maximum > 0);
+    assert(memory_limits.arguments_maximum <= 1024);
 
     // Validate buffer sizes are sufficient
-    assert(memory_limits.limits.home_dir_length_maximum >= 256);
-    assert(memory_limits.limits.path_length_maximum >= 512);
+    assert(memory_limits.home_dir_length_maximum >= 256);
+    assert(memory_limits.path_length_maximum >= 512);
 
     // Validate semantic version parsing works
     _ = std.SemanticVersion.parse("0.13.0") catch @compileError("Semantic version parsing failed");
@@ -67,8 +67,8 @@ fn has_windows_env_var(comptime var_name: []const u8) bool {
 }
 
 fn append_argument_to_static_storage(
-    arguments_buffer: *[memory_limits.limits.arguments_maximum][]const u8,
-    arguments_storage: *[memory_limits.limits.arguments_storage_size_maximum]u8,
+    arguments_buffer: *[memory_limits.arguments_maximum][]const u8,
+    arguments_storage: *[memory_limits.arguments_storage_size_maximum]u8,
     arguments_count: u32,
     arguments_storage_offset: *usize,
     argument: []const u8,
@@ -92,12 +92,12 @@ pub fn main(process_init: std.process.Init) !void {
     util_tool.set_environment_map(process_init.environ_map);
     signals.install_handler();
 
-    var arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
-    var arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
+    var arguments_buffer: [memory_limits.arguments_maximum][]const u8 = undefined;
+    var arguments_storage: [memory_limits.arguments_storage_size_maximum]u8 = undefined;
     var arguments_count: u32 = 0;
     var arguments_storage_offset: usize = 0;
 
-    var arguments_iterator_storage: [memory_limits.limits.arguments_storage_size_maximum]u8 = undefined;
+    var arguments_iterator_storage: [memory_limits.arguments_storage_size_maximum]u8 = undefined;
     var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
     var arguments_iterator = try process_init.minimal.args.iterateAllocator(arguments_iterator_fba.allocator());
     defer arguments_iterator.deinit();

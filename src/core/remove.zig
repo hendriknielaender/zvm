@@ -16,7 +16,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
     // ctx is a pointer, not optional - no need for null check
     assert(version.len > 0);
-    assert(version.len < 100); // Reasonable version length
+    assert(version.len <= limits.version_string_length_maximum);
 
     const true_version = blk: {
         if (!is_zls)
@@ -50,7 +50,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
         util_data.get_zvm_current_zig(current_path_buffer);
 
     assert(current_path.len > 0);
-    assert(current_path.len <= limits.limits.path_length_maximum);
+    assert(current_path.len <= limits.path_length_maximum);
 
     // Try remove current path.
     if (util_tool.does_path_exist(ctx.io, current_path)) {
@@ -58,7 +58,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
         // In smart Zig mode, current/zig points to zvm and default_version identifies active Zig.
         if (!is_zls) {
-            var default_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+            var default_version_buffer: [limits.version_string_length_maximum]u8 = undefined;
             const default_version = detect_version.find_default_version_in_buffer(
                 ctx,
                 &default_version_buffer,
@@ -76,9 +76,9 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
             var version_buffer = try ctx.scratch(.path);
             defer version_buffer.release();
 
-            var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+            var output_buffer: [limits.temp_buffer_size]u8 = undefined;
             assert(output_buffer.len >= 256);
-            assert(output_buffer.len >= limits.limits.version_string_length_maximum);
+            assert(output_buffer.len >= limits.version_string_length_maximum);
 
             const current_version = util_data.get_current_version(
                 ctx.io,
@@ -119,7 +119,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
         util_data.get_zvm_zig_version(base_path_buffer);
 
     assert(base_path.len > 0);
-    assert(base_path.len <= limits.limits.path_length_maximum);
+    assert(base_path.len <= limits.path_length_maximum);
 
     var version_path_buffer = try ctx.scratch(.path);
     defer version_path_buffer.release();
@@ -130,7 +130,7 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     );
 
     assert(version_path.len > 0);
-    assert(version_path.len <= limits.limits.path_length_maximum);
+    assert(version_path.len <= limits.path_length_maximum);
     // Assert relationship: version_path contains base_path and true_version
     assert(version_path.len >= base_path.len + true_version.len + 1); // +1 for '/'
 
@@ -140,17 +140,16 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
         try std.Io.Dir.cwd().deleteTree(ctx.io, version_path);
 
-        if (!util_tool.does_path_exist(ctx.io, version_path)) {
-            assert(!util_tool.does_path_exist(ctx.io, version_path));
-        }
+        // Postcondition: deleteTree succeeded, so the version must be gone.
+        assert(!util_tool.does_path_exist(ctx.io, version_path));
     }
 }
 
 fn clear_default_if_active(ctx: *context.CliContext, version: []const u8) !void {
     assert(version.len > 0);
-    assert(version.len <= limits.limits.version_string_length_maximum);
+    assert(version.len <= limits.version_string_length_maximum);
 
-    var default_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var default_version_buffer: [limits.version_string_length_maximum]u8 = undefined;
     const default_version = detect_version.find_default_version_in_buffer(
         ctx,
         &default_version_buffer,

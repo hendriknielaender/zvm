@@ -18,7 +18,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.install);
 const Progress = std.Progress;
 const cleanup_timeout_seconds: u32 = 10;
-const release_download_urls_max = limits.limits.community_mirrors_maximum + 1;
+const release_download_urls_max = limits.community_mirrors_maximum + 1;
 
 const DownloadFile = *const fn (
     ctx: *context.CliContext,
@@ -36,16 +36,16 @@ const ReleaseKind = enum {
 
 const Release = struct {
     kind: ReleaseKind,
-    version_buffer: [limits.limits.version_string_length_maximum]u8,
+    version_buffer: [limits.version_string_length_maximum]u8,
     version_len: u32,
-    download_urls_buffer: [release_download_urls_max][limits.limits.url_length_maximum]u8,
+    download_urls_buffer: [release_download_urls_max][limits.url_length_maximum]u8,
     download_urls_len: [release_download_urls_max]u32,
     download_urls_count: u32,
     hash: ?[64]u8,
     size: u64,
-    signature_url_buffer: [limits.limits.url_length_maximum]u8,
+    signature_url_buffer: [limits.url_length_maximum]u8,
     signature_url_len: u32,
-    extract_path_buffer: [limits.limits.path_length_maximum]u8,
+    extract_path_buffer: [limits.path_length_maximum]u8,
     extract_path_len: u32,
 
     fn init(self: *Release, kind: ReleaseKind) void {
@@ -132,7 +132,7 @@ const Release = struct {
 
     fn add_download_url(self: *Release, url: []const u8) !void {
         assert(url.len > 0);
-        assert(url.len <= limits.limits.url_length_maximum);
+        assert(url.len <= limits.url_length_maximum);
         assert(self.download_urls_count < release_download_urls_max);
 
         const index: usize = @intCast(self.download_urls_count);
@@ -173,12 +173,12 @@ const InstallProgress = struct {
 
 const AcquiredRelease = struct {
     file: std.Io.File,
-    download_url_buffer: [limits.limits.url_length_maximum]u8,
+    download_url_buffer: [limits.url_length_maximum]u8,
     download_url_len: u32,
 
     fn init(file: std.Io.File, source_url: []const u8) !AcquiredRelease {
         assert(source_url.len > 0);
-        assert(source_url.len <= limits.limits.url_length_maximum);
+        assert(source_url.len <= limits.url_length_maximum);
 
         var acquired = AcquiredRelease{
             .file = file,
@@ -220,8 +220,8 @@ pub fn download_file_with_verification(
             defer file.close(ctx.io);
 
             var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
-            var buffer: [limits.limits.temp_buffer_size]u8 = undefined;
-            var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+            var buffer: [limits.temp_buffer_size]u8 = undefined;
+            var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
             var file_reader = file.reader(ctx.io, &reader_buffer);
             while (true) {
                 try signals.check();
@@ -257,7 +257,7 @@ pub fn download_file_with_verification(
     if (shasum) |expected_hash| {
         var sha256 = std.crypto.hash.sha2.Sha256.init(.{});
         var buffer: [512]u8 = undefined;
-        var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
         var file_reader = new_file.reader(ctx.io, &reader_buffer);
         while (true) {
             try signals.check();
@@ -295,7 +295,7 @@ pub fn install(
     root_node: Progress.Node,
 ) !void {
     assert(version.len > 0);
-    assert(version.len < 100); // Reasonable version length
+    assert(version.len <= limits.version_string_length_maximum);
 
     if (try switch_to_installed_release(ctx, version, is_zls)) {
         return;
@@ -317,7 +317,7 @@ fn switch_to_installed_release(
     is_zls: bool,
 ) !bool {
     assert(version.len > 0);
-    assert(version.len < 100);
+    assert(version.len <= limits.version_string_length_maximum);
 
     var version_root_buffer = try ctx.scratch(.path);
     defer version_root_buffer.release();
@@ -363,7 +363,7 @@ fn resolve_zig_release(
     version: []const u8,
 ) !void {
     assert(version.len > 0);
-    assert(version.len < 100);
+    assert(version.len <= limits.version_string_length_maximum);
 
     const is_master = util_tool.is_master_like_version(version);
 
@@ -372,7 +372,7 @@ fn resolve_zig_release(
     const platform_str = try get_platform_string_into_buffer(is_master, platform_buffer);
     const version_data = try fetch_version_data(ctx, platform_str, version);
 
-    var version_root_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var version_root_storage: [limits.path_length_maximum]u8 = undefined;
     const version_root = try resolve_zig_version_root(ctx, &version_root_storage);
 
     release.init(.zig);
@@ -382,7 +382,7 @@ fn resolve_zig_release(
     release.size = version_data.size;
     try resolve_zig_download_urls(ctx, release, version_data.tarball());
 
-    var signature_url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
+    var signature_url_buffer: [limits.url_length_maximum]u8 = undefined;
     const signature_url = try std.fmt.bufPrint(&signature_url_buffer, "{s}.minisig", .{
         version_data.tarball(),
     });
@@ -398,9 +398,9 @@ fn resolve_zls_release(
     version: []const u8,
 ) !void {
     assert(version.len > 0);
-    assert(version.len < 100);
+    assert(version.len <= limits.version_string_length_maximum);
 
-    var platform_str_buffer: [100]u8 = undefined;
+    var platform_str_buffer: [limits.platform_string_length_maximum]u8 = undefined;
     const platform_str_temp = try get_zls_platform_string(ctx);
     if (platform_str_temp.len <= platform_str_buffer.len) {
         @memcpy(platform_str_buffer[0..platform_str_temp.len], platform_str_temp);
@@ -441,7 +441,7 @@ fn resolve_zls_master_release(
     platform_str: []const u8,
 ) !void {
     assert(version.len > 0);
-    assert(version.len < 100);
+    assert(version.len <= limits.version_string_length_maximum);
     assert(platform_str.len > 0);
     assert(util_tool.is_master_like_version(version));
 
@@ -624,7 +624,7 @@ fn stage_release(
     defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
     const tarball_file_name = community_mirrors.basename(release.download_url(0));
-    var tarball_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+    var tarball_path_storage: [limits.path_length_maximum]u8 = undefined;
     const tarball_path = try std.fmt.bufPrint(&tarball_path_storage, "{s}/{s}", .{
         zvm_store_path,
         tarball_file_name,
@@ -643,7 +643,7 @@ fn stage_release(
 
 fn resolve_zig_version_root(
     ctx: *context.CliContext,
-    storage: *[limits.limits.path_length_maximum]u8,
+    storage: *[limits.path_length_maximum]u8,
 ) ![]const u8 {
     assert(storage.len > 0);
 
@@ -758,7 +758,7 @@ pub fn get_platform_string_into_buffer(is_master: bool, platform_buffer: anytype
     };
 
     assert(platform_str.len > 0);
-    assert(platform_str.len < 100);
+    assert(platform_str.len <= limits.platform_string_length_maximum);
 
     return platform_str;
 }
@@ -944,7 +944,7 @@ fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
         return error.UnsupportedPlatform;
     };
     assert(platform_str.len > 0);
-    assert(platform_str.len < 100);
+    assert(platform_str.len <= limits.platform_string_length_maximum);
     return platform_str;
 }
 
@@ -1011,7 +1011,7 @@ fn percent_encode_query_value(input: []const u8, output_buffer: []u8) ![]const u
 fn resolve_master_zig_version(
     ctx: *context.CliContext,
     version: []const u8,
-    output_buffer: *[limits.limits.version_string_length_maximum]u8,
+    output_buffer: *[limits.version_string_length_maximum]u8,
 ) ![]const u8 {
     assert(version.len > 0);
     assert(util_tool.is_master_like_version(version));
@@ -1052,12 +1052,12 @@ fn fetch_zls_master_version_data(
     assert(version.len > 0);
     assert(util_tool.is_master_like_version(version));
 
-    var resolved_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var resolved_buffer: [limits.version_string_length_maximum]u8 = undefined;
     const resolved_zig_version = try resolve_master_zig_version(ctx, version, &resolved_buffer);
     assert(resolved_zig_version.len > 0);
     assert(util_tool.is_dev_version(resolved_zig_version));
 
-    var encoded_version_buffer: [limits.limits.version_string_length_maximum * 3]u8 = undefined;
+    var encoded_version_buffer: [limits.version_string_length_maximum * 3]u8 = undefined;
     const encoded_zig_version = try percent_encode_query_value(
         resolved_zig_version,
         encoded_version_buffer[0..],
@@ -1071,7 +1071,7 @@ fn fetch_zls_master_version_data(
         .{ config.zls_select_version_url_base, encoded_zig_version },
     ));
     assert(url.len > 0);
-    assert(url.len <= limits.limits.url_length_maximum);
+    assert(url.len <= limits.url_length_maximum);
 
     const uri = std.Uri.parse(url) catch |err| {
         log.err("Invalid ZLS select-version URL '{s}': {s}", .{ url, @errorName(err) });

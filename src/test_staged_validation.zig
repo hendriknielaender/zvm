@@ -272,7 +272,7 @@ test "validation - install ZLS with compatibility check" {
 }
 
 test "business rule validation - install command" {
-    var version_raw = std.mem.zeroes([limits.limits.version_string_length_maximum]u8);
+    var version_raw = std.mem.zeroes([limits.version_string_length_maximum]u8);
     @memcpy(version_raw[0..6], "0.11.0");
 
     const install_cmd = validation.ValidatedCommand.InstallCommand{
@@ -285,7 +285,7 @@ test "business rule validation - install command" {
     // Should pass - ZLS 0.11.0 is compatible
     try install_cmd.validate_business_rules();
 
-    var incompatible_raw = std.mem.zeroes([limits.limits.version_string_length_maximum]u8);
+    var incompatible_raw = std.mem.zeroes([limits.version_string_length_maximum]u8);
     @memcpy(incompatible_raw[0..6], "0.10.0");
 
     const incompatible_cmd = validation.ValidatedCommand.InstallCommand{

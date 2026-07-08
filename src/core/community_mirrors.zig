@@ -7,7 +7,7 @@ const util_data = @import("../util/data.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.community_mirrors);
 
-pub const max = limits.limits.community_mirrors_maximum;
+pub const max = limits.community_mirrors_maximum;
 const cache_dir_name = "cache";
 const cache_file_name = "community-mirrors.txt";
 const cache_ttl_nanoseconds: i96 = 24 * std.time.ns_per_hour;
@@ -18,7 +18,7 @@ const CacheFreshness = enum {
 };
 
 pub const UrlList = struct {
-    urls: [max][limits.limits.url_length_maximum]u8,
+    urls: [max][limits.url_length_maximum]u8,
     lengths: [max]u32,
     count: u32,
 
@@ -33,7 +33,7 @@ pub const UrlList = struct {
 
     pub fn append(self: *UrlList, url: []const u8) !void {
         assert(url.len > 0);
-        assert(url.len <= limits.limits.url_length_maximum);
+        assert(url.len <= limits.url_length_maximum);
 
         if (self.count >= max) return error.TooManyMirrors;
 
@@ -114,7 +114,7 @@ pub const UrlList = struct {
         const a_len = self.lengths[ai];
         const b_len = self.lengths[bi];
 
-        var url_buffer: [limits.limits.url_length_maximum]u8 = undefined;
+        var url_buffer: [limits.url_length_maximum]u8 = undefined;
         @memcpy(url_buffer[0..a_len], self.urls[ai][0..a_len]);
         @memcpy(self.urls[ai][0..b_len], self.urls[bi][0..b_len]);
         @memcpy(self.urls[bi][0..a_len], url_buffer[0..a_len]);
@@ -185,9 +185,9 @@ pub fn construct_tarball_url(
     file_name: []const u8,
 ) ![]const u8 {
     assert(mirror_url.len > 0);
-    assert(mirror_url.len < limits.limits.url_length_maximum / 2);
+    assert(mirror_url.len < limits.url_length_maximum / 2);
     assert(file_name.len > 0);
-    assert(file_name.len < limits.limits.path_length_maximum);
+    assert(file_name.len < limits.path_length_maximum);
 
     const uri_str = try buffer.set(
         if (mirror_url[mirror_url.len - 1] == '/')
@@ -197,7 +197,7 @@ pub fn construct_tarball_url(
     );
 
     assert(uri_str.len > 0);
-    assert(uri_str.len <= limits.limits.url_length_maximum);
+    assert(uri_str.len <= limits.url_length_maximum);
     return uri_str;
 }
 
@@ -211,7 +211,7 @@ pub fn construct_signature_url(buffer: anytype, tarball_url: []const u8) ![]cons
         try std.fmt.bufPrint(buffer.slice(), "{s}.minisig", .{bare_url}));
 
     assert(uri_str.len > 0);
-    assert(uri_str.len <= limits.limits.url_length_maximum);
+    assert(uri_str.len <= limits.url_length_maximum);
     return uri_str;
 }
 
@@ -260,7 +260,7 @@ fn read_cache(
         if (!cache_is_fresh(ctx.io, stat.mtime)) return error.StaleMirrorCache;
     }
     if (stat.size == 0) return error.EmptyMirrorList;
-    if (stat.size > limits.limits.http_response_size_maximum) return error.MirrorCacheTooLarge;
+    if (stat.size > limits.http_response_size_maximum) return error.MirrorCacheTooLarge;
 
     var http_scratch = try ctx.scratch(.http);
     defer http_scratch.release();
@@ -268,7 +268,7 @@ fn read_cache(
     const buffer = operation.response_slice();
     assert(stat.size <= buffer.len);
 
-    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
     var file_reader = file.reader(ctx.io, &reader_buffer);
     var total_read: usize = 0;
     while (total_read < stat.size) {
@@ -282,7 +282,7 @@ fn read_cache(
 
 fn write_cache(ctx: *context.CliContext, mirror_list: []const u8) !void {
     assert(mirror_list.len > 0);
-    assert(mirror_list.len <= limits.limits.http_response_size_maximum);
+    assert(mirror_list.len <= limits.http_response_size_maximum);
 
     var cache_dir_buffer = try ctx.scratch(.path);
     defer cache_dir_buffer.release();
@@ -296,7 +296,7 @@ fn write_cache(ctx: *context.CliContext, mirror_list: []const u8) !void {
 }
 
 fn cache_path(buffer: anytype) ![]const u8 {
-    var cache_dir_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    var cache_dir_buffer: [limits.path_length_maximum]u8 = undefined;
     var static_cache_dir_buffer = StaticPathBuffer.init(&cache_dir_buffer);
     const cache_dir_path = try util_data.get_zvm_path_segment(
         &static_cache_dir_buffer,
@@ -355,7 +355,7 @@ const StaticPathBuffer = struct {
 };
 
 const TestBuffer = struct {
-    data: [limits.limits.url_length_maximum]u8,
+    data: [limits.url_length_maximum]u8,
     used: u32,
 
     fn init() TestBuffer {

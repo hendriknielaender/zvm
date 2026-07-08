@@ -91,10 +91,10 @@ pub fn progress_items(command: validation.ValidatedCommand.RemoveCommand) u16 {
 /// the active install changes the user's PATH-resolved tool out from under them.
 fn is_active_version(ctx: *context.CliContext, version_str: []const u8, is_zls: bool) bool {
     assert(version_str.len > 0);
-    assert(version_str.len <= limits.limits.version_string_length_maximum);
+    assert(version_str.len <= limits.version_string_length_maximum);
 
     if (!is_zls) {
-        var default_version_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+        var default_version_buffer: [limits.version_string_length_maximum]u8 = undefined;
         const default_version = detect_version.find_default_version_in_buffer(
             ctx,
             &default_version_buffer,
@@ -107,7 +107,7 @@ fn is_active_version(ctx: *context.CliContext, version_str: []const u8, is_zls: 
     var path_buffer = ctx.scratch(.path) catch return false;
     defer path_buffer.release();
 
-    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+    var output_buffer: [limits.temp_buffer_size]u8 = undefined;
     const current = util_data.get_current_version(ctx.io, path_buffer, &output_buffer, is_zls) catch return false;
     return util_tool.eql_str(current, version_str);
 }

@@ -4,7 +4,7 @@ const log = std.log.scoped(.memory);
 
 /// Pre-allocated path buffer with static storage.
 pub const PathBuffer = struct {
-    data: [limits.limits.path_length_maximum]u8,
+    data: [limits.path_length_maximum]u8,
     used: u32 = 0,
 
     pub fn reset(self: *PathBuffer) void {
@@ -52,11 +52,11 @@ pub const PathBuffer = struct {
 /// Response data and headers use pre-allocated memory.
 /// Certificate handling uses temporary allocation due to std library constraints.
 pub const HttpOperation = struct {
-    response_buffer: [limits.limits.http_response_size_maximum]u8,
-    url_buffer: [limits.limits.url_length_maximum]u8,
-    header_buffer: [limits.limits.http_header_size_maximum]u8,
-    decompress_buffer: [limits.limits.http_decompress_buffer_size_maximum]u8,
-    scratch_buffer: [limits.limits.http_client_scratch_size_maximum]u8,
+    response_buffer: [limits.http_response_size_maximum]u8,
+    url_buffer: [limits.url_length_maximum]u8,
+    header_buffer: [limits.http_header_size_maximum]u8,
+    decompress_buffer: [limits.http_decompress_buffer_size_maximum]u8,
+    scratch_buffer: [limits.http_client_scratch_size_maximum]u8,
 
     in_use: bool = false,
 
@@ -95,7 +95,7 @@ pub const HttpOperation = struct {
 
 /// Pre-allocated version entry with static name buffer.
 pub const VersionEntry = struct {
-    name_buffer: [limits.limits.version_string_length_maximum]u8,
+    name_buffer: [limits.version_string_length_maximum]u8,
     name_length: u8 = 0,
     metadata: VersionMetadata = .{},
     occupied: bool = false,
@@ -135,7 +135,7 @@ pub const VersionEntry = struct {
 /// Pre-allocated extract operation with static buffer.
 pub const ExtractOperation = struct {
     // Scratch space for extraction helpers such as child-process setup.
-    buffer: [limits.limits.extract_buffer_size_maximum]u8,
+    buffer: [limits.extract_buffer_size_maximum]u8,
     tmp_path_buffer: PathBuffer,
     out_path_buffer: PathBuffer,
     in_use: bool = false,
@@ -159,9 +159,9 @@ pub const ExtractOperation = struct {
 
 /// Pre-allocated process buffer with static storage.
 pub const ProcessBuffer = struct {
-    output: [limits.limits.process_output_size_maximum]u8,
-    arguments: [limits.limits.arguments_maximum][]const u8,
-    arguments_storage: [limits.limits.arguments_storage_size_maximum]u8,
+    output: [limits.process_output_size_maximum]u8,
+    arguments: [limits.arguments_maximum][]const u8,
+    arguments_storage: [limits.arguments_storage_size_maximum]u8,
     arguments_count: u32 = 0,
 
     pub fn reset(self: *ProcessBuffer) void {
@@ -179,10 +179,10 @@ pub const ProcessBuffer = struct {
 
 /// All object pools for the application - completely static.
 pub const ObjectPools = struct {
-    path_buffers: [limits.limits.path_buffers_maximum]PathBuffer,
-    http_operations: [limits.limits.http_operations_maximum]HttpOperation,
-    version_entries: [limits.limits.versions_maximum]VersionEntry,
-    extract_operations: [limits.limits.extract_operations_maximum]ExtractOperation,
+    path_buffers: [limits.path_buffers_maximum]PathBuffer,
+    http_operations: [limits.http_operations_maximum]HttpOperation,
+    version_entries: [limits.versions_maximum]VersionEntry,
+    extract_operations: [limits.extract_operations_maximum]ExtractOperation,
     process_buffer: ProcessBuffer,
 
     /// Initialize object pools in place.
@@ -195,19 +195,19 @@ pub const ObjectPools = struct {
         init_process_buffer(&self.process_buffer);
     }
 
-    fn init_path_buffers(path_buffers: *[limits.limits.path_buffers_maximum]PathBuffer) void {
+    fn init_path_buffers(path_buffers: *[limits.path_buffers_maximum]PathBuffer) void {
         for (path_buffers) |*path_buffer| {
             path_buffer.used = 0;
         }
     }
 
-    fn init_http_operations(http_operations: *[limits.limits.http_operations_maximum]HttpOperation) void {
+    fn init_http_operations(http_operations: *[limits.http_operations_maximum]HttpOperation) void {
         for (http_operations) |*http_operation| {
             http_operation.in_use = false;
         }
     }
 
-    fn init_version_entries(version_entries: *[limits.limits.versions_maximum]VersionEntry) void {
+    fn init_version_entries(version_entries: *[limits.versions_maximum]VersionEntry) void {
         for (version_entries) |*version_entry| {
             version_entry.name_length = 0;
             version_entry.metadata = .{};
@@ -216,7 +216,7 @@ pub const ObjectPools = struct {
     }
 
     fn init_extract_operations(
-        extract_operations: *[limits.limits.extract_operations_maximum]ExtractOperation,
+        extract_operations: *[limits.extract_operations_maximum]ExtractOperation,
     ) void {
         for (extract_operations) |*extract_operation| {
             extract_operation.tmp_path_buffer.used = 0;
@@ -236,7 +236,7 @@ pub const ObjectPools = struct {
             }
         }
         log.err("No PathBuffer available: all {d} path buffers are in use. Consider increasing path_buffers_maximum", .{
-            limits.limits.path_buffers_maximum,
+            limits.path_buffers_maximum,
         });
         return error.NoPathBufferAvailable;
     }
@@ -249,7 +249,7 @@ pub const ObjectPools = struct {
             }
         }
         log.err("No HttpOperation available: all {d} HTTP operations are in use. Consider increasing http_operations_maximum", .{
-            limits.limits.http_operations_maximum,
+            limits.http_operations_maximum,
         });
         return error.NoHttpOperationAvailable;
     }
@@ -273,7 +273,7 @@ pub const ObjectPools = struct {
             }
         }
         log.err("No VersionEntry available: all {d} version entries are in use. Consider increasing versions_maximum", .{
-            limits.limits.versions_maximum,
+            limits.versions_maximum,
         });
         return error.NoVersionEntryAvailable;
     }
@@ -361,9 +361,9 @@ pub const ObjectPools = struct {
             if (pb.used > 0) path_buffer_count += 1;
         }
         stats.path_buffers = .{
-            .total = limits.limits.path_buffers_maximum,
+            .total = limits.path_buffers_maximum,
             .in_use = path_buffer_count,
-            .available = limits.limits.path_buffers_maximum - path_buffer_count,
+            .available = limits.path_buffers_maximum - path_buffer_count,
         };
 
         // Count HTTP operations
@@ -372,9 +372,9 @@ pub const ObjectPools = struct {
             if (ho.in_use) http_count += 1;
         }
         stats.http_operations = .{
-            .total = limits.limits.http_operations_maximum,
+            .total = limits.http_operations_maximum,
             .in_use = http_count,
-            .available = limits.limits.http_operations_maximum - http_count,
+            .available = limits.http_operations_maximum - http_count,
         };
 
         // Count version entries
@@ -383,9 +383,9 @@ pub const ObjectPools = struct {
             if (ve.occupied) version_count += 1;
         }
         stats.version_entries = .{
-            .total = limits.limits.versions_maximum,
+            .total = limits.versions_maximum,
             .in_use = version_count,
-            .available = limits.limits.versions_maximum - version_count,
+            .available = limits.versions_maximum - version_count,
         };
 
         // Count extract operations
@@ -394,9 +394,9 @@ pub const ObjectPools = struct {
             if (eo.in_use) extract_count += 1;
         }
         stats.extract_operations = .{
-            .total = limits.limits.extract_operations_maximum,
+            .total = limits.extract_operations_maximum,
             .in_use = extract_count,
-            .available = limits.limits.extract_operations_maximum - extract_count,
+            .available = limits.extract_operations_maximum - extract_count,
         };
 
         return stats;

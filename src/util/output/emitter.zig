@@ -13,7 +13,7 @@ const JsonPayload = json.JsonPayload;
 const OutputConfig = mode.OutputConfig;
 const OutputMode = mode.OutputMode;
 
-const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
+const io_buffer_size_bytes = limits.io_buffer_size_maximum;
 const max_json_object_fields = 16;
 const max_message_length_bytes = 2048;
 
@@ -120,7 +120,7 @@ const OutputEmitter = struct {
         const field_name_text = comptime field_name.text();
         assert(field_name_text.len > 0);
         assert(field_name_text.len < 64);
-        assert(items.len <= limits.limits.versions_maximum);
+        assert(items.len <= limits.versions_maximum);
 
         if (self.config.mode != .machine_json) return;
 

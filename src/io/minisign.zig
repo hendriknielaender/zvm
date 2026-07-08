@@ -32,7 +32,7 @@ pub const Signature = struct {
     trusted_comment: []const u8,
     global_signature: [64]u8,
     // Storage for trusted comment in static allocation.
-    trusted_comment_buffer: [limits.limits.trusted_comment_length_maximum]u8 = [_]u8{0} ** limits.limits.trusted_comment_length_maximum,
+    trusted_comment_buffer: [limits.trusted_comment_length_maximum]u8 = [_]u8{0} ** limits.trusted_comment_length_maximum,
     trusted_comment_len: usize = 0,
 
     pub fn deinit(self: *Signature) void {
@@ -105,7 +105,7 @@ pub const Signature = struct {
             return Error.invalid_encoding;
         }
         const trusted_comment_slice = comment_line_trimmed[trusted_comment_prefix.len..];
-        if (trusted_comment_slice.len > limits.limits.trusted_comment_length_maximum) {
+        if (trusted_comment_slice.len > limits.trusted_comment_length_maximum) {
             return error.TrustedCommentTooLong;
         }
 
@@ -137,7 +137,7 @@ pub const Signature = struct {
         const file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
         defer file.close(io);
 
-        var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
         var file_reader = file.reader(io, &reader_buffer);
         const bytes_read = file_reader.interface.readSliceShort(buffer) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
@@ -268,7 +268,7 @@ pub fn verify_static_with_file(
     file_path: []const u8,
     expected_file_name: ?[]const u8,
 ) !void {
-    var sig_buffer: [limits.limits.signature_buffer_size]u8 = undefined;
+    var sig_buffer: [limits.signature_buffer_size]u8 = undefined;
 
     var signature = try Signature.from_file_static(ctx.io, &sig_buffer, signature_path);
     defer signature.deinit();
@@ -282,8 +282,8 @@ pub fn verify_static_with_file(
     const file = try std.Io.Dir.openFileAbsolute(ctx.io, file_path, .{ .mode = .read_only });
     defer file.close(ctx.io);
 
-    var buffer: [limits.limits.signature_buffer_size]u8 = undefined;
-    var reader_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var buffer: [limits.signature_buffer_size]u8 = undefined;
+    var reader_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
     var file_reader = file.reader(ctx.io, &reader_buffer);
     while (true) {
         const bytes_read = file_reader.interface.readSliceShort(&buffer) catch |err| switch (err) {
@@ -293,7 +293,7 @@ pub fn verify_static_with_file(
         verifier.update(buffer[0..bytes_read]);
     }
 
-    var global_data_buffer: [limits.limits.text_buffer_size]u8 = undefined;
+    var global_data_buffer: [limits.text_buffer_size]u8 = undefined;
     try verifier.finalize_static(&global_data_buffer);
 
     if (expected_file_name) |expected| {

@@ -229,8 +229,8 @@ const FetchTask = struct {
             .allocator = scratch_fba.allocator(),
             .io = self.ctx.io,
             .connection_pool = .{ .free_size = 0 },
-            .read_buffer_size = limits.limits.http_read_buffer_size,
-            .write_buffer_size = limits.limits.http_write_buffer_size,
+            .read_buffer_size = limits.http_read_buffer_size,
+            .write_buffer_size = limits.http_write_buffer_size,
         };
         defer client.deinit();
 
@@ -242,7 +242,7 @@ const FetchTask = struct {
         // we even tried this URL.
         util_output.trace("GET {any}", .{self.uri});
 
-        var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
+        var redirect_buffer: [limits.http_redirect_buffer_size]u8 = undefined;
         const result = safe_fetch(&client, .{
             .location = .{ .uri = self.uri },
             .method = .GET,
@@ -275,7 +275,7 @@ const FetchTask = struct {
 
         if (bytes_read >= operation.response_buffer.len) {
             log.err("HTTP response too large: exceeds maximum size of {d} bytes for URL: {any}", .{
-                limits.limits.http_response_size_maximum,
+                limits.http_response_size_maximum,
                 self.uri,
             });
             return error.ResponseTooLarge;
@@ -307,8 +307,8 @@ const DownloadTask = struct {
             .allocator = scratch_fba.allocator(),
             .io = self.ctx.io,
             .connection_pool = .{ .free_size = 0 },
-            .read_buffer_size = limits.limits.http_read_buffer_size,
-            .write_buffer_size = limits.limits.http_write_buffer_size,
+            .read_buffer_size = limits.http_read_buffer_size,
+            .write_buffer_size = limits.http_write_buffer_size,
         };
         defer client.deinit();
 
@@ -319,7 +319,7 @@ const DownloadTask = struct {
 
         util_output.trace("GET {any} (download)", .{self.uri});
 
-        var redirect_buffer: [limits.limits.http_redirect_buffer_size]u8 = undefined;
+        var redirect_buffer: [limits.http_redirect_buffer_size]u8 = undefined;
         const result = safe_fetch(&client, .{
             .location = .{ .uri = self.uri },
             .method = .GET,

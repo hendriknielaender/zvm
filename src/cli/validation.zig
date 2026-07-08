@@ -6,7 +6,7 @@ const util_tool = @import("../util/tool.zig");
 const cli_spec = @import("spec.zig");
 const flags = @import("flags.zig");
 const assert = std.debug.assert;
-const max_version_string_length = limits.limits.version_string_length_maximum;
+const max_version_string_length = limits.version_string_length_maximum;
 const max_shell_name_length = 32;
 const max_help_topic_length = 32;
 
@@ -172,7 +172,7 @@ const CommandArgs = union(enum) {
 fn parse_command_syntax(command_name: []const u8, args: []const []const u8) !CommandArgs {
     assert(command_name.len > 0);
     assert(command_name.len <= 32);
-    assert(args.len <= limits.limits.arguments_maximum);
+    assert(args.len <= limits.arguments_maximum);
 
     for (args) |arg| {
         assert(arg.len < 1024);
@@ -313,7 +313,7 @@ comptime {
     assert(@sizeOf(CommandArgs.CompletionsArgs) > 0);
 
     assert(@typeInfo(CommandArgs).@"union".fields.len == 12);
-    assert(max_version_string_length == limits.limits.version_string_length_maximum);
+    assert(max_version_string_length == limits.version_string_length_maximum);
     assert(max_shell_name_length == 32);
     assert(max_help_topic_length == 32);
     assert(max_version_string_length >= 16);
@@ -398,7 +398,7 @@ pub const VersionSpec = union(enum) {
     }
 
     pub fn to_string(self: VersionSpec, buffer: []u8) ![]const u8 {
-        assert(buffer.len >= limits.limits.version_string_length_maximum);
+        assert(buffer.len >= limits.version_string_length_maximum);
 
         return switch (self) {
             .master => "master",
