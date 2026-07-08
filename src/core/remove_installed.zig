@@ -58,7 +58,7 @@ pub fn remove_installed(
         }
     }
 
-    try remove.remove(ctx, version_str, is_zls, false);
+    try remove.remove(ctx, version_str, is_zls);
 
     if (json_mode) {
         const fields = [_]util_output.JsonField{

@@ -5,7 +5,6 @@ const paths = @import("platform/paths.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.context);
 
-/// Cross-platform environment variable getter
 /// Global application context containing all pre-allocated resources.
 pub const CliContext = struct {
     /// Pre-allocated object pools.
@@ -40,7 +39,6 @@ pub const CliContext = struct {
         arguments: []const []const u8,
         io: std.Io,
     ) !*CliContext {
-        // context_storage is a pointer, not optional - can't be null in Zig
         assert(static_buffer.len > 0);
         assert(static_buffer.len == memory.StaticMemory.calculate_memory_size());
         assert(arguments.len > 0);
@@ -101,20 +99,18 @@ pub const CliContext = struct {
         assert(arguments.len <= limits.arguments_maximum);
 
         const process_buffer = context_storage.pools.get_process_buffer();
-        // process_buffer is a pointer, not optional - no need for null check
 
         var storage_offset: u32 = 0;
         var arguments_count: u32 = 0;
 
         for (arguments) |argument| {
             assert(argument.len > 0);
+            // Overflow here is a programmer error: main() rejects argument
+            // lists exceeding these same limits before the context exists.
             assert(arguments_count < limits.arguments_maximum);
-
-            if (arguments_count >= limits.arguments_maximum) break;
+            assert(storage_offset + argument.len <= process_buffer.arguments_storage.len);
 
             const argument_length = argument.len;
-            if (storage_offset + argument_length > process_buffer.arguments_storage.len) break;
-
             const old_offset = storage_offset;
             @memcpy(process_buffer.arguments_storage[storage_offset .. storage_offset + argument_length], argument);
             process_buffer.arguments[arguments_count] = process_buffer.arguments_storage[storage_offset .. storage_offset + argument_length];
@@ -178,8 +174,6 @@ pub const CliContext = struct {
         assert(self.arguments_count <= limits.arguments_maximum);
 
         const process_buffer = self.pools.get_process_buffer();
-        // process_buffer is a pointer, not optional - no need for null check
-
         const result = process_buffer.arguments[0..self.arguments_count];
 
         assert(result.len == self.arguments_count);

@@ -8,7 +8,7 @@ const util_data = @import("../util/data.zig");
 const util_extract = @import("../io/extract.zig");
 const util_tool = @import("../util/tool.zig");
 const http_client = @import("../io/http_client.zig");
-const util_minimumisign = @import("../io/minisign.zig");
+const minisign = @import("../io/minisign.zig");
 const context = @import("../Context.zig");
 const validation = @import("../cli/validation.zig");
 const limits = @import("../memory/limits.zig");
@@ -845,7 +845,7 @@ fn verify_signature(
         }),
     );
 
-    try util_minimumisign.verify_static_with_file(
+    try minisign.verify_static_with_file(
         ctx,
         sig_path,
         config.ZIG_MINISIGN_PUBLIC_KEY,

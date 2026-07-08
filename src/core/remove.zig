@@ -11,10 +11,7 @@ const detect_version = @import("detect_version.zig");
 const assert = std.debug.assert;
 
 /// Try remove specified version.
-pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug: bool) !void {
-    _ = debug;
-
-    // ctx is a pointer, not optional - no need for null check
+pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool) !void {
     assert(version.len > 0);
     assert(version.len <= limits.version_string_length_maximum);
 
@@ -42,7 +39,6 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     // Get current path using path buffer.
     var current_path_buffer = try ctx.scratch(.path);
     defer current_path_buffer.release();
-    // current_path_buffer is a pointer, not optional - no need for null check
 
     const current_path = try if (is_zls)
         util_data.get_zvm_current_zls(current_path_buffer)
@@ -111,7 +107,6 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
     // Get version path.
     var base_path_buffer = try ctx.scratch(.path);
     defer base_path_buffer.release();
-    // base_path_buffer is a pointer, not optional - no need for null check
 
     const base_path = try if (is_zls)
         util_data.get_zvm_zls_version(base_path_buffer)
@@ -123,7 +118,6 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool, debug
 
     var version_path_buffer = try ctx.scratch(.path);
     defer version_path_buffer.release();
-    // version_path_buffer is a pointer, not optional - no need for null check
 
     const version_path = try version_path_buffer.set(
         try std.fmt.bufPrint(version_path_buffer.slice(), "{s}/{s}", .{ base_path, true_version }),
