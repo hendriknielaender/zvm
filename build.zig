@@ -110,23 +110,13 @@ pub fn build(b: *Build) void {
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    // Add staged validation tests
-    const staged_validation_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_staged_validation.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-
-    const run_staged_validation_tests = b.addRunArtifact(staged_validation_tests);
-
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
-    // running the unit tests.
+    // running the unit tests. CLI validation tests live next to the module
+    // they exercise (src/cli/validation_test.zig) and are pulled into the
+    // main test root through a `test` block in src/main.zig.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
-    test_step.dependOn(&run_staged_validation_tests.step);
 
     // End-to-end harness. Builds the zvm binary and a separate driver
     // executable that spawns it as a subprocess to verify user-facing

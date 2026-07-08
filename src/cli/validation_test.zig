@@ -2,8 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 
 // CLI validation surface
-const validation = @import("cli/validation.zig");
-const limits = @import("memory/limits.zig");
+const validation = @import("validation.zig");
+const limits = @import("../memory/limits.zig");
 
 test "command parsing - install command" {
     const install_command = try validation.parse_command_args("install", &.{"0.11.0"});

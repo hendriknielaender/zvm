@@ -328,6 +328,10 @@ fn read_zvm_debug_env() bool {
     return value.len > 0;
 }
 
+test {
+    _ = @import("cli/validation_test.zig");
+}
+
 fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
     return command_runner.progress_items(command);
 }

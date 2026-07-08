@@ -2,7 +2,7 @@ const std = @import("std");
 const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
-const config = @import("../metadata.zig");
+const metadata = @import("../metadata.zig");
 const http_client = @import("../io/http_client.zig");
 const meta = @import("meta.zig");
 const object_pools = @import("../memory.zig");
@@ -16,7 +16,7 @@ pub fn list_remote(
 ) !void {
     _ = progress_node;
 
-    const meta_url = if (command.tool == .zls) config.zls_url else config.zig_url;
+    const meta_url = if (command.tool == .zls) metadata.zls_url else metadata.zig_url;
     const response = try http_client.HttpClient.fetch(ctx, meta_url, .{});
     var version_entries_storage: [limits.versions_maximum]*object_pools.VersionEntry = undefined;
     const version_count = try load_version_entries(

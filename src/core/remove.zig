@@ -1,7 +1,7 @@
 //! For removing the zig or zls
 const std = @import("std");
 const builtin = @import("builtin");
-const config = @import("../metadata.zig");
+const metadata = @import("../metadata.zig");
 const util_data = @import("../util/data.zig");
 const util_tool = @import("../util/tool.zig");
 const context = @import("../Context.zig");
@@ -84,9 +84,9 @@ pub fn remove(ctx: *context.CliContext, version: []const u8, is_zls: bool) !void
 /// Unknown versions map to themselves.
 fn map_zls_version(version: []const u8) []const u8 {
     assert(version.len > 0);
-    assert(config.zls_list_1.len == config.zls_list_2.len);
+    assert(metadata.zls_list_1.len == metadata.zls_list_2.len);
 
-    for (config.zls_list_1, config.zls_list_2) |alias_version, true_version| {
+    for (metadata.zls_list_1, metadata.zls_list_2) |alias_version, true_version| {
         if (util_tool.eql_str(alias_version, version)) return true_version;
     }
     return version;

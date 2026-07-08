@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const config = @import("../metadata.zig");
+const metadata = @import("../metadata.zig");
 const alias = @import("alias.zig");
 const meta = @import("meta.zig");
 const util_arch = @import("../util/arch.zig");
@@ -771,7 +771,7 @@ fn fetch_version_data(
     assert(version.len > 0);
     assert(platform_str.len > 0);
 
-    const res = try http_client.HttpClient.fetch(ctx, config.zig_url, .{});
+    const res = try http_client.HttpClient.fetch(ctx, metadata.zig_url, .{});
 
     assert(res.len > 0);
 
@@ -848,7 +848,7 @@ fn verify_signature(
     try minisign.verify_static_with_file(
         ctx,
         sig_path,
-        config.ZIG_MINISIGN_PUBLIC_KEY,
+        metadata.ZIG_MINISIGN_PUBLIC_KEY,
         tarball_path,
         file_name,
     );
@@ -920,7 +920,7 @@ fn add_community_mirror_urls(
 
     var mirrors = community_mirrors.UrlList.init();
     try community_mirrors.load(ctx, &mirrors);
-    mirrors.order(ctx.io, config.preferred_mirror);
+    mirrors.order(ctx.io, metadata.preferred_mirror);
 
     var index: u32 = 0;
     while (index < mirrors.count) : (index += 1) {
@@ -956,7 +956,7 @@ fn fetch_zls_version_data(
     assert(platform_str.len > 0);
     assert(version.len > 0);
 
-    const res = try http_client.HttpClient.fetch(ctx, config.zls_url, .{});
+    const res = try http_client.HttpClient.fetch(ctx, metadata.zls_url, .{});
     assert(res.len > 0);
 
     const version_data = try meta.Zls.get_version_data(res, version, platform_str) orelse {
@@ -1023,7 +1023,7 @@ fn resolve_master_zig_version(
     }
 
     assert(util_tool.eql_str(version, "master"));
-    const res = try http_client.HttpClient.fetch(ctx, config.zig_url, .{});
+    const res = try http_client.HttpClient.fetch(ctx, metadata.zig_url, .{});
     assert(res.len > 0);
 
     const resolved = try meta.Zig.get_master_version_string(res, output_buffer[0..]) orelse {
@@ -1068,7 +1068,7 @@ fn fetch_zls_master_version_data(
     const url = try url_buffer.set(try std.fmt.bufPrint(
         url_buffer.slice(),
         "{s}?zig_version={s}&compatibility=only-runtime",
-        .{ config.zls_select_version_url_base, encoded_zig_version },
+        .{ metadata.zls_select_version_url_base, encoded_zig_version },
     ));
     assert(url.len > 0);
     assert(url.len <= limits.url_length_maximum);

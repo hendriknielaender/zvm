@@ -1,5 +1,5 @@
 const std = @import("std");
-const config = @import("../../metadata.zig");
+const metadata = @import("../../metadata.zig");
 const limits = @import("../../memory/limits.zig");
 const object_pools = @import("../../memory.zig");
 const scanner_mod = @import("scanner.zig");
@@ -137,7 +137,7 @@ pub const Zls = struct {
         const asset_name = try std.fmt.bufPrint(
             &asset_name_buffer,
             "zls-{s}.{s}",
-            .{ platform_str, config.archive_ext },
+            .{ platform_str, metadata.archive_ext },
         );
 
         // SAFETY: scanner.init initializes the scanner before any scanner method is called.
