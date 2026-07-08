@@ -18,7 +18,7 @@ const CacheFreshness = enum {
 };
 
 pub const UrlList = struct {
-    urls: [max][limits.url_length_maximum]u8,
+    urls: [max][limits.mirror_url_length_maximum]u8,
     lengths: [max]u32,
     count: u32,
 
@@ -33,7 +33,7 @@ pub const UrlList = struct {
 
     pub fn append(self: *UrlList, url: []const u8) !void {
         assert(url.len > 0);
-        assert(url.len <= limits.url_length_maximum);
+        assert(url.len <= limits.mirror_url_length_maximum);
 
         if (self.count >= max) return error.TooManyMirrors;
 
@@ -104,6 +104,11 @@ pub const UrlList = struct {
         }
     }
 
+    comptime {
+        // UrlList lives on the install path's stack frame; keep it bounded.
+        assert(@sizeOf(UrlList) <= 64 * 1024);
+    }
+
     fn swap(self: *UrlList, a: u32, b: u32) void {
         assert(a < self.count);
         assert(b < self.count);
@@ -114,7 +119,7 @@ pub const UrlList = struct {
         const a_len = self.lengths[ai];
         const b_len = self.lengths[bi];
 
-        var url_buffer: [limits.url_length_maximum]u8 = undefined;
+        var url_buffer: [limits.mirror_url_length_maximum]u8 = undefined;
         @memcpy(url_buffer[0..a_len], self.urls[ai][0..a_len]);
         @memcpy(self.urls[ai][0..b_len], self.urls[bi][0..b_len]);
         @memcpy(self.urls[bi][0..a_len], url_buffer[0..a_len]);
@@ -222,6 +227,10 @@ pub fn basename(url: []const u8) []const u8 {
 
 fn validate_mirror_url(mirror_url: []const u8) !void {
     if (mirror_url.len == 0) return error.InvalidMirrorList;
+    // Length is validated here as an operating error because the mirror list
+    // is fetched from the network; UrlList.append asserts the same bound as
+    // the programmer-error backstop.
+    if (mirror_url.len > limits.mirror_url_length_maximum) return error.InvalidMirrorList;
     if (!std.mem.startsWith(u8, mirror_url, "https://")) return error.InvalidMirrorList;
     for (mirror_url) |byte| {
         if (byte < 0x21) return error.InvalidMirrorList;

@@ -66,6 +66,11 @@ pub const url_length_maximum: u32 = 2048;
 /// Maximum community mirrors accepted from the live Zig mirror list.
 pub const community_mirrors_maximum: u32 = 64;
 
+/// Maximum community mirror base URL length. Bases are short host prefixes
+/// (~100 bytes today); full download URLs append a file name and source
+/// query, so the base must leave room inside url_length_maximum.
+pub const mirror_url_length_maximum: u32 = 512;
+
 /// Maximum version string length.
 pub const version_string_length_maximum: u32 = 64;
 
@@ -140,6 +145,9 @@ comptime {
 
     // Ensure version string can hold semantic version plus metadata.
     assert(version_string_length_maximum >= 32);
+
+    // Ensure a mirror base plus file name and query fits in a full URL.
+    assert(mirror_url_length_maximum < url_length_maximum / 2);
 
     // Ensure we have enough path buffers for concurrent operations.
     assert(path_buffers_maximum >= 4);

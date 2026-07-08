@@ -18,7 +18,6 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.install);
 const Progress = std.Progress;
 const cleanup_timeout_seconds: u32 = 10;
-const release_download_urls_max = limits.community_mirrors_maximum + 1;
 
 const DownloadFile = *const fn (
     ctx: *context.CliContext,
@@ -38,9 +37,10 @@ const Release = struct {
     kind: ReleaseKind,
     version_buffer: [limits.version_string_length_maximum]u8,
     version_len: u32,
-    download_urls_buffer: [release_download_urls_max][limits.url_length_maximum]u8,
-    download_urls_len: [release_download_urls_max]u32,
-    download_urls_count: u32,
+    /// Official download URL. Mirror URLs are derived from this URL's file
+    /// name at download time, so only the official source is stored.
+    tarball_url_buffer: [limits.url_length_maximum]u8,
+    tarball_url_len: u32,
     hash: ?[64]u8,
     size: u64,
     signature_url_buffer: [limits.url_length_maximum]u8,
@@ -48,16 +48,20 @@ const Release = struct {
     extract_path_buffer: [limits.path_length_maximum]u8,
     extract_path_len: u32,
 
+    comptime {
+        // Release lives on the install path's stack frame; keep it bounded.
+        assert(@sizeOf(Release) <= 16 * 1024);
+    }
+
     fn init(self: *Release, kind: ReleaseKind) void {
         self.* = .{
             .kind = kind,
             // SAFETY: version_buffer is read only after set_version writes version_len bytes.
             .version_buffer = undefined,
             .version_len = 0,
-            // SAFETY: download URL slots are read only after add_download_url writes bytes and length.
-            .download_urls_buffer = undefined,
-            .download_urls_len = std.mem.zeroes([release_download_urls_max]u32),
-            .download_urls_count = 0,
+            // SAFETY: tarball_url_buffer is read only after set_tarball_url writes tarball_url_len bytes.
+            .tarball_url_buffer = undefined,
+            .tarball_url_len = 0,
             .hash = null,
             .size = 0,
             // SAFETY: signature_url_buffer is read only when signature_url_len is non-zero.
@@ -74,10 +78,9 @@ const Release = struct {
         return self.version_buffer[0..self.version_len];
     }
 
-    fn download_url(self: *const Release, index: u32) []const u8 {
-        assert(index < self.download_urls_count);
-        const index_usize: usize = @intCast(index);
-        return self.download_urls_buffer[index_usize][0..self.download_urls_len[index_usize]];
+    fn tarball_url(self: *const Release) []const u8 {
+        assert(self.tarball_url_len > 0);
+        return self.tarball_url_buffer[0..self.tarball_url_len];
     }
 
     fn signature_url(self: *const Release) ?[]const u8 {
@@ -130,15 +133,12 @@ const Release = struct {
         try self.set_extract_path(install_path);
     }
 
-    fn add_download_url(self: *Release, url: []const u8) !void {
+    fn set_tarball_url(self: *Release, url: []const u8) !void {
         assert(url.len > 0);
-        assert(url.len <= limits.url_length_maximum);
-        assert(self.download_urls_count < release_download_urls_max);
+        assert(url.len <= self.tarball_url_buffer.len);
 
-        const index: usize = @intCast(self.download_urls_count);
-        @memcpy(self.download_urls_buffer[index][0..url.len], url);
-        self.download_urls_len[index] = @intCast(url.len);
-        self.download_urls_count += 1;
+        @memcpy(self.tarball_url_buffer[0..url.len], url);
+        self.tarball_url_len = @intCast(url.len);
     }
 
     fn set_signature_url(self: *Release, url: []const u8) !void {
@@ -168,31 +168,6 @@ const InstallProgress = struct {
 
     fn start(self: *InstallProgress, name: []const u8, estimated_total_items: usize) Progress.Node {
         return self.root_node.start(name, estimated_total_items);
-    }
-};
-
-const AcquiredRelease = struct {
-    file: std.Io.File,
-    download_url_buffer: [limits.url_length_maximum]u8,
-    download_url_len: u32,
-
-    fn init(file: std.Io.File, source_url: []const u8) !AcquiredRelease {
-        assert(source_url.len > 0);
-        assert(source_url.len <= limits.url_length_maximum);
-
-        var acquired = AcquiredRelease{
-            .file = file,
-            // SAFETY: download_url_buffer is read only after init copies source_url bytes.
-            .download_url_buffer = undefined,
-            .download_url_len = @intCast(source_url.len),
-        };
-        @memcpy(acquired.download_url_buffer[0..source_url.len], source_url);
-        return acquired;
-    }
-
-    fn download_url(self: *const AcquiredRelease) []const u8 {
-        assert(self.download_url_len > 0);
-        return self.download_url_buffer[0..self.download_url_len];
     }
 };
 
@@ -303,12 +278,15 @@ pub fn install(
 
     // SAFETY: resolve_*_release initializes release before install_release reads it.
     var release: Release = undefined;
+    // Mirrors apply to Zig only; zls downloads always use the official URL.
+    var mirrors = community_mirrors.UrlList.init();
     if (is_zls) {
         try resolve_zls_release(ctx, &release, version);
     } else {
         try resolve_zig_release(ctx, &release, version);
+        load_community_mirrors(ctx, &mirrors);
     }
-    try install_release(ctx, &release, root_node);
+    try install_release(ctx, &release, &mirrors, root_node);
 }
 
 fn switch_to_installed_release(
@@ -380,7 +358,7 @@ fn resolve_zig_release(
     try release.set_extract_path_from_parts(ctx, version_root, release.version());
     release.hash = version_data.shasum;
     release.size = version_data.size;
-    try resolve_zig_download_urls(ctx, release, version_data.tarball());
+    try release.set_tarball_url(version_data.tarball());
 
     var signature_url_buffer: [limits.url_length_maximum]u8 = undefined;
     const signature_url = try std.fmt.bufPrint(&signature_url_buffer, "{s}.minisig", .{
@@ -388,7 +366,7 @@ fn resolve_zig_release(
     });
     try release.set_signature_url(signature_url);
 
-    assert(release.download_urls_count > 0);
+    assert(release.tarball_url().len > 0);
     assert(release.signature_url() != null);
 }
 
@@ -428,9 +406,9 @@ fn resolve_zls_release(
     try release.set_extract_path_from_parts(ctx, version_root, release.version());
     release.hash = null;
     release.size = version_data.size;
-    try release.add_download_url(version_data.tarball());
+    try release.set_tarball_url(version_data.tarball());
 
-    assert(release.download_urls_count == 1);
+    assert(release.tarball_url().len > 0);
     assert(release.signature_url() == null);
 }
 
@@ -456,9 +434,9 @@ fn resolve_zls_master_release(
     try release.set_extract_path_from_parts(ctx, version_root, release.version());
     release.hash = version_data.shasum;
     release.size = version_data.size;
-    try release.add_download_url(version_data.tarball());
+    try release.set_tarball_url(version_data.tarball());
 
-    assert(release.download_urls_count == 1);
+    assert(release.tarball_url().len > 0);
     assert(release.signature_url() == null);
     assert(release.hash != null);
 }
@@ -466,10 +444,11 @@ fn resolve_zls_master_release(
 fn install_release(
     ctx: *context.CliContext,
     release: *const Release,
+    mirrors: *const community_mirrors.UrlList,
     root_node: Progress.Node,
 ) !void {
     assert(release.version().len > 0);
-    assert(release.download_urls_count > 0);
+    assert(release.tarball_url().len > 0);
     assert(release.size > 0);
     assert(release.extract_path().len > 0);
 
@@ -485,57 +464,70 @@ fn install_release(
 
     var progress = InstallProgress.init(root_node);
     try signals.check();
-    const acquired = try acquire_release(
+    const tarball_file = try acquire_release(
         ctx,
         release,
+        mirrors,
         download_file_with_verification,
         &progress,
     );
-    defer acquired.file.close(ctx.io);
+    defer tarball_file.close(ctx.io);
 
-    try stage_release(ctx, release, acquired.file, &progress);
+    try stage_release(ctx, release, tarball_file, &progress);
     try signals.check();
     try util_data.write_version_manifest(ctx.io, extract_path, release.version());
 
     try alias.set_version(ctx, release.version(), release.is_zls());
 }
 
-fn resolve_zig_download_urls(
-    ctx: *context.CliContext,
-    release: *Release,
-    official_url: []const u8,
-) !void {
-    assert(official_url.len > 0);
-    assert(release.download_urls_count == 0);
+/// Load and order the community mirror list, tolerating failure: mirrors
+/// are an optimization, and the official URL always remains as fallback.
+fn load_community_mirrors(ctx: *context.CliContext, mirrors: *community_mirrors.UrlList) void {
+    assert(mirrors.count == 0);
 
-    const file_name = std.fs.path.basename(official_url);
-    assert(file_name.len > 0);
-    assert(file_name.len <= official_url.len);
-
-    const download_urls_count_before_mirrors = release.download_urls_count;
-    add_community_mirror_urls(ctx, release, file_name) catch |err| {
-        release.download_urls_count = download_urls_count_before_mirrors;
+    community_mirrors.load(ctx, mirrors) catch |err| {
+        mirrors.* = community_mirrors.UrlList.init();
         log.warn("Unable to use community mirrors: {s}", .{@errorName(err)});
+        return;
     };
-
-    try release.add_download_url(official_url);
+    mirrors.order(ctx.io, metadata.preferred_mirror);
 }
 
+/// Download the release tarball, trying each mirror in preference order and
+/// the official URL last. Mirror URLs are derived per attempt from the
+/// mirror base and the official tarball's file name.
 fn acquire_release(
     ctx: *context.CliContext,
     release: *const Release,
+    mirrors: *const community_mirrors.UrlList,
     download_file: DownloadFile,
     progress: *InstallProgress,
-) !AcquiredRelease {
-    assert(release.download_urls_count > 0);
+) !std.Io.File {
+    assert(release.tarball_url().len > 0);
     assert(release.size > 0);
+    assert(mirrors.count <= community_mirrors.max);
+    if (release.kind == .zls) assert(mirrors.count == 0);
 
-    const file_name = community_mirrors.basename(release.download_url(0));
+    const file_name = community_mirrors.basename(release.tarball_url());
     assert(file_name.len > 0);
 
+    const attempts_total = mirrors.count + 1;
     var index: u32 = 0;
-    while (index < release.download_urls_count) : (index += 1) {
-        const download_url = release.download_url(index);
+    while (index < attempts_total) : (index += 1) {
+        var download_url_buffer = try ctx.scratch(.path);
+        defer download_url_buffer.release();
+        const download_url = if (index < mirrors.count)
+            community_mirrors.construct_tarball_url(
+                download_url_buffer,
+                mirrors.get(index),
+                file_name,
+            ) catch |err| {
+                log.warn("Invalid mirror URL {s}: {s}", .{ mirrors.get(index), @errorName(err) });
+                continue;
+            }
+        else
+            release.tarball_url();
+
         const uri = std.Uri.parse(download_url) catch |err| {
             log.warn("Invalid download URL {s}: {s}", .{ download_url, @errorName(err) });
             continue;
@@ -569,7 +561,7 @@ fn acquire_release(
             };
         }
 
-        return AcquiredRelease.init(file, download_url);
+        return file;
     }
 
     log.err("All download attempts failed for {s}", .{release.version()});
@@ -623,7 +615,7 @@ fn stage_release(
     var tarball_path_buffer = try ctx.scratch(.path);
     defer tarball_path_buffer.release();
     const zvm_store_path = try util_data.get_zvm_path_segment(tarball_path_buffer, "store");
-    const tarball_file_name = community_mirrors.basename(release.download_url(0));
+    const tarball_file_name = community_mirrors.basename(release.tarball_url());
     var tarball_path_storage: [limits.path_length_maximum]u8 = undefined;
     const tarball_path = try std.fmt.bufPrint(&tarball_path_storage, "{s}/{s}", .{
         zvm_store_path,
@@ -909,30 +901,6 @@ fn extract_and_install(
     extract_node.end();
     items_done.* += 1;
     root_node.setCompletedItems(items_done.*);
-}
-
-fn add_community_mirror_urls(
-    ctx: *context.CliContext,
-    release: *Release,
-    file_name: []const u8,
-) !void {
-    assert(file_name.len > 0);
-
-    var mirrors = community_mirrors.UrlList.init();
-    try community_mirrors.load(ctx, &mirrors);
-    mirrors.order(ctx.io, metadata.preferred_mirror);
-
-    var index: u32 = 0;
-    while (index < mirrors.count) : (index += 1) {
-        var mirror_uri_buffer = try ctx.scratch(.path);
-        defer mirror_uri_buffer.release();
-        const mirror_tarball_url = try community_mirrors.construct_tarball_url(
-            mirror_uri_buffer,
-            mirrors.get(index),
-            file_name,
-        );
-        try release.add_download_url(mirror_tarball_url);
-    }
 }
 
 fn get_zls_platform_string(ctx: *context.CliContext) ![]const u8 {
