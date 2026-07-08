@@ -263,10 +263,7 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
     for (args, 0..) |arg, arg_index| {
         if (!after_terminator and is_option_terminator(arg)) {
             after_terminator = true;
-            const fields = comptime std.meta.fields(Args);
-            const positional_first = comptime positional_start(Args);
-            const positional_len = comptime fields.len - positional_first;
-            if (positional_len == 1 and fields[positional_first].type == []const []const u8) {
+            if (comptime args_variadic(Args)) {
                 extended_start = arg_index + 1;
                 break;
             }
@@ -282,30 +279,13 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
             return error.UnknownFlag;
         }
 
-        const fields = comptime std.meta.fields(Args);
-        const positional_first = comptime positional_start(Args);
-        const positional_len = comptime fields.len - positional_first;
-        if (positional_count >= positional_len) return error.UnexpectedArguments;
-
-        if (positional_len == 0) return error.UnexpectedArguments;
-        if (positional_len == 1 and fields[positional_first].type == []const []const u8) {
-            return error.UnexpectedArguments;
-        }
-        switch (positional_count) {
-            inline 0...positional_len - 1 => |index| {
-                const field = fields[positional_first + index];
-                @field(result, field.name) = try parse_value(field.type, arg);
-            },
-            else => unreachable,
-        }
+        try parse_args_positional(Args, &result, positional_count, arg);
         positional_count += 1;
     }
 
-    const fields = comptime std.meta.fields(Args);
-    const positional_first = comptime positional_start(Args);
-    const positional_len = comptime fields.len - positional_first;
-    if (positional_len == 1 and fields[positional_first].type == []const []const u8) {
-        const field = fields[positional_first];
+    if (comptime args_variadic(Args)) {
+        const fields = comptime std.meta.fields(Args);
+        const field = fields[comptime positional_start(Args)];
         if (extended_start) |start| {
             @field(result, field.name) = args[start..];
             positional_count = 1;
@@ -317,6 +297,42 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
     try assign_default_named(Args, &result, &counts);
     try assign_default_positionals(Args, &result, positional_count);
     return result;
+}
+
+/// Whether Args declares a single variadic positional (`[]const []const u8`),
+/// which consumes everything after the `--` terminator instead of individual
+/// positional fields.
+fn args_variadic(comptime Args: type) bool {
+    const fields = std.meta.fields(Args);
+    const positional_first = positional_start(Args);
+    const positional_len = fields.len - positional_first;
+    return positional_len == 1 and fields[positional_first].type == []const []const u8;
+}
+
+/// Assign one positional argument to the next positional field of `result`.
+/// Variadic argument lists never reach here; the caller collects them after
+/// the `--` terminator.
+fn parse_args_positional(
+    comptime Args: type,
+    result: *Args,
+    positional_count: usize,
+    arg: []const u8,
+) ParseError!void {
+    const fields = comptime std.meta.fields(Args);
+    const positional_first = comptime positional_start(Args);
+    const positional_len = comptime fields.len - positional_first;
+
+    if (positional_count >= positional_len) return error.UnexpectedArguments;
+    if (positional_len == 0) return error.UnexpectedArguments;
+    if (comptime args_variadic(Args)) return error.UnexpectedArguments;
+
+    switch (positional_count) {
+        inline 0...positional_len - 1 => |index| {
+            const field = fields[positional_first + index];
+            @field(result, field.name) = try parse_value(field.type, arg);
+        },
+        else => unreachable,
+    }
 }
 
 fn union_payload(comptime Commands: type, comptime tag: std.meta.Tag(Commands)) type {

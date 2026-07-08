@@ -94,39 +94,11 @@ pub fn main(process_init: std.process.Init) !void {
 
     var arguments_buffer: [memory_limits.arguments_maximum][]const u8 = undefined;
     var arguments_storage: [memory_limits.arguments_storage_size_maximum]u8 = undefined;
-    var arguments_count: u32 = 0;
-    var arguments_storage_offset: usize = 0;
-
-    var arguments_iterator_storage: [memory_limits.arguments_storage_size_maximum]u8 = undefined;
-    var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
-    var arguments_iterator = try process_init.minimal.args.iterateAllocator(arguments_iterator_fba.allocator());
-    defer arguments_iterator.deinit();
-
-    while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
-        if (arguments_count >= arguments_buffer.len) {
-            log.err("Too many arguments: got {d}, maximum is {d}", .{
-                arguments_count + 1,
-                arguments_buffer.len,
-            });
-            return error.TooManyArguments;
-        }
-
-        append_argument_to_static_storage(
-            &arguments_buffer,
-            &arguments_storage,
-            arguments_count,
-            &arguments_storage_offset,
-            argument,
-        ) catch |err| switch (err) {
-            error.ArgumentStorageFull => {
-                log.err(
-                    "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
-                    .{ arguments_storage_offset + argument.len, arguments_storage.len },
-                );
-                return err;
-            },
-        };
-    }
+    const arguments_count = try collect_arguments(
+        process_init,
+        &arguments_buffer,
+        &arguments_storage,
+    );
 
     const arguments = arguments_buffer[0..arguments_count];
     if (arguments.len == 0) {
@@ -139,32 +111,8 @@ pub fn main(process_init: std.process.Init) !void {
 
     metadata.init_config();
 
-    // Inspect environment for color-mode resolution before any output is emitted.
-    // Color must be resolved before the first emitter is created so that even
-    // error messages during parsing respect the terminal and environment.
-    const no_color_env = if (util_tool.getenv_cross_platform("NO_COLOR")) |val|
-        val.len > 0
-    else
-        false;
-    const term_is_dumb = if (util_tool.getenv_cross_platform("TERM")) |val|
-        std.mem.eql(u8, val, "dumb")
-    else
-        false;
-    const is_tty = util_output.stdout_is_terminal();
-    const stderr_is_tty = util_output.stderr_is_terminal();
-
-    const initial_color = util_output.resolve_color_mode(
-        .auto,
-        no_color_env,
-        is_tty,
-        term_is_dumb,
-    );
-
-    const default_output_config = util_output.OutputConfig{
-        .mode = .human_readable,
-        .color = initial_color,
-    };
-    try util_output.set_mode(default_output_config);
+    const color_environment = inspect_color_environment();
+    try apply_initial_output_config(color_environment);
 
     if (shim.is_shim_name(basename)) {
         try shim.run(process_init.io, basename, arguments[1..]);
@@ -183,27 +131,150 @@ pub fn main(process_init: std.process.Init) !void {
         util_output.exit_with(util_output.ExitCode.from_error(err), "Failed to parse command line: {s}", .{@errorName(err)});
     };
 
-    // Resolve final color mode from parsed flags (which may override environment).
+    const final_output_config = try apply_final_output_config(
+        color_environment,
+        parsed_command_line.global_config,
+    );
+
+    const context_instance = init_context_or_exit(
+        arguments,
+        process_init.io,
+        parsed_command_line.global_config,
+    );
+    const progress_item_count = get_progress_item_count(parsed_command_line.command);
+    const root_node = std.Progress.start(process_init.io, .{
+        .root_name = "zvm",
+        .estimated_total_items = progress_item_count,
+        .disable_printing = progress_item_count == 0 or
+            final_output_config.mode != .human_readable or
+            !color_environment.stderr_is_tty,
+    });
+
+    execute_command_or_exit(context_instance, parsed_command_line.command, root_node);
+    root_node.end();
+
+    if (util_output.debug_enabled() and final_output_config.mode == .human_readable) {
+        try context_instance.print_debug_info();
+    }
+}
+
+/// Copy process arguments into caller-owned static storage and return the
+/// argument count. The caller owns the buffers because the returned slices
+/// in `arguments_buffer` reference `arguments_storage`, which must outlive
+/// this function.
+fn collect_arguments(
+    process_init: std.process.Init,
+    arguments_buffer: *[memory_limits.arguments_maximum][]const u8,
+    arguments_storage: *[memory_limits.arguments_storage_size_maximum]u8,
+) !u32 {
+    var arguments_count: u32 = 0;
+    var arguments_storage_offset: usize = 0;
+
+    var arguments_iterator_storage: [memory_limits.arguments_storage_size_maximum]u8 = undefined;
+    var arguments_iterator_fba = std.heap.FixedBufferAllocator.init(&arguments_iterator_storage);
+    var arguments_iterator = try process_init.minimal.args.iterateAllocator(arguments_iterator_fba.allocator());
+    defer arguments_iterator.deinit();
+
+    while (arguments_iterator.next()) |argument| : (arguments_count += 1) {
+        if (arguments_count >= arguments_buffer.len) {
+            log.err("Too many arguments: got {d}, maximum is {d}", .{
+                arguments_count + 1,
+                arguments_buffer.len,
+            });
+            return error.TooManyArguments;
+        }
+
+        append_argument_to_static_storage(
+            arguments_buffer,
+            arguments_storage,
+            arguments_count,
+            &arguments_storage_offset,
+            argument,
+        ) catch |err| switch (err) {
+            error.ArgumentStorageFull => {
+                log.err(
+                    "Arguments exceed static storage: need at least {d} bytes, maximum is {d}",
+                    .{ arguments_storage_offset + argument.len, arguments_storage.len },
+                );
+                return err;
+            },
+        };
+    }
+
+    assert(arguments_count <= arguments_buffer.len);
+    return arguments_count;
+}
+
+/// Environment facts that drive color-mode resolution, captured once so the
+/// initial (pre-parse) and final (post-parse) resolutions agree.
+const ColorEnvironment = struct {
+    no_color: bool,
+    term_is_dumb: bool,
+    stdout_is_tty: bool,
+    stderr_is_tty: bool,
+};
+
+fn inspect_color_environment() ColorEnvironment {
+    const no_color = if (util_tool.getenv_cross_platform("NO_COLOR")) |val|
+        val.len > 0
+    else
+        false;
+    const term_is_dumb = if (util_tool.getenv_cross_platform("TERM")) |val|
+        std.mem.eql(u8, val, "dumb")
+    else
+        false;
+
+    return .{
+        .no_color = no_color,
+        .term_is_dumb = term_is_dumb,
+        .stdout_is_tty = util_output.stdout_is_terminal(),
+        .stderr_is_tty = util_output.stderr_is_terminal(),
+    };
+}
+
+/// Apply a provisional output configuration before any output is emitted.
+/// Color must be resolved before the first emitter is created so that even
+/// error messages during parsing respect the terminal and environment.
+fn apply_initial_output_config(color_environment: ColorEnvironment) !void {
+    const initial_color = util_output.resolve_color_mode(
+        .auto,
+        color_environment.no_color,
+        color_environment.stdout_is_tty,
+        color_environment.term_is_dumb,
+    );
+
+    try util_output.set_mode(.{
+        .mode = .human_readable,
+        .color = initial_color,
+    });
+}
+
+/// Apply the authoritative output configuration from parsed global flags
+/// (which may override the environment) and return it. Verbose level:
+/// explicit --verbose wins; otherwise honor the legacy ZVM_DEBUG env var as
+/// a single-step debug equivalence. Why env-var fallback: long-standing
+/// scripts and CI configs depend on it — silently dropping support would
+/// surprise operators on upgrade.
+fn apply_final_output_config(
+    color_environment: ColorEnvironment,
+    global_config: parser.GlobalConfig,
+) !util_output.OutputConfig {
     const final_color = util_output.resolve_color_mode(
-        parsed_command_line.global_config.color_mode,
-        no_color_env,
-        is_tty,
-        term_is_dumb,
+        global_config.color_mode,
+        color_environment.no_color,
+        color_environment.stdout_is_tty,
+        color_environment.term_is_dumb,
     );
 
     const final_output_config = util_output.OutputConfig{
-        .mode = parsed_command_line.global_config.output_mode,
+        .mode = global_config.output_mode,
         .color = final_color,
     };
     try util_output.set_mode(final_output_config);
 
-    // Resolve verbose level: explicit --verbose wins; otherwise honor the
-    // legacy ZVM_DEBUG env var as a single-step debug equivalence. Why
-    // env-var fallback: long-standing scripts and CI configs depend on it
-    // — silently dropping support would surprise operators on upgrade.
     const verbose_from_env: util_output.VerboseLevel =
         if (read_zvm_debug_env()) .debug else .none;
-    const verbose_from_flag = parsed_command_line.global_config.verbose;
+    const verbose_from_flag = global_config.verbose;
     const verbose_effective: util_output.VerboseLevel =
         if (@intFromEnum(verbose_from_flag) >= @intFromEnum(verbose_from_env))
             verbose_from_flag
@@ -211,51 +282,7 @@ pub fn main(process_init: std.process.Init) !void {
             verbose_from_env;
     util_output.set_verbose_level(verbose_effective);
 
-    const context_instance = Context.CliContext.init_locked(
-        &global_context,
-        &global_static_buffer,
-        arguments,
-        process_init.io,
-    ) catch |err| {
-        util_output.exit_with(
-            util_output.ExitCode.from_error(err),
-            "Failed to initialize command context: {s}",
-            .{@errorName(err)},
-        );
-    };
-    context_instance.assume_yes = parsed_command_line.global_config.assume_yes;
-    context_instance.no_input = parsed_command_line.global_config.no_input;
-    const progress_item_count = get_progress_item_count(parsed_command_line.command);
-    const root_node = std.Progress.start(process_init.io, .{
-        .root_name = "zvm",
-        .estimated_total_items = progress_item_count,
-        .disable_printing = progress_item_count == 0 or
-            final_output_config.mode != .human_readable or
-            !stderr_is_tty,
-    });
-
-    execute_command(context_instance, parsed_command_line.command, root_node) catch |err| {
-        root_node.end();
-        if (err == error.Interrupted) {
-            std.process.exit(@intFromEnum(util_output.ExitCode.interrupted));
-        }
-        // Surface a debugging hint only when verbose is off — otherwise the
-        // operator already has the trace lines and a second nudge is noise.
-        if (!util_output.debug_enabled()) {
-            util_output.emit(.error_recoverable, "Re-run with --verbose for debug output, or --trace for trace output.", .{});
-        }
-        util_output.exit_with(
-            util_output.ExitCode.from_error(err),
-            "Command failed: {s}",
-            .{@errorName(err)},
-        );
-    };
-
-    root_node.end();
-
-    if (util_output.debug_enabled() and final_output_config.mode == .human_readable) {
-        try context_instance.print_debug_info();
-    }
+    return final_output_config;
 }
 
 /// Best-effort scan for `--verbose` / `--trace` before the
@@ -301,14 +328,55 @@ fn read_zvm_debug_env() bool {
     return value.len > 0;
 }
 
-fn get_progress_item_count(command: @import("cli/validation.zig").ValidatedCommand) u16 {
+fn get_progress_item_count(command: validation.ValidatedCommand) u16 {
     return command_runner.progress_items(command);
 }
 
-fn execute_command(
+/// Initialize the global command context, exiting with a diagnostic on
+/// failure. Applies the parsed global flags that live on the context.
+fn init_context_or_exit(
+    arguments: []const []const u8,
+    io: std.Io,
+    global_config: parser.GlobalConfig,
+) *Context.CliContext {
+    const context_instance = Context.CliContext.init_locked(
+        &global_context,
+        &global_static_buffer,
+        arguments,
+        io,
+    ) catch |err| {
+        util_output.exit_with(
+            util_output.ExitCode.from_error(err),
+            "Failed to initialize command context: {s}",
+            .{@errorName(err)},
+        );
+    };
+    context_instance.assume_yes = global_config.assume_yes;
+    context_instance.no_input = global_config.no_input;
+    return context_instance;
+}
+
+/// Run the command, exiting with a diagnostic and the mapped exit code on
+/// failure. Interruption exits immediately without the failure banner.
+fn execute_command_or_exit(
     ctx: *Context.CliContext,
     command: validation.ValidatedCommand,
     progress_node: std.Progress.Node,
-) !void {
-    try command_runner.run(ctx, command, progress_node);
+) void {
+    command_runner.run(ctx, command, progress_node) catch |err| {
+        progress_node.end();
+        if (err == error.Interrupted) {
+            std.process.exit(@intFromEnum(util_output.ExitCode.interrupted));
+        }
+        // Surface a debugging hint only when verbose is off — otherwise the
+        // operator already has the trace lines and a second nudge is noise.
+        if (!util_output.debug_enabled()) {
+            util_output.emit(.error_recoverable, "Re-run with --verbose for debug output, or --trace for trace output.", .{});
+        }
+        util_output.exit_with(
+            util_output.ExitCode.from_error(err),
+            "Command failed: {s}",
+            .{@errorName(err)},
+        );
+    };
 }
