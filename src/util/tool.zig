@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const limits = @import("../memory/limits.zig");
 const object_pools = @import("../memory.zig");
 const assert = std.debug.assert;
@@ -37,6 +38,16 @@ pub fn is_master_like_version(version: []const u8) bool {
     assert(version.len > 0);
     assert(version.len < 128);
     return eql_str(version, "master") or is_dev_version(version);
+}
+
+/// Numeric id of the current process. Used to keep per-process staging
+/// paths distinct; uniqueness among live processes is all that matters.
+pub fn process_id() u32 {
+    switch (builtin.os.tag) {
+        .windows => return std.os.windows.GetCurrentProcessId(),
+        .linux => return @intCast(std.os.linux.getpid()),
+        else => return @intCast(std.c.getpid()),
+    }
 }
 
 /// try to create path

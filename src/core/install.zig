@@ -47,10 +47,12 @@ const Release = struct {
     signature_url_len: u32,
     extract_path_buffer: [limits.path_length_maximum]u8,
     extract_path_len: u32,
+    staging_path_buffer: [limits.path_length_maximum]u8,
+    staging_path_len: u32,
 
     comptime {
         // Release lives on the install path's stack frame; keep it bounded.
-        assert(@sizeOf(Release) <= 16 * 1024);
+        assert(@sizeOf(Release) <= 20 * 1024);
     }
 
     fn init(self: *Release, kind: ReleaseKind) void {
@@ -70,6 +72,9 @@ const Release = struct {
             // SAFETY: extract_path_buffer is read only after set_extract_path writes extract_path_len bytes.
             .extract_path_buffer = undefined,
             .extract_path_len = 0,
+            // SAFETY: staging_path_buffer is read only after set_extract_path_from_parts writes staging_path_len bytes.
+            .staging_path_buffer = undefined,
+            .staging_path_len = 0,
         };
     }
 
@@ -94,6 +99,11 @@ const Release = struct {
     fn extract_path(self: *const Release) []const u8 {
         assert(self.extract_path_len > 0);
         return self.extract_path_buffer[0..self.extract_path_len];
+    }
+
+    fn staging_path(self: *const Release) []const u8 {
+        assert(self.staging_path_len > 0);
+        return self.staging_path_buffer[0..self.staging_path_len];
     }
 
     fn is_zls(self: *const Release) bool {
@@ -131,6 +141,20 @@ const Release = struct {
             try std.fmt.bufPrint(path_buffer.slice(), "{s}/{s}", .{ version_root, version_text }),
         );
         try self.set_extract_path(install_path);
+
+        // Staging lives under the same parent as the final path so the
+        // publish rename never crosses filesystems. The process id keeps
+        // concurrent installs of the same version from clobbering each
+        // other's staging tree.
+        const staging = try std.fmt.bufPrint(
+            &self.staging_path_buffer,
+            "{s}/.staging/{s}-{d}",
+            .{ version_root, version_text, util_tool.process_id() },
+        );
+        self.staging_path_len = @intCast(staging.len);
+
+        assert(self.staging_path_len > 0);
+        assert(!std.mem.eql(u8, self.staging_path(), self.extract_path()));
     }
 
     fn set_tarball_url(self: *Release, url: []const u8) !void {
@@ -313,12 +337,42 @@ fn switch_to_installed_release(
         }),
     );
 
-    if (util_tool.does_path_exist(ctx.io, install_path)) {
-        try alias.set_version(ctx, version, is_zls);
-        return true;
+    return switch_if_installed(ctx, install_path, version, is_zls);
+}
+
+/// Switch to the install at `install_path` when it is complete, returning
+/// true. Legacy installs (predating the manifest) are verified through
+/// their tool binary and given a manifest so later checks see them as
+/// complete. Torn directories are deleted so the caller reinstalls them.
+fn switch_if_installed(
+    ctx: *context.CliContext,
+    install_path: []const u8,
+    version: []const u8,
+    is_zls: bool,
+) !bool {
+    assert(install_path.len > 0);
+    assert(version.len > 0);
+    assert(version.len <= limits.version_string_length_maximum);
+
+    const state = try util_data.classify_install(ctx.io, install_path, version, is_zls);
+    switch (state) {
+        .missing => return false,
+        .torn => {
+            log.warn("Incomplete installation at {s}; removing it before reinstalling.", .{
+                install_path,
+            });
+            try std.Io.Dir.cwd().deleteTree(ctx.io, install_path);
+            assert(!util_tool.does_path_exist(ctx.io, install_path));
+            return false;
+        },
+        .installed_legacy => {
+            try util_data.write_version_manifest(ctx.io, install_path, version);
+        },
+        .installed => {},
     }
 
-    return false;
+    try alias.set_version(ctx, version, is_zls);
+    return true;
 }
 
 pub fn run(
@@ -451,15 +505,19 @@ fn install_release(
     assert(release.tarball_url().len > 0);
     assert(release.size > 0);
     assert(release.extract_path().len > 0);
+    assert(release.staging_path().len > 0);
 
-    const extract_path = release.extract_path();
-    if (util_tool.does_path_exist(ctx.io, extract_path)) {
-        try alias.set_version(ctx, release.version(), release.is_zls());
+    if (try switch_if_installed(ctx, release.extract_path(), release.version(), release.is_zls())) {
         return;
     }
 
+    // Failures only ever leave a staging tree behind; the final path is
+    // written exclusively by the publish rename, so cleanup never needs
+    // to touch a completed install.
     errdefer |err| if (err == error.Interrupted) {
-        cleanup_interrupted_install(ctx, extract_path);
+        cleanup_interrupted_install(ctx, release.staging_path());
+    } else {
+        cleanup_staging_best_effort(ctx, release.staging_path());
     };
 
     var progress = InstallProgress.init(root_node);
@@ -475,9 +533,63 @@ fn install_release(
 
     try stage_release(ctx, release, tarball_file, &progress);
     try signals.check();
-    try util_data.write_version_manifest(ctx.io, extract_path, release.version());
+    try publish_release(ctx, release);
 
     try alias.set_version(ctx, release.version(), release.is_zls());
+}
+
+/// Commit a fully staged release to its final path. The manifest is the
+/// completion record: it is written and made durable inside the staging
+/// tree first, then the rename publishes both at once — so the final path
+/// either does not exist or holds a complete, manifest-carrying install.
+fn publish_release(ctx: *context.CliContext, release: *const Release) !void {
+    const staging_path = release.staging_path();
+    const extract_path = release.extract_path();
+    assert(staging_path.len > 0);
+    assert(extract_path.len > 0);
+    assert(util_tool.does_path_exist(ctx.io, staging_path));
+
+    try util_data.write_version_manifest(ctx.io, staging_path, release.version());
+
+    std.Io.Dir.renameAbsolute(staging_path, extract_path, ctx.io) catch |err| switch (err) {
+        // A concurrent install published this version first. Published
+        // directories always carry a manifest (verified below), so ours
+        // is redundant; discard the staging tree and use the winner.
+        error.DirNotEmpty => {
+            const state = try util_data.classify_install(
+                ctx.io,
+                extract_path,
+                release.version(),
+                release.is_zls(),
+            );
+            if (state != .installed) return err;
+            try std.Io.Dir.cwd().deleteTree(ctx.io, staging_path);
+        },
+        else => return err,
+    };
+
+    const published = try util_data.classify_install(
+        ctx.io,
+        extract_path,
+        release.version(),
+        release.is_zls(),
+    );
+    assert(published == .installed);
+    assert(!util_tool.does_path_exist(ctx.io, staging_path));
+}
+
+/// Remove the staging tree after a failed install. Best effort: the next
+/// install of this version overwrites its own staging path anyway, and
+/// `zvm clean` sweeps whatever remains.
+fn cleanup_staging_best_effort(ctx: *context.CliContext, staging_path: []const u8) void {
+    assert(staging_path.len > 0);
+
+    std.Io.Dir.cwd().deleteTree(ctx.io, staging_path) catch |err| {
+        log.warn("Failed to remove staging directory {s}: {s}", .{
+            staging_path,
+            @errorName(err),
+        });
+    };
 }
 
 /// Load and order the community mirror list, tolerating failure: mirrors
@@ -610,7 +722,7 @@ fn stage_release(
     tarball_file: std.Io.File,
     progress: *InstallProgress,
 ) !void {
-    assert(release.extract_path().len > 0);
+    assert(release.staging_path().len > 0);
 
     var tarball_path_buffer = try ctx.scratch(.path);
     defer tarball_path_buffer.release();
@@ -622,9 +734,9 @@ fn stage_release(
         tarball_file_name,
     });
 
-    try extract_and_install(
+    try extract_to_staging(
         ctx,
-        release.extract_path(),
+        release.staging_path(),
         tarball_file,
         tarball_path,
         release.is_zls(),
@@ -648,8 +760,11 @@ fn resolve_zig_version_root(
     return storage[0..path.len];
 }
 
-fn cleanup_interrupted_install(ctx: *context.CliContext, extract_path: []const u8) void {
-    assert(extract_path.len > 0);
+/// Delete the staging tree after an interrupt. Only staging is ever
+/// deleted: published installs are created atomically by publish_release,
+/// so an interrupt can never leave one half-written.
+fn cleanup_interrupted_install(ctx: *context.CliContext, staging_path: []const u8) void {
+    assert(staging_path.len > 0);
 
     signals.begin_cleanup();
     defer signals.end_cleanup();
@@ -663,8 +778,8 @@ fn cleanup_interrupted_install(ctx: *context.CliContext, extract_path: []const u
         log.debug("Failed to flush interrupted cleanup message: {s}", .{@errorName(err)});
     };
 
-    cleanup_delete_tree_with_timeout(ctx, extract_path) catch |err| {
-        log.warn("Interrupted cleanup failed for {s}: {s}", .{ extract_path, @errorName(err) });
+    cleanup_delete_tree_with_timeout(ctx, staging_path) catch |err| {
+        log.warn("Interrupted cleanup failed for {s}: {s}", .{ staging_path, @errorName(err) });
     };
 }
 
@@ -846,16 +961,19 @@ fn verify_signature(
     );
 }
 
-fn extract_and_install(
+/// Extract the tarball into the staging tree. The final install path is
+/// never written here; publish_release renames the staging tree into
+/// place once it is complete.
+fn extract_to_staging(
     ctx: *context.CliContext,
-    extract_path: []const u8,
+    staging_path: []const u8,
     tarball_file: std.Io.File,
     tarball_path: []const u8,
     is_zls: bool,
     items_done: *u32,
     root_node: Progress.Node,
 ) !void {
-    assert(extract_path.len > 0);
+    assert(staging_path.len > 0);
     assert(tarball_path.len > 0);
     assert(items_done.* >= 0);
 
@@ -863,13 +981,15 @@ fn extract_and_install(
     errdefer extract_node.end();
     try signals.check();
 
-    if (util_tool.does_path_exist(ctx.io, extract_path)) {
-        try std.Io.Dir.cwd().deleteTree(ctx.io, extract_path);
+    // A stale tree can exist here if a previous process with the same id
+    // was killed mid-extraction; start from an empty directory.
+    if (util_tool.does_path_exist(ctx.io, staging_path)) {
+        try std.Io.Dir.cwd().deleteTree(ctx.io, staging_path);
     }
 
-    try util_tool.try_create_path(ctx.io, extract_path);
-    var extract_dir = try std.Io.Dir.openDirAbsolute(ctx.io, extract_path, .{});
-    defer extract_dir.close(ctx.io);
+    try util_tool.try_create_path(ctx.io, staging_path);
+    var staging_dir = try std.Io.Dir.openDirAbsolute(ctx.io, staging_path, .{});
+    defer staging_dir.close(ctx.io);
 
     var extract_op = try ctx.scratch(.extract);
     defer extract_op.release();
@@ -882,7 +1002,7 @@ fn extract_and_install(
     util_extract.extract_static(
         ctx.io,
         extract_op.operation(),
-        extract_dir,
+        staging_dir,
         tarball_file,
         file_type,
         is_zls,
@@ -891,10 +1011,10 @@ fn extract_and_install(
     ) catch |err| {
         log.err("Extraction failed with error: {s} for path: {s}", .{
             @errorName(err),
-            extract_path,
+            staging_path,
         });
 
-        try std.Io.Dir.cwd().deleteTree(ctx.io, extract_path);
+        try std.Io.Dir.cwd().deleteTree(ctx.io, staging_path);
         return err;
     };
 

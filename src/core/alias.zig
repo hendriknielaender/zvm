@@ -36,21 +36,30 @@ pub fn set_version(ctx: *context.CliContext, version: []const u8, is_zls: bool) 
     var version_path_storage: [limits.path_length_maximum]u8 = undefined;
     const version_path = try std.fmt.bufPrint(&version_path_storage, "{s}/{s}", .{ base_path, version });
 
-    std.Io.Dir.accessAbsolute(ctx.io, version_path, .{}) catch |err| {
-        if (err != error.FileNotFound)
-            return err;
-
-        util_output.exit_with(
+    switch (try util_data.classify_install(ctx.io, version_path, version, is_zls)) {
+        .missing => util_output.exit_with(
             .version_not_found,
             "{s} version {s} is not installed. Please install it before proceeding.",
             .{ if (is_zls) "zls" else "Zig", version },
-        );
-    };
-
-    ensure_version_manifest(ctx, version_path, version) catch |err| switch (err) {
-        error.PathAlreadyExists => unreachable,
-        else => return err,
-    };
+        ),
+        // Never activate a torn directory: an interrupted extraction must
+        // be repaired, not switched to.
+        .torn => util_output.exit_with(
+            .version_not_found,
+            "{s} version {s} is incompletely installed. Run 'zvm install {s}{s}' to repair it.",
+            .{
+                if (is_zls) "zls" else "Zig",
+                version,
+                if (is_zls) "--zls " else "",
+                version,
+            },
+        ),
+        // Installs from before the manifest era are verified through their
+        // tool binary; complete the record so later checks see them as
+        // installed. Remove once pre-manifest installs have aged out.
+        .installed_legacy => try util_data.write_version_manifest(ctx.io, version_path, version),
+        .installed => {},
+    }
 
     // Get symlink path.
     var symlink_path_buffer = try ctx.scratch(.path);
@@ -86,24 +95,6 @@ pub fn run(
 pub fn progress_items(command: validation.ValidatedCommand.UseCommand) u16 {
     _ = command;
     return 2;
-}
-
-fn ensure_version_manifest(ctx: *context.CliContext, version_path: []const u8, version: []const u8) !void {
-    assert(version_path.len > 0);
-    assert(version.len > 0);
-
-    var manifest_path_buffer: [limits.path_length_maximum]u8 = undefined;
-    const manifest_path = try std.fmt.bufPrint(
-        &manifest_path_buffer,
-        "{s}/{s}",
-        .{ version_path, util_data.version_manifest_name },
-    );
-
-    if (util_tool.does_path_exist(ctx.io, manifest_path)) {
-        return;
-    }
-
-    try util_data.write_version_manifest(ctx.io, version_path, version);
 }
 
 fn save_default_version(ctx: *context.CliContext, version: []const u8) !void {
