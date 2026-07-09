@@ -2,7 +2,7 @@ const std = @import("std");
 const limits = @import("../../memory/limits.zig");
 const assert = std.debug.assert;
 
-const io_buffer_size_bytes = limits.limits.io_buffer_size_maximum;
+const io_buffer_size_bytes = limits.io_buffer_size_maximum;
 const max_message_length_bytes = 2048;
 
 comptime {

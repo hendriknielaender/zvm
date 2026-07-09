@@ -1,5 +1,5 @@
 const std = @import("std");
-const config = @import("../../metadata.zig");
+const metadata = @import("../../metadata.zig");
 const limits = @import("../../memory/limits.zig");
 const object_pools = @import("../../memory.zig");
 const scanner_mod = @import("scanner.zig");
@@ -10,12 +10,12 @@ const TokenScanner = scanner_mod.TokenScanner;
 
 pub const Zls = struct {
     pub const VersionData = struct {
-        version_buffer: [limits.limits.version_string_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
+        version_buffer: [limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.version_string_length_maximum]u8),
         version_len: u32 = 0,
         id: u64 = 0,
-        tarball_buffer: [limits.limits.url_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.url_length_maximum]u8),
+        tarball_buffer: [limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.url_length_maximum]u8),
         tarball_len: u32 = 0,
         size: u64 = 0,
 
@@ -42,11 +42,11 @@ pub const Zls = struct {
     /// `shasum` (the GitHub releases path has no per-asset hash) and no
     /// numeric asset id.
     pub const MasterVersionData = struct {
-        version_buffer: [limits.limits.version_string_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
+        version_buffer: [limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.version_string_length_maximum]u8),
         version_len: u32 = 0,
-        tarball_buffer: [limits.limits.url_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.url_length_maximum]u8),
+        tarball_buffer: [limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.url_length_maximum]u8),
         tarball_len: u32 = 0,
         shasum: [64]u8 = std.mem.zeroes([64]u8),
         size: u64 = 0,
@@ -94,7 +94,7 @@ pub const Zls = struct {
                     break;
                 },
                 .string => {
-                    var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                    var key_buffer: [limits.path_length_maximum]u8 = undefined;
                     const key = try scanner.next_string(key_buffer[0..]);
                     if (util_tool.eql_str(key, "version")) {
                         const parsed_version = try scanner.next_string(
@@ -133,11 +133,11 @@ pub const Zls = struct {
         version: []const u8,
         platform_str: []const u8,
     ) !?VersionData {
-        var asset_name_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+        var asset_name_buffer: [limits.path_length_maximum]u8 = undefined;
         const asset_name = try std.fmt.bufPrint(
             &asset_name_buffer,
             "zls-{s}.{s}",
-            .{ platform_str, config.archive_ext },
+            .{ platform_str, metadata.archive_ext },
         );
 
         // SAFETY: scanner.init initializes the scanner before any scanner method is called.
@@ -180,7 +180,7 @@ pub const Zls = struct {
                     return version_count;
                 },
                 .object_begin => {
-                    var tag_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    var tag_buffer: [limits.version_string_length_maximum]u8 = undefined;
                     const tag_name = try parse_tag_name(&scanner, tag_buffer[0..]);
                     if (tag_name) |tag| {
                         if (version_count < version_entries.len) {
@@ -210,10 +210,10 @@ fn parse_release(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "tag_name")) {
-                    var tag_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    var tag_buffer: [limits.version_string_length_maximum]u8 = undefined;
                     const tag_name = try scanner.next_string(tag_buffer[0..]);
                     release_matches = util_tool.eql_str(version, tag_name);
                 } else if (util_tool.eql_str(key, "assets")) {
@@ -269,10 +269,10 @@ fn parse_asset(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "name")) {
-                    var name_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                    var name_buffer: [limits.path_length_maximum]u8 = undefined;
                     const name = try scanner.next_string(name_buffer[0..]);
                     name_matches = util_tool.eql_str(asset_name, name);
                 } else if (util_tool.eql_str(key, "browser_download_url")) {
@@ -313,7 +313,7 @@ fn parse_master_platform_entry(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "tarball")) {
                     const tarball = try scanner.next_string(version_data.tarball_buffer[0..]);
@@ -348,7 +348,7 @@ fn parse_tag_name(scanner: *TokenScanner, target_buffer: []u8) !?[]const u8 {
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "tag_name")) {
                     tag_name = try scanner.next_string(target_buffer);

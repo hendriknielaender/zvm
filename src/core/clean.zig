@@ -156,8 +156,8 @@ fn remove_download_artifacts(io: std.Io, store_dir: *std.Io.Dir) !StoreCleanup {
 }
 
 fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !VersionCleanup {
-    var current_zig_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
-    var current_zls_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var current_zig_storage: [limits.version_string_length_maximum]u8 = undefined;
+    var current_zls_storage: [limits.version_string_length_maximum]u8 = undefined;
 
     const current_zig_version = detect_version.find_default_version_in_buffer(
         ctx,
@@ -194,8 +194,8 @@ fn clean_installed_versions(ctx: *context.CliContext, emit_human: bool) !Version
 /// informative than a vague "are you sure" — operators can tell at a
 /// glance whether the count matches their expectation.
 fn count_removable_versions(ctx: *context.CliContext) !usize {
-    var current_zig_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
-    var current_zls_storage: [limits.limits.version_string_length_maximum]u8 = undefined;
+    var current_zig_storage: [limits.version_string_length_maximum]u8 = undefined;
+    var current_zls_storage: [limits.version_string_length_maximum]u8 = undefined;
 
     const current_zig = detect_version.find_default_version_in_buffer(
         ctx,
@@ -256,7 +256,7 @@ fn read_current_version(
     };
     if (!util_tool.does_path_exist(ctx.io, current_path)) return null;
 
-    var output_buffer: [limits.limits.temp_buffer_size]u8 = undefined;
+    var output_buffer: [limits.temp_buffer_size]u8 = undefined;
     const version_output = util_data.get_current_version(
         ctx.io,
         current_path_buffer,

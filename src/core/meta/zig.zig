@@ -9,13 +9,13 @@ const TokenScanner = scanner_mod.TokenScanner;
 
 pub const Zig = struct {
     pub const VersionData = struct {
-        version_buffer: [limits.limits.version_string_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.version_string_length_maximum]u8),
+        version_buffer: [limits.version_string_length_maximum]u8 =
+            std.mem.zeroes([limits.version_string_length_maximum]u8),
         version_len: u32 = 0,
         date_buffer: [32]u8 = std.mem.zeroes([32]u8),
         date_len: u32 = 0,
-        tarball_buffer: [limits.limits.url_length_maximum]u8 =
-            std.mem.zeroes([limits.limits.url_length_maximum]u8),
+        tarball_buffer: [limits.url_length_maximum]u8 =
+            std.mem.zeroes([limits.url_length_maximum]u8),
         tarball_len: u32 = 0,
         shasum: [64]u8 = std.mem.zeroes([64]u8),
         size: u64 = 0,
@@ -53,7 +53,7 @@ pub const Zig = struct {
     ) !?VersionData {
         assert(raw.len > 0);
         assert(version.len > 0);
-        assert(version.len <= limits.limits.version_string_length_maximum);
+        assert(version.len <= limits.version_string_length_maximum);
         assert(platform_str.len > 0);
 
         const is_dev = util_tool.is_dev_version(version);
@@ -75,7 +75,7 @@ pub const Zig = struct {
                     return null;
                 },
                 .string => {
-                    var key_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    var key_buffer: [limits.version_string_length_maximum]u8 = undefined;
                     const key = try scanner.next_string(key_buffer[0..]);
                     if (!util_tool.eql_str(key, lookup_key)) {
                         try scanner.skip_value();
@@ -122,7 +122,7 @@ pub const Zig = struct {
                     return null;
                 },
                 .string => {
-                    var key_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    var key_buffer: [limits.version_string_length_maximum]u8 = undefined;
                     const key = try scanner.next_string(key_buffer[0..]);
                     if (!util_tool.eql_str(key, "master")) {
                         try scanner.skip_value();
@@ -154,7 +154,7 @@ pub const Zig = struct {
                     return version_count;
                 },
                 .string => {
-                    var key_buffer: [limits.limits.version_string_length_maximum]u8 = undefined;
+                    var key_buffer: [limits.version_string_length_maximum]u8 = undefined;
                     const key = try scanner.next_string(key_buffer[0..]);
                     if (version_count < version_entries.len) {
                         try version_entries[version_count].set_name(key);
@@ -185,7 +185,7 @@ fn parse_version_entry(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "date")) {
                     has_date = true;
@@ -230,7 +230,7 @@ fn parse_master_version_field(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "version")) {
                     version_text = try scanner.next_string(target_buffer);
@@ -257,7 +257,7 @@ fn parse_platform_entry(
         switch (try scanner.peek_token_type()) {
             .object_end => break,
             .string => {
-                var key_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+                var key_buffer: [limits.path_length_maximum]u8 = undefined;
                 const key = try scanner.next_string(key_buffer[0..]);
                 if (util_tool.eql_str(key, "tarball")) {
                     has_tarball.* = true;

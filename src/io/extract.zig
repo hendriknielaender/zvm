@@ -106,7 +106,7 @@ fn extract_targz_to_dir(
 ) !void {
     try signals.check();
     // Create a File.Reader with buffer
-    var reader_buffer: [limits.limits.file_read_buffer_size]u8 = undefined;
+    var reader_buffer: [limits.file_read_buffer_size]u8 = undefined;
     var file_reader = file.reader(io, &reader_buffer);
 
     var decompress: std.compress.flate.Decompress = .init(&file_reader.interface, .gzip, &.{});

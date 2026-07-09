@@ -85,11 +85,11 @@ pub fn copy_dir_static(
         const entry_name = entry.name;
 
         // Build source sub path.
-        var source_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+        var source_path_storage: [limits.path_length_maximum]u8 = undefined;
         const source_sub_path = try std.fmt.bufPrint(&source_path_storage, "{s}/{s}", .{ source_dir, entry_name });
 
         // Build dest sub path.
-        var dest_path_storage: [limits.limits.path_length_maximum]u8 = undefined;
+        var dest_path_storage: [limits.path_length_maximum]u8 = undefined;
         const dest_sub_path = try std.fmt.bufPrint(&dest_path_storage, "{s}/{s}", .{ dest_dir, entry_name });
 
         switch (entry.kind) {

@@ -1,5 +1,5 @@
 const std = @import("std");
-const config = @import("limits.zig");
+const limits = @import("limits.zig");
 const StaticAllocator = @import("static_allocator.zig");
 const assert = std.debug.assert;
 
@@ -19,56 +19,56 @@ pub const StaticMemory = struct {
     pub fn calculate_memory_size() usize {
         var total: usize = 0;
 
-        assert(config.limits.path_buffers_maximum > 0);
-        assert(config.limits.path_length_maximum > 0);
+        assert(limits.path_buffers_maximum > 0);
+        assert(limits.path_length_maximum > 0);
 
         // Path buffers.
-        const path_buffers_size = config.limits.path_buffers_maximum *
-            config.limits.path_length_maximum;
+        const path_buffers_size = limits.path_buffers_maximum *
+            limits.path_length_maximum;
         assert(path_buffers_size > 0);
         total += path_buffers_size;
 
         // HTTP operations.
-        const http_size = config.limits.http_operations_maximum * (config.limits.http_response_size_maximum +
-            config.limits.url_length_maximum +
-            config.limits.http_header_size_maximum);
+        const http_size = limits.http_operations_maximum * (limits.http_response_size_maximum +
+            limits.url_length_maximum +
+            limits.http_header_size_maximum);
         assert(http_size > 0);
         total += http_size;
 
         // Version entries.
-        const version_size = config.limits.versions_maximum *
-            config.limits.version_string_length_maximum;
+        const version_size = limits.versions_maximum *
+            limits.version_string_length_maximum;
         assert(version_size > 0);
         total += version_size;
 
         // Extract operations.
-        const extract_size = config.limits.extract_operations_maximum *
-            config.limits.extract_buffer_size_maximum;
+        const extract_size = limits.extract_operations_maximum *
+            limits.extract_buffer_size_maximum;
         assert(extract_size > 0);
         total += extract_size;
 
         // Process buffer.
-        assert(config.limits.process_output_size_maximum > 0);
-        total += config.limits.process_output_size_maximum;
-        const args_ptr_size = config.limits.arguments_maximum * @sizeOf([]const u8);
+        assert(limits.process_output_size_maximum > 0);
+        total += limits.process_output_size_maximum;
+        const args_ptr_size = limits.arguments_maximum * @sizeOf([]const u8);
         assert(args_ptr_size > 0);
         total += args_ptr_size; // Arg pointers.
-        assert(config.limits.arguments_storage_size_maximum > 0);
-        total += config.limits.arguments_storage_size_maximum; // Arg strings.
+        assert(limits.arguments_storage_size_maximum > 0);
+        total += limits.arguments_storage_size_maximum; // Arg strings.
 
         // Miscellaneous buffers.
-        assert(config.limits.home_dir_length_maximum > 0);
-        total += config.limits.home_dir_length_maximum;
-        const dir_entries_size = config.limits.dir_entries_maximum * config.limits.path_length_maximum;
+        assert(limits.home_dir_length_maximum > 0);
+        total += limits.home_dir_length_maximum;
+        const dir_entries_size = limits.dir_entries_maximum * limits.path_length_maximum;
         assert(dir_entries_size > 0);
         total += dir_entries_size;
-        assert(config.limits.format_buffer_size_maximum > 0);
-        total += config.limits.format_buffer_size_maximum;
-        assert(config.limits.file_buffer_size_maximum > 0);
-        total += config.limits.file_buffer_size_maximum;
-        assert(config.limits.shell_type_length_maximum > 0);
-        total += config.limits.shell_type_length_maximum;
-        const env_vars_size = config.limits.env_var_length_maximum * 4;
+        assert(limits.format_buffer_size_maximum > 0);
+        total += limits.format_buffer_size_maximum;
+        assert(limits.file_buffer_size_maximum > 0);
+        total += limits.file_buffer_size_maximum;
+        assert(limits.shell_type_length_maximum > 0);
+        total += limits.shell_type_length_maximum;
+        const env_vars_size = limits.env_var_length_maximum * 4;
         assert(env_vars_size > 0);
         total += env_vars_size; // Multiple env vars.
 
@@ -208,7 +208,7 @@ comptime {
     }
 
     // Assert relationships between compile-time constants
-    assert(config.limits.path_length_maximum >= 256);
-    assert(config.limits.path_buffers_maximum >= 4);
-    assert(config.limits.http_operations_maximum >= 1);
+    assert(limits.path_length_maximum >= 256);
+    assert(limits.path_buffers_maximum >= 4);
+    assert(limits.http_operations_maximum >= 1);
 }

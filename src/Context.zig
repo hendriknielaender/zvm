@@ -5,14 +5,13 @@ const paths = @import("platform/paths.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.context);
 
-/// Cross-platform environment variable getter
 /// Global application context containing all pre-allocated resources.
 pub const CliContext = struct {
     /// Pre-allocated object pools.
     pools: memory.ObjectPools,
 
     /// Home directory buffer.
-    home_dir_buffer: [limits.limits.home_dir_length_maximum]u8 = [_]u8{0} ** limits.limits.home_dir_length_maximum,
+    home_dir_buffer: [limits.home_dir_length_maximum]u8 = [_]u8{0} ** limits.home_dir_length_maximum,
     home_dir_length: u32 = 0,
 
     /// Command line arguments (references into process_buffer).
@@ -40,11 +39,10 @@ pub const CliContext = struct {
         arguments: []const []const u8,
         io: std.Io,
     ) !*CliContext {
-        // context_storage is a pointer, not optional - can't be null in Zig
         assert(static_buffer.len > 0);
         assert(static_buffer.len == memory.StaticMemory.calculate_memory_size());
         assert(arguments.len > 0);
-        assert(arguments.len <= limits.limits.arguments_maximum);
+        assert(arguments.len <= limits.arguments_maximum);
 
         if (instance != null) {
             log.err("CliContext already initialized: multiple initialization attempts are not allowed", .{});
@@ -98,23 +96,21 @@ pub const CliContext = struct {
     /// Copy command line arguments into pre-allocated buffer
     fn copy_args(context_storage: *CliContext, arguments: []const []const u8) !void {
         assert(arguments.len > 0);
-        assert(arguments.len <= limits.limits.arguments_maximum);
+        assert(arguments.len <= limits.arguments_maximum);
 
         const process_buffer = context_storage.pools.get_process_buffer();
-        // process_buffer is a pointer, not optional - no need for null check
 
         var storage_offset: u32 = 0;
         var arguments_count: u32 = 0;
 
         for (arguments) |argument| {
             assert(argument.len > 0);
-            assert(arguments_count < limits.limits.arguments_maximum);
-
-            if (arguments_count >= limits.limits.arguments_maximum) break;
+            // Overflow here is a programmer error: main() rejects argument
+            // lists exceeding these same limits before the context exists.
+            assert(arguments_count < limits.arguments_maximum);
+            assert(storage_offset + argument.len <= process_buffer.arguments_storage.len);
 
             const argument_length = argument.len;
-            if (storage_offset + argument_length > process_buffer.arguments_storage.len) break;
-
             const old_offset = storage_offset;
             @memcpy(process_buffer.arguments_storage[storage_offset .. storage_offset + argument_length], argument);
             process_buffer.arguments[arguments_count] = process_buffer.arguments_storage[storage_offset .. storage_offset + argument_length];
@@ -142,7 +138,7 @@ pub const CliContext = struct {
 
         assert(home.len > 0);
         assert(home.len <= context_storage.home_dir_buffer.len);
-        assert(home.len <= limits.limits.home_dir_length_maximum);
+        assert(home.len <= limits.home_dir_length_maximum);
 
         context_storage.home_dir_length = @intCast(home.len);
 
@@ -157,7 +153,7 @@ pub const CliContext = struct {
             return error.NotInitialized;
         };
         assert(context_instance.home_dir_length > 0);
-        assert(context_instance.home_dir_length <= limits.limits.home_dir_length_maximum);
+        assert(context_instance.home_dir_length <= limits.home_dir_length_maximum);
         return context_instance;
     }
 
@@ -175,11 +171,9 @@ pub const CliContext = struct {
     /// Get command line arguments.
     pub fn get_args(self: *CliContext) [][]const u8 {
         assert(self.arguments_count > 0);
-        assert(self.arguments_count <= limits.limits.arguments_maximum);
+        assert(self.arguments_count <= limits.arguments_maximum);
 
         const process_buffer = self.pools.get_process_buffer();
-        // process_buffer is a pointer, not optional - no need for null check
-
         const result = process_buffer.arguments[0..self.arguments_count];
 
         assert(result.len == self.arguments_count);
@@ -200,10 +194,10 @@ pub const CliContext = struct {
     /// Delegates to the canonical path resolver in platform/paths.zig.
     pub fn build_zvm_path(self: *CliContext, segment: []const u8) ![]const u8 {
         assert(segment.len > 0);
-        assert(segment.len < limits.limits.path_length_maximum / 2);
+        assert(segment.len < limits.path_length_maximum / 2);
 
         // Resolve zvm_root into a stack buffer to avoid aliasing with path_buffer.
-        var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+        var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
         const zvm_root = try paths.get_zvm_root(&zvm_root_buf, self.get_home_dir());
 
         var path_buffer = try self.scratch(.path);
@@ -212,7 +206,7 @@ pub const CliContext = struct {
         const path = try path_buffer.print("{s}/{s}", .{ zvm_root, segment });
 
         assert(path.len > 0);
-        assert(path.len <= limits.limits.path_length_maximum);
+        assert(path.len <= limits.path_length_maximum);
 
         return path;
     }
@@ -253,7 +247,7 @@ pub const CliContext = struct {
         const mem_usage = self.get_memory_usage();
         const pool_stats = self.get_pool_stats();
 
-        var buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+        var buffer: [limits.io_buffer_size_maximum]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writer(self.io, &buffer);
         const stderr = &stderr_writer.interface;
         try stderr.print("\n=== ZVM Resource Usage ===\n", .{});

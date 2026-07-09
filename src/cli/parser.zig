@@ -6,8 +6,8 @@ const validation = @import("validation.zig");
 const cli_spec = @import("spec.zig");
 const assert = std.debug.assert;
 
-const max_argument_count = limits.limits.arguments_maximum;
-const max_version_string_length = limits.limits.version_string_length_maximum;
+const max_argument_count = limits.arguments_maximum;
+const max_version_string_length = limits.version_string_length_maximum;
 const max_command_name_length = 32;
 
 comptime {
@@ -485,7 +485,7 @@ fn parse_command_args_or_fatal(
             util_output.exit_with(
                 .invalid_arguments,
                 "version string too long (maximum: {d} characters)",
-                .{limits.limits.version_string_length_maximum},
+                .{limits.version_string_length_maximum},
             );
         },
         error.UnknownFlag => {

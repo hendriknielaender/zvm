@@ -40,11 +40,11 @@ pub fn emit_env(
 ) !void {
     _ = progress_node;
 
-    var zvm_bin_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_bin_buffer: [limits.path_length_maximum]u8 = undefined;
     const zvm_bin_path = try build_zvm_bin_path(ctx, &zvm_bin_buffer);
     assert(zvm_bin_path.len > 0);
 
-    var zvm_config_buffer: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_config_buffer: [limits.path_length_maximum]u8 = undefined;
     const zvm_config_dir = try build_zvm_config_dir(ctx, &zvm_config_buffer);
     assert(zvm_config_dir.len > 0);
 
@@ -52,7 +52,7 @@ pub fn emit_env(
     const shell_name = shell_kind.display_name();
     assert(shell_name.len > 0);
 
-    var text_buffer: [limits.limits.io_buffer_size_maximum]u8 = undefined;
+    var text_buffer: [limits.io_buffer_size_maximum]u8 = undefined;
     const text = try build_env_text(shell_kind, zvm_bin_path, zvm_config_dir, &text_buffer);
     assert(text.len > 0);
     if (util_output.output_mode() == .machine_json) {
@@ -85,7 +85,7 @@ fn build_zvm_bin_path(ctx: *context.CliContext, buffer: []u8) ![]const u8 {
     assert(buffer.len > 0);
     const home_dir = ctx.get_home_dir();
     // Resolve zvm_root into a separate stack buffer to avoid aliasing with the output buffer.
-    var zvm_root_buf: [limits.limits.path_length_maximum]u8 = undefined;
+    var zvm_root_buf: [limits.path_length_maximum]u8 = undefined;
     const zvm_root = try paths.get_zvm_root(&zvm_root_buf, home_dir);
     return try std.fmt.bufPrint(buffer, "{s}/bin", .{zvm_root});
 }

@@ -14,12 +14,12 @@ const util_tool = @import("util/tool.zig");
 const log = std.log.scoped(.shim);
 
 const ShimBuffers = struct {
-    home: [memory_limits.limits.home_dir_length_maximum]u8,
-    zvm_home: [memory_limits.limits.home_dir_length_maximum]u8,
-    tool_path: [memory_limits.limits.path_length_maximum]u8,
-    exec_arguments_ptrs: [memory_limits.limits.arguments_maximum + 1]?[*:0]const u8,
-    exec_arguments_storage: [memory_limits.limits.arguments_storage_size_maximum]u8,
-    process_scratch: [memory_limits.limits.process_scratch_size_maximum]u8,
+    home: [memory_limits.home_dir_length_maximum]u8,
+    zvm_home: [memory_limits.home_dir_length_maximum]u8,
+    tool_path: [memory_limits.path_length_maximum]u8,
+    exec_arguments_ptrs: [memory_limits.arguments_maximum + 1]?[*:0]const u8,
+    exec_arguments_storage: [memory_limits.arguments_storage_size_maximum]u8,
+    process_scratch: [memory_limits.process_scratch_size_maximum]u8,
     exec_arguments_count: u32 = 0,
 };
 
@@ -61,7 +61,7 @@ pub fn run(
     const tool_name = if (util_tool.eql_str(program_name, "zig") or util_tool.eql_str(program_name, "zig.exe")) "zig" else "zls";
     const is_zls = util_tool.eql_str(tool_name, "zls");
 
-    var version_buffer: [memory_limits.limits.version_string_length_maximum]u8 = undefined;
+    var version_buffer: [memory_limits.version_string_length_maximum]u8 = undefined;
     const version = detect_version.detect_version_for_shim(
         io,
         remaining_arguments,
@@ -78,7 +78,7 @@ pub fn run(
         return run_current(io, tool_name, is_zls, remaining_arguments);
     }
 
-    var adjusted_arguments_buffer: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+    var adjusted_arguments_buffer: [memory_limits.arguments_maximum][]const u8 = undefined;
     const adjusted_arguments = adjust_arguments(
         version,
         remaining_arguments,
@@ -146,7 +146,7 @@ fn exec_tool(
 ) !void {
     try build_exec_arguments(buffers, tool_path, arguments);
 
-    var argv_list: [memory_limits.limits.arguments_maximum][]const u8 = undefined;
+    var argv_list: [memory_limits.arguments_maximum][]const u8 = undefined;
     const argv_slice = if (builtin.os.tag == .windows)
         build_exec_arguments_slice_windows(buffers, &argv_list)
     else
@@ -195,7 +195,7 @@ fn report_no_active_version(is_zls: bool) noreturn {
 fn adjust_arguments(
     version: []const u8,
     original_arguments: []const []const u8,
-    adjusted_arguments: *[memory_limits.limits.arguments_maximum][]const u8,
+    adjusted_arguments: *[memory_limits.arguments_maximum][]const u8,
 ) ![]const []const u8 {
     assert(version.len > 0);
 
@@ -217,7 +217,7 @@ fn adjust_arguments(
 
 fn auto_install_version(io: std.Io, version: []const u8) AutoInstallError!void {
     assert(version.len > 0);
-    assert(version.len < 64);
+    assert(version.len <= memory_limits.version_string_length_maximum);
 
     if (util_tool.eql_str(version, "current")) return error.AlreadyCurrent;
 
@@ -243,7 +243,7 @@ fn auto_install_version(io: std.Io, version: []const u8) AutoInstallError!void {
 
 fn auto_install_version_gracefully(io: std.Io, version: []const u8) bool {
     assert(version.len > 0);
-    assert(version.len < 64);
+    assert(version.len <= memory_limits.version_string_length_maximum);
 
     auto_install_version(io, version) catch return false;
     return true;
@@ -336,7 +336,7 @@ fn build_exec_arguments(
 
 fn build_exec_arguments_slice(
     buffers: *const ShimBuffers,
-    argv_list: *[memory_limits.limits.arguments_maximum][]const u8,
+    argv_list: *[memory_limits.arguments_maximum][]const u8,
 ) []const []const u8 {
     assert(buffers.exec_arguments_count > 0);
     assert(buffers.exec_arguments_count < buffers.exec_arguments_ptrs.len);
@@ -351,7 +351,7 @@ fn build_exec_arguments_slice(
 
 fn build_exec_arguments_slice_windows(
     buffers: *const ShimBuffers,
-    argv_list: *[memory_limits.limits.arguments_maximum][]const u8,
+    argv_list: *[memory_limits.arguments_maximum][]const u8,
 ) []const []const u8 {
     var index: usize = 0;
     while (buffers.exec_arguments_ptrs[index]) |argument| : (index += 1) {
