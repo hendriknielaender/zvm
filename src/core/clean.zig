@@ -70,6 +70,7 @@ pub fn clean(
     }
 
     const store_cleanup = try clean_download_store(ctx, emit_human);
+    const staging_swept = try sweep_staging_directories(ctx, emit_human);
     const version_cleanup = if (command.remove_all)
         try clean_installed_versions(ctx, emit_human)
     else
@@ -79,11 +80,46 @@ pub fn clean(
         const fields = [_]util_output.JsonField{
             .{ .key = "download_artifacts_removed", .value = .{ .number = @intCast(store_cleanup.files_removed) } },
             .{ .key = "bytes_freed", .value = .{ .number = @intCast(store_cleanup.bytes_freed) } },
+            .{ .key = "staging_removed", .value = .{ .number = @intCast(staging_swept) } },
             .{ .key = "zig_versions_removed", .value = .{ .number = @intCast(version_cleanup.zig_removed) } },
             .{ .key = "zls_versions_removed", .value = .{ .number = @intCast(version_cleanup.zls_removed) } },
         };
         util_output.emit_json(.{ .object = &fields });
     }
+}
+
+/// Delete staging leftovers from installs that were killed mid-extraction.
+/// Staging trees are unpublished by construction (publish renames them to
+/// the final path), so removing them can never touch a completed install.
+fn sweep_staging_directories(ctx: *context.CliContext, emit_human: bool) !usize {
+    const tools = [_]validation.ToolType{ .zig, .zls };
+    var swept: usize = 0;
+
+    for (tools) |tool| {
+        var versions_path_buffer = try ctx.scratch(.path);
+        defer versions_path_buffer.release();
+
+        const versions_path = switch (tool) {
+            .zig => try util_data.get_zvm_zig_version(versions_path_buffer),
+            .zls => try util_data.get_zvm_zls_version(versions_path_buffer),
+        };
+
+        var staging_path_storage: [limits.path_length_maximum]u8 = undefined;
+        const staging_path = try std.fmt.bufPrint(&staging_path_storage, "{s}/.staging", .{
+            versions_path,
+        });
+
+        if (!util_tool.does_path_exist(ctx.io, staging_path)) continue;
+
+        try std.Io.Dir.cwd().deleteTree(ctx.io, staging_path);
+        swept += 1;
+    }
+
+    assert(swept <= tools.len);
+    if (emit_human and swept > 0) {
+        util_output.emit(.success, "Removed staging leftovers from interrupted installs.", .{});
+    }
+    return swept;
 }
 
 pub fn run(
@@ -234,6 +270,9 @@ fn count_versions_for_tool(
     var pending: usize = 0;
     while (try iterator.next(ctx.io)) |entry| {
         if (entry.kind != .directory) continue;
+        // Dot entries are not installs: `.staging` holds unpublished trees
+        // and is swept separately.
+        if (entry.name[0] == '.') continue;
         if (current_version) |current| {
             if (std.mem.eql(u8, entry.name, current)) continue;
         }
@@ -299,6 +338,9 @@ fn clean_versions_for_tool(
 
     while (try iterator.next(ctx.io)) |entry| {
         if (entry.kind != .directory) continue;
+        // Dot entries are not installs: `.staging` holds unpublished trees
+        // and is swept separately.
+        if (entry.name[0] == '.') continue;
 
         if (current_version) |current| {
             if (std.mem.eql(u8, entry.name, current)) {

@@ -310,6 +310,9 @@ fn run_offline_suite(
         .{ .name = "install bogus version exits non-zero", .run = test_install_bogus_version },
         .{ .name = "install uses installed Zig before metadata", .run = test_install_uses_local_zig },
         .{ .name = "install uses installed ZLS before metadata", .run = test_install_uses_local_zls },
+        .{ .name = "use refuses torn installation", .run = test_use_refuses_torn_install },
+        .{ .name = "use backfills legacy manifest", .run = test_use_backfills_legacy_manifest },
+        .{ .name = "clean sweeps staging leftovers", .run = test_clean_sweeps_staging },
         .{ .name = "remove non-installed is idempotent", .run = test_remove_missing },
         .{ .name = "remove active Zig", .run = test_remove_active_zig },
         .{ .name = "remove active ZLS", .run = test_remove_active_zls },
@@ -647,6 +650,143 @@ fn place_installed_version(
         .sub_path = manifest_path,
         .data = version,
     });
+}
+
+fn test_use_refuses_torn_install(suite: *const Suite, sandbox: []const u8) !void {
+    // A torn install: the directory exists but carries neither the
+    // `.zvm-version` manifest nor the tool binary — the leftover shape of
+    // an extraction that was killed partway.
+    const version = "0.13.0";
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+
+    var version_path_buffer: [sandbox_path_max]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(
+        &version_path_buffer,
+        ".zm{c}version{c}zig{c}{s}",
+        .{ std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, version },
+    );
+    try sandbox_dir.createDirPath(suite.process_init.io, version_path);
+
+    var stray_path_buffer: [sandbox_path_max]u8 = undefined;
+    const stray_path = try std.fmt.bufPrint(
+        &stray_path_buffer,
+        "{s}{c}LICENSE",
+        .{ version_path, std.fs.path.sep },
+    );
+    try sandbox_dir.writeFile(suite.process_init.io, .{
+        .sub_path = stray_path,
+        .data = "partial extraction leftover",
+    });
+
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", version });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "use torn install");
+    try assert_contains(outcome.stderr, "incompletely installed", "use torn install hint");
+    try assert_contains(outcome.stderr, "zvm install 0.13.0", "use torn install repair hint");
+}
+
+fn test_use_backfills_legacy_manifest(suite: *const Suite, sandbox: []const u8) !void {
+    // A pre-manifest-era install: the tool binary is present but the
+    // `.zvm-version` completion record is not. `use` must verify the
+    // binary and complete the record.
+    const version = "0.13.0";
+    const zig_name = if (builtin.os.tag == .windows) "zig.exe" else "zig";
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+
+    var version_path_buffer: [sandbox_path_max]u8 = undefined;
+    const version_path = try std.fmt.bufPrint(
+        &version_path_buffer,
+        ".zm{c}version{c}zig{c}{s}",
+        .{ std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, version },
+    );
+    try sandbox_dir.createDirPath(suite.process_init.io, version_path);
+
+    var binary_path_buffer: [sandbox_path_max]u8 = undefined;
+    const binary_path = try std.fmt.bufPrint(
+        &binary_path_buffer,
+        "{s}{c}{s}",
+        .{ version_path, std.fs.path.sep, zig_name },
+    );
+    try sandbox_dir.writeFile(suite.process_init.io, .{
+        .sub_path = binary_path,
+        .data =
+        \\#!/bin/sh
+        \\echo "fake-zig 0.13.0"
+        ,
+        .flags = .{ .permissions = .executable_file },
+    });
+
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "use", version });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "use legacy install");
+
+    var manifest_path_buffer: [sandbox_path_max]u8 = undefined;
+    const manifest_path = try std.fmt.bufPrint(
+        &manifest_path_buffer,
+        "{s}{c}.zvm-version",
+        .{ version_path, std.fs.path.sep },
+    );
+    var manifest_buffer: [64]u8 = undefined;
+    const manifest = try sandbox_dir.readFile(
+        suite.process_init.io,
+        manifest_path,
+        &manifest_buffer,
+    );
+    if (!std.mem.eql(u8, manifest, version)) {
+        std.debug.print(
+            "    use legacy install: manifest content '{s}' != '{s}'\n",
+            .{ manifest, version },
+        );
+        return error.ManifestMismatch;
+    }
+}
+
+fn test_clean_sweeps_staging(suite: *const Suite, sandbox: []const u8) !void {
+    // Simulate an install killed mid-extraction: an unpublished staging
+    // tree under the version root. It must stay invisible to `list` and
+    // be removed by `clean`.
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+
+    var staged_path_buffer: [sandbox_path_max]u8 = undefined;
+    const staged_path = try std.fmt.bufPrint(
+        &staged_path_buffer,
+        ".zm{c}version{c}zig{c}.staging{c}0.13.0-12345",
+        .{ std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep },
+    );
+    try sandbox_dir.createDirPath(suite.process_init.io, staged_path);
+
+    var stray_path_buffer: [sandbox_path_max]u8 = undefined;
+    const stray_path = try std.fmt.bufPrint(
+        &stray_path_buffer,
+        "{s}{c}zig",
+        .{ staged_path, std.fs.path.sep },
+    );
+    try sandbox_dir.writeFile(suite.process_init.io, .{
+        .sub_path = stray_path,
+        .data = "half-written binary",
+    });
+
+    var list_outcome = try run_zvm(suite, sandbox, sandbox, &.{"list"});
+    defer list_outcome.deinit(suite.gpa);
+    try assert_exit_zero(list_outcome, "list with staging present");
+    try assert_not_contains(list_outcome.stdout, ".staging", "list hides staging");
+
+    var clean_outcome = try run_zvm(suite, sandbox, sandbox, &.{"clean"});
+    defer clean_outcome.deinit(suite.gpa);
+    try assert_exit_zero(clean_outcome, "clean with staging present");
+
+    var staging_root_buffer: [sandbox_path_max]u8 = undefined;
+    const staging_root = try std.fmt.bufPrint(
+        &staging_root_buffer,
+        "{s}{c}.zm{c}version{c}zig{c}.staging",
+        .{ sandbox, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep, std.fs.path.sep },
+    );
+    try assert_path_missing(suite, staging_root, "staging swept by clean");
 }
 
 fn test_remove_missing(suite: *const Suite, sandbox: []const u8) !void {
