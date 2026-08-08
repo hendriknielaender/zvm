@@ -45,6 +45,7 @@ const CommandArgs = union(enum) {
     help: HelpArgs,
     list_mirrors: ListMirrorsArgs,
     upgrade: UpgradeArgs,
+    uninstall: UninstallArgs,
 
     pub const InstallArgs = struct {
         version: [max_version_string_length]u8,
@@ -167,6 +168,12 @@ const CommandArgs = union(enum) {
 
     /// Upgrade command arguments
     pub const UpgradeArgs = struct {};
+
+    /// Uninstall command arguments
+    pub const UninstallArgs = struct {
+        dry_run: bool = false,
+        no_modify_path: bool = false,
+    };
 };
 
 fn parse_command_syntax(command_name: []const u8, args: []const []const u8) !CommandArgs {
@@ -205,6 +212,10 @@ fn parse_command_syntax(command_name: []const u8, args: []const []const u8) !Com
         .version => .{ .version = .{} },
         .help => |help| .{ .help = try help_args_from_cli(help) },
         .upgrade => .{ .upgrade = .{} },
+        .uninstall => |uninstall| .{ .uninstall = .{
+            .dry_run = uninstall.dry_run,
+            .no_modify_path = uninstall.no_modify_path,
+        } },
     };
 }
 
@@ -312,7 +323,7 @@ comptime {
     assert(@sizeOf(CommandArgs.CompletionsArgs) <= 64);
     assert(@sizeOf(CommandArgs.CompletionsArgs) > 0);
 
-    assert(@typeInfo(CommandArgs).@"union".fields.len == 12);
+    assert(@typeInfo(CommandArgs).@"union".fields.len == 13);
     assert(max_version_string_length == limits.version_string_length_maximum);
     assert(max_shell_name_length == 32);
     assert(max_help_topic_length == 32);
@@ -449,9 +460,14 @@ pub const HelpTopic = enum {
     version,
     help,
     upgrade,
+    uninstall,
+    /// The `self` namespace itself, which has no command spec.
+    self,
 
     pub fn parse(topic_str: []const u8) !HelpTopic {
         assert(topic_str.len > 0);
+
+        if (std.mem.eql(u8, topic_str, cli_spec.self_command_name)) return .self;
 
         const command = cli_spec.Command.parse(topic_str) orelse return error.UnknownHelpTopic;
         return switch (command) {
@@ -467,6 +483,7 @@ pub const HelpTopic = enum {
             .version => .version,
             .help => .help,
             .upgrade => .upgrade,
+            .uninstall => .uninstall,
         };
     }
 };
@@ -528,6 +545,7 @@ pub const ValidatedCommand = union(enum) {
     version: VersionCommand,
     help: HelpCommand,
     upgrade: UpgradeCommand,
+    uninstall: UninstallCommand,
 
     /// Validated install command
     pub const InstallCommand = struct {
@@ -631,6 +649,14 @@ pub const ValidatedCommand = union(enum) {
 
     /// Validated upgrade command
     pub const UpgradeCommand = struct {};
+
+    /// Validated uninstall command. `dry_run` previews the artefacts that
+    /// would be deleted without touching the file system; `no_modify_path`
+    /// leaves shell profiles for the operator to edit.
+    pub const UninstallCommand = struct {
+        dry_run: bool,
+        no_modify_path: bool,
+    };
 };
 
 pub fn parse_command_args(command_name: []const u8, args: []const []const u8) !ValidatedCommand {
@@ -652,12 +678,20 @@ fn validate_command_args(command_args: CommandArgs) !ValidatedCommand {
         .version => |args| .{ .version = try validate_version(args) },
         .help => |args| .{ .help = try validate_help(args) },
         .upgrade => |args| .{ .upgrade = try validate_upgrade(args) },
+        .uninstall => |args| .{ .uninstall = try validate_uninstall(args) },
     };
 }
 
 fn validate_upgrade(args: CommandArgs.UpgradeArgs) !ValidatedCommand.UpgradeCommand {
     _ = args;
     return ValidatedCommand.UpgradeCommand{};
+}
+
+fn validate_uninstall(args: CommandArgs.UninstallArgs) !ValidatedCommand.UninstallCommand {
+    return ValidatedCommand.UninstallCommand{
+        .dry_run = args.dry_run,
+        .no_modify_path = args.no_modify_path,
+    };
 }
 
 fn validate_install(args: CommandArgs.InstallArgs) !ValidatedCommand.InstallCommand {

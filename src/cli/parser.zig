@@ -419,10 +419,13 @@ fn command_option_suggestion(command_name: []const u8, flag: []const u8) ?[]cons
 
 fn fatal_unknown_command(command_name: []const u8) noreturn {
     if (edit_distance.nearest(command_name, &cli_spec.command_names)) |suggestion| {
+        // The suggestion pool holds hidden commands so near-misses still land,
+        // but `uninstall` is only reachable as `self uninstall`. Suggesting the
+        // bare name would answer one error with another.
         util_output.exit_with(
             .invalid_arguments,
             "unknown command '{s}'\n\n  Did you mean '{s}'?",
-            .{ command_name, suggestion },
+            .{ command_name, cli_spec.surface_spelling(suggestion) },
         );
     }
     util_output.exit_with(.invalid_arguments, "unknown command '{s}'", .{command_name});
@@ -460,6 +463,67 @@ fn fatal_unknown_command_option(command_name: []const u8, flag: []const u8) nore
     });
 }
 
+/// The surface command resolved to the flat internal command that runs it.
+const Invocation = struct {
+    command_name: []const u8,
+    args: []const []const u8,
+};
+
+/// Resolve `zvm self <verb> [args]` to the command the verb names.
+///
+/// The rewrite happens before argument parsing so `zvm self uninstall
+/// --dry-run` and the flat spelling share one parser — a nested positional
+/// would force options ahead of the verb.
+fn resolve_self_invocation(args: []const []const u8) Invocation {
+    const verb_given = args.len > 0 and !is_prefixed_option(args[0]);
+    if (!verb_given) {
+        if (command_help_requested(args)) return .{ .command_name = "", .args = args };
+        fatal_missing_self_verb();
+    }
+
+    const verb = args[0];
+    assert(verb.len > 0);
+
+    const command = cli_spec.parse_self_verb(verb) orelse fatal_unknown_self_verb(verb);
+    return .{ .command_name = command.spec().name, .args = args[1..] };
+}
+
+fn fatal_missing_self_verb() noreturn {
+    util_output.exit_with(
+        .invalid_arguments,
+        "'self' needs a verb\n" ++ cli_spec.self_verb_usage,
+        .{},
+    );
+}
+
+fn fatal_unknown_self_verb(verb: []const u8) noreturn {
+    if (edit_distance.nearest(verb, &cli_spec.self_verb_names)) |suggestion| {
+        util_output.exit_with(
+            .invalid_arguments,
+            "unknown 'self' verb '{s}'\n\n  Did you mean '{s}'?",
+            .{ verb, suggestion },
+        );
+    }
+    util_output.exit_with(
+        .invalid_arguments,
+        "unknown 'self' verb '{s}' (expected: {s})",
+        .{ verb, cli_spec.self_verb_words },
+    );
+}
+
+/// `uninstall` means "remove a managed version" in every other version
+/// manager, and "remove zvm" here. Rather than pick one and silently delete
+/// the wrong thing, refuse and name both commands.
+fn fatal_ambiguous_uninstall() noreturn {
+    util_output.exit_with(
+        .invalid_arguments,
+        "'uninstall' is ambiguous in zvm\n\n" ++
+            "  zvm self uninstall      remove zvm itself and all of its artefacts\n" ++
+            "  zvm remove <version>    remove one installed Zig or ZLS version",
+        .{},
+    );
+}
+
 fn standard_command_to_validated_command(standard_command: StandardCommand) validation.ValidatedCommand {
     return switch (standard_command) {
         .help => .{ .help = .{} },
@@ -493,6 +557,17 @@ fn parse_command_args_or_fatal(
             fatal_unknown_command_option(command_name, flag);
         },
         error.UnexpectedArguments => {
+            // `self uninstall` removes zvm itself; operators reaching for it
+            // with a version in hand almost always want `remove`. Say so
+            // instead of leaving them to guess which command they need.
+            if (std.mem.eql(u8, command_name, "uninstall")) {
+                util_output.exit_with(
+                    .invalid_arguments,
+                    "'zvm self uninstall' removes zvm itself and takes no version argument\n\n" ++
+                        "  To remove one installed version, use 'zvm remove <version>'.",
+                    .{},
+                );
+            }
             util_output.exit_with(.invalid_arguments, "{s} command does not accept arguments", .{command_name});
         },
         error.EmptyShellArgument => {
@@ -547,6 +622,39 @@ fn parse_command_args_or_fatal(
 }
 
 /// Parse command line arguments
+/// Resolve the typed command word into the flat command that runs it:
+/// rewrite `zvm self <verb>`, and refuse the ambiguous bare `uninstall`.
+fn resolve_surface_invocation(
+    arguments: []const []const u8,
+    command_index: usize,
+) Invocation {
+    assert(command_index < arguments.len);
+
+    const surface_name = arguments[command_index];
+    assert(surface_name.len > 0);
+    assert(surface_name.len <= max_command_name_length);
+
+    const surface_args = arguments[(command_index + 1)..];
+
+    if (std.mem.eql(u8, surface_name, "uninstall")) fatal_ambiguous_uninstall();
+    if (std.mem.eql(u8, surface_name, cli_spec.self_command_name)) {
+        return resolve_self_invocation(surface_args);
+    }
+    return .{ .command_name = surface_name, .args = surface_args };
+}
+
+fn help_command_line(
+    global_config: GlobalConfig,
+    topic: validation.HelpTopic,
+) ParsedCommandLine {
+    const result = ParsedCommandLine{
+        .global_config = global_config,
+        .command = .{ .help = .{ .topic = topic } },
+    };
+    result.validate();
+    return result;
+}
+
 pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
     assert(arguments.len > 0); // Must have program name
     assert(arguments.len <= max_argument_count);
@@ -579,20 +687,21 @@ pub fn parse_command_line(arguments: []const []const u8) !ParsedCommandLine {
         };
     }
 
-    const command_name = arguments[global_prefix.command_index];
+    const invocation = resolve_surface_invocation(arguments, global_prefix.command_index);
+
+    // `zvm self --help` documents the namespace; a verb was not given.
+    if (invocation.command_name.len == 0) {
+        return help_command_line(global_prefix.global_config, .self);
+    }
+
+    const command_name = invocation.command_name;
+    const remaining_args = invocation.args;
     assert(command_name.len > 0);
     assert(command_name.len <= max_command_name_length);
 
-    const remaining_args = arguments[(global_prefix.command_index + 1)..];
-
     if (command_help_topic(command_name)) |topic| {
         if (command_help_requested(remaining_args)) {
-            const result = ParsedCommandLine{
-                .global_config = global_prefix.global_config,
-                .command = .{ .help = .{ .topic = topic } },
-            };
-            result.validate();
-            return result;
+            return help_command_line(global_prefix.global_config, topic);
         }
     }
 

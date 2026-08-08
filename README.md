@@ -19,6 +19,7 @@
 - Manage Zig and ZLS from one CLI: install, use, list, remove, and clean both toolchains.
 - Project-aware shims automatically detect `minimum_zig_version` from `build.zig.zon`.
 - Safer destructive commands: removing the active version and `clean --all` ask for confirmation unless `--yes` is passed.
+- Clean exit: `zvm self uninstall` removes zvm and every artefact it created, including the `PATH` line it added to your shell profile.
 - Automation-friendly output: `--json`, `--plain`, `--quiet`, `--no-input`, and predictable exit behavior.
 - Better terminal behavior: color honors `NO_COLOR`, progress output is disabled when stdout is not a TTY, and interrupted installs clean up partial files.
 - Resilient downloads with per-mirror timeouts and mirror fallback.
@@ -51,7 +52,13 @@ curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.
 curl -fsSL https://raw.githubusercontent.com/hendriknielaender/zvm/main/install.sh | bash -s "zvm-v0.21.0"
 ```
 
-The installer will download the appropriate binary for your platform and install it to `~/.local/bin`. Make sure this directory is in your PATH.
+The installer downloads the binary for your platform and installs it to
+`$ZVM_HOME/bin` (default `~/.local/share/.zm/bin`), the same directory as the
+`zig` and `zls` shims — so a single PATH entry covers everything. Make sure it
+is in your PATH; `zvm env` prints the line to add.
+
+> Installs before this change placed `zvm` in `~/.local/bin`. The installer
+> removes that older copy, since it would otherwise shadow the new one.
 
 #### Windows (PowerShell)
 ```powershell
@@ -91,6 +98,11 @@ zvm env --shell=fish
 zvm env --shell=powershell
 ```
 
+### Uninstalling
+
+`zvm self uninstall` is the counterpart to the install script — see
+[Managing zvm itself](#managing-zvm-itself).
+
 ---
 
 ## 📖 Usage Guide
@@ -105,7 +117,8 @@ zvm env --shell=powershell
 | `list-remote` | List available Zig or ZLS versions | `zvm list-remote --zls` |
 | `remove`, `rm` | Remove an installed version | `zvm --yes remove 0.15.2` |
 | `clean` | Clean cache and unused versions | `zvm clean --all` |
-| `upgrade` | Upgrade zvm itself | `zvm upgrade` |
+| `self update` | Update zvm itself (alias: `zvm upgrade`) | `zvm self update` |
+| `self uninstall` | Remove zvm itself and all of its artefacts | `zvm self uninstall --dry-run` |
 
 Common aliases are available for everyday commands:
 
@@ -189,6 +202,103 @@ zvm clean
 # Remove cached artifacts and every non-current Zig/ZLS version
 zvm clean --all
 ```
+
+### Managing zvm itself
+
+Operations on the zvm installation live under the `self` namespace, so the
+target of a destructive command is always visible:
+
+```bash
+zvm self update      # update zvm (alias: zvm upgrade)
+zvm self uninstall   # remove zvm and everything it created
+```
+
+Most version managers spell "remove a managed version" as
+`uninstall <version>`; in zvm that is `zvm remove <version>`. A bare
+`zvm uninstall` would therefore be read as removing a Zig version while it
+removed zvm, so it is refused with a pointer to both commands. This follows
+[`rustup self uninstall`](https://github.com/rust-lang/rustup/issues/129) and
+`uv self uninstall`.
+
+#### Removing zvm
+
+```bash
+# Preview everything that would be deleted or edited; changes nothing
+zvm self uninstall --dry-run
+
+# Remove zvm (prompts for confirmation)
+zvm self uninstall
+
+# Non-interactive, for scripts
+zvm --yes self uninstall
+
+# Remove zvm but leave shell profiles for you to edit
+zvm --yes self uninstall --no-modify-path
+```
+
+It removes, in this order:
+
+1. what zvm created under the data root (`ZVM_HOME`, default
+   `~/.local/share/.zm`) — installed Zig and ZLS versions, the download store,
+   the mirror cache, the shims, and the `current` links;
+2. the config directory (default `~/.config/.zm`), if it is empty;
+3. the `zvm` binary itself;
+4. the `PATH` line zvm asked you to add to your shell profile.
+
+The binary goes last on purpose: if an uninstall is interrupted, a working
+`zvm` is still there to finish the job.
+
+**Only what zvm created.** `ZVM_HOME` is used exactly as you set it, so the
+data root may be a directory zvm shares with other software — `~/.local` and
+`/usr/local` are both plausible values. Uninstall therefore deletes the entries
+zvm wrote, by name, and removes the root itself only once it is empty.
+Anything else stays, and is reported:
+
+```console
+$ zvm --yes self uninstall
+Removed zvm's files from /usr/local
+  Kept the directory: it holds 3 entries zvm did not create.
+```
+
+The config directory gets the same treatment for the same reason, except that
+zvm writes nothing into it at all — `zvm env` only reports where it is — so its
+contents are always yours and it is removed only when already empty.
+
+`--json` changes how the result is printed and nothing else; the same files are
+deleted and the same profiles rewritten either way.
+
+**Shell profiles.** zvm scans `~/.bashrc`, `~/.bash_profile`, `~/.profile`,
+`~/.zshrc`, `~/.zprofile`, `~/.zshenv`, and `~/.config/fish/config.fish`, and
+drops the lines that name its bin directory. Each file is rewritten through a
+temporary file and an atomic rename, keeping the original permissions, so an
+interrupted run never leaves a truncated shell config. Only path-shaped
+references are removed — a line such as `alias zvmtest=...` is left alone.
+Pass `--no-modify-path` to be told which files to edit instead.
+
+**Only zvm's own installation.** `self uninstall` and `self update` act only on
+a zvm that zvm's installer created — the binary must be exactly
+`$ZVM_HOME/bin/zvm`. A zvm anywhere else was put there by someone else (a
+package manager, a distro, a hand-built copy), and removing the data root
+behind that owner's back would leave it believing zvm is still installed, so
+both commands refuse:
+
+```console
+$ zvm self uninstall
+self-uninstall is disabled for this zvm installation:
+  running binary:  /opt/homebrew/Cellar/zvm/1.2.0/bin/zvm
+  zvm installs to: /Users/me/.local/share/.zm/bin/zvm
+
+  zvm only removes an installation it created. If a package manager
+  installed this zvm, remove it with that manager, e.g. 'brew uninstall zvm'.
+```
+
+Paths are compared after resolving symlinks, so a `$ZVM_HOME` spelled
+differently from the running binary's real path still matches.
+
+On Windows a running executable cannot delete itself, so the binary's path is
+printed for manual removal, along with the commands to drop `ZVM_HOME` and the
+`PATH` entry from your user environment — that entry lives in the registry
+rather than a file, so it is reported rather than edited.
 
 ### Advanced Usage
 

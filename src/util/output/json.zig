@@ -1,4 +1,5 @@
 const std = @import("std");
+const limits = @import("../../memory/limits.zig");
 const assert = std.debug.assert;
 
 const json_hex_digits = "0123456789abcdef";
@@ -71,7 +72,9 @@ pub fn write_json_string_array(writer: anytype, items: []const []const u8) !void
     try writer.writeByte('[');
 
     for (items, 0..) |item, index| {
-        assert(item.len < 256);
+        // Bounded by the longest thing any caller puts in an array, which is a
+        // path: `self uninstall` reports the shell profiles it rewrote.
+        assert(item.len <= limits.path_length_maximum);
 
         if (index > 0) {
             try writer.writeByte(',');

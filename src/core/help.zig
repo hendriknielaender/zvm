@@ -3,6 +3,7 @@ const context = @import("../Context.zig");
 const util_output = @import("../util/output.zig");
 const validation = @import("../cli/validation.zig");
 const cli_spec = @import("../cli/spec.zig");
+const assert = std.debug.assert;
 
 const general_help_text =
     \\ZVM - Zig Version Manager
@@ -35,7 +36,8 @@ const general_help_text =
     \\    clean                   Remove unused Zig versions
     \\    env                     Print shell setup instructions
     \\    completions [shell]     Generate shell completion scripts
-    \\    upgrade                 Upgrade zvm to the latest released version
+    \\    self update             Update zvm itself (alias: zvm upgrade)
+    \\    self uninstall          Remove zvm itself and all of its artefacts
     \\    help [command]          Show help
     \\    version                 Show ZVM version
     \\
@@ -43,6 +45,8 @@ const general_help_text =
     \\    --zls                   For install/remove/use/list-remote, manage ZLS instead
     \\    --all                   For list/clean, include Zig and ZLS versions
     \\    --shell=<shell>         For env, specify shell type
+    \\    --dry-run               For self uninstall, list artefacts without deleting them
+    \\    --no-modify-path        For self uninstall, leave shell profiles alone
     \\
     \\ENVIRONMENT VARIABLES:
     \\    ZVM_HOME                          Override the zvm install/data directory
@@ -240,14 +244,102 @@ const version_help_text =
 
 const upgrade_help_text =
     \\USAGE:
+    \\    zvm [GLOBAL_OPTIONS] self update
     \\    zvm [GLOBAL_OPTIONS] upgrade
     \\
     \\DESCRIPTION:
     \\    Download and install the latest stable release of zvm,
     \\    replacing the currently installed binary in place.
     \\
+    \\    Only zvm's own installation is updated: the running binary must be
+    \\    exactly $ZVM_HOME/bin/zvm. A zvm installed by a package manager is
+    \\    refused, before any download, so that manager stays in charge of it.
+    \\
+    \\    'zvm upgrade' is the original spelling and keeps working; new
+    \\    scripts should prefer 'zvm self update', which groups it with the
+    \\    other operations on the zvm installation itself.
+    \\
     \\EXAMPLES:
+    \\    zvm self update
     \\    zvm upgrade
+    \\
+;
+
+const self_help_text =
+    \\USAGE:
+    \\    zvm [GLOBAL_OPTIONS] self <VERB> [VERB_OPTIONS]
+    \\
+    \\DESCRIPTION:
+    \\    Operations on the zvm installation itself, kept apart from the
+    \\    commands that manage Zig and ZLS versions.
+    \\
+    \\    Why a namespace: most version managers spell 'remove a managed
+    \\    version' as 'uninstall <version>'. In zvm that is 'zvm remove
+    \\    <version>', so a bare 'zvm uninstall' would be read as removing a
+    \\    Zig version while it removed zvm. The target is in the command.
+    \\
+    \\VERBS:
+    \\    update                  Update zvm to the latest released version
+    \\    uninstall               Remove zvm itself and all of its artefacts
+    \\
+    \\EXAMPLES:
+    \\    zvm self update
+    \\    zvm self uninstall --dry-run
+    \\    zvm self uninstall
+    \\    zvm self uninstall --help
+    \\
+;
+
+const uninstall_help_text =
+    \\USAGE:
+    \\    zvm [GLOBAL_OPTIONS] self uninstall [--dry-run] [--no-modify-path]
+    \\
+    \\DESCRIPTION:
+    \\    Remove zvm itself: everything zvm created under the data root
+    \\    (installed Zig and ZLS versions, download store, shims, current
+    \\    links), the config directory, the zvm binary, and the PATH line zvm
+    \\    asked you to add to your shell profile. This is the counterpart to
+    \\    the install script, not to 'zvm remove', which deletes a single
+    \\    managed version.
+    \\
+    \\    Always prompts unless --yes is passed. The prompt lists every file
+    \\    that will be deleted or edited first.
+    \\
+    \\    Only the entries zvm created are deleted, and the data root itself
+    \\    is removed only once it is empty. $ZVM_HOME may point at a directory
+    \\    shared with other software, so anything zvm did not write is left in
+    \\    place and reported. The config directory is never emptied: zvm writes
+    \\    nothing into it, so it goes only if it is already empty.
+    \\
+    \\    Shell profiles are rewritten through a temporary file and an atomic
+    \\    rename, keeping file permissions, and only lines naming zvm's bin
+    \\    directory are dropped. Pass --no-modify-path to be told which files
+    \\    to edit instead. --json changes the shape of the output, never what
+    \\    the command does.
+    \\
+    \\    The binary is deleted last, so an interrupted uninstall always leaves
+    \\    a working zvm behind to finish the job. On Windows the running binary
+    \\    cannot delete itself and the PATH entry lives in the registry; both
+    \\    are reported for manual removal.
+    \\
+    \\    Only zvm's own installation is removable: the running binary must be
+    \\    exactly $ZVM_HOME/bin/zvm, where the installers put it. A zvm found
+    \\    anywhere else belongs to whoever placed it there, so uninstall
+    \\    refuses and names the path it expected.
+    \\
+    \\OPTIONS:
+    \\    --dry-run               List the artefacts without changing anything
+    \\    --no-modify-path        Do not edit shell profiles; report them instead
+    \\
+    \\GLOBAL OPTIONS USED:
+    \\    --yes                   Skip the confirmation prompt (required with --json)
+    \\    --no-input              Fail instead of prompting (use with --yes for automation)
+    \\
+    \\EXAMPLES:
+    \\    zvm self uninstall --dry-run
+    \\    zvm self uninstall
+    \\    zvm --yes self uninstall
+    \\    zvm --yes self uninstall --no-modify-path
     \\
 ;
 
@@ -281,6 +373,8 @@ fn topic_name(topic: validation.HelpTopic) []const u8 {
         .version => "version",
         .help => "help",
         .upgrade => "upgrade",
+        .uninstall => "uninstall",
+        .self => "self",
     };
 }
 
@@ -299,17 +393,14 @@ fn topic_text(topic: validation.HelpTopic) []const u8 {
         .version => version_help_text,
         .help => help_help_text,
         .upgrade => upgrade_help_text,
+        .uninstall => uninstall_help_text,
+        .self => self_help_text,
     };
 }
 
-pub fn emit_help(
-    ctx: *context.CliContext,
-    command: validation.ValidatedCommand.HelpCommand,
-    progress_node: std.Progress.Node,
-) !void {
-    _ = ctx;
-    _ = progress_node;
+pub fn emit_help(command: validation.ValidatedCommand.HelpCommand) void {
     const text = topic_text(command.topic);
+    assert(text.len > 0);
 
     if (util_output.output_mode() == .machine_json) {
         const fields = [_]util_output.JsonField{
@@ -328,7 +419,9 @@ pub fn run(
     command: validation.ValidatedCommand.HelpCommand,
     progress_node: std.Progress.Node,
 ) !void {
-    try emit_help(ctx, command, progress_node);
+    _ = ctx;
+    _ = progress_node;
+    emit_help(command);
 }
 
 pub fn progress_items(command: validation.ValidatedCommand.HelpCommand) u16 {
@@ -336,26 +429,34 @@ pub fn progress_items(command: validation.ValidatedCommand.HelpCommand) u16 {
     return 0;
 }
 
-test "help command executes without error" {
-    const output_config = util_output.OutputConfig{
-        .mode = .human_readable,
-        .color = .never_use_color,
-    };
-    try util_output.set_mode(output_config);
-
-    const command = validation.ValidatedCommand.HelpCommand{ .topic = .general };
-    const progress_node = std.Progress.start(std.testing.io, .{ .root_name = "test" });
-    defer progress_node.end();
-
-    var mock_ctx: context.CliContext = undefined;
-
-    try emit_help(&mock_ctx, command, progress_node);
+test "every help topic resolves to usable text" {
+    inline for (@typeInfo(validation.HelpTopic).@"enum".fields) |field| {
+        const topic: validation.HelpTopic = @enumFromInt(field.value);
+        try std.testing.expect(topic_name(topic).len > 0);
+        try std.testing.expect(std.mem.indexOf(u8, topic_text(topic), "USAGE:") != null);
+    }
 }
 
 test "general help includes every primary command from cli spec" {
     for (cli_spec.primary_command_names) |command_name| {
         try std.testing.expect(std.mem.indexOf(u8, general_help_text, command_name) != null);
     }
+}
+
+test "self topic documents every self verb" {
+    const topic = try validation.HelpTopic.parse(cli_spec.self_command_name);
+    try std.testing.expectEqual(validation.HelpTopic.self, topic);
+
+    for (cli_spec.self_verbs) |verb| {
+        try std.testing.expect(std.mem.indexOf(u8, self_help_text, verb.name) != null);
+    }
+}
+
+test "general help advertises the self namespace, not bare uninstall" {
+    // A bare `zvm uninstall` is refused as ambiguous, so it must never be
+    // presented as a command anyone should type.
+    try std.testing.expect(std.mem.indexOf(u8, general_help_text, "self uninstall") != null);
+    try std.testing.expect(std.mem.indexOf(u8, general_help_text, "\n    uninstall") == null);
 }
 
 test "help topics map every command in cli spec" {
