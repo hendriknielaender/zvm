@@ -370,6 +370,14 @@ fn run_offline_suite(
             .run = test_uninstall_keeps_unrelated_prefix_contents,
         },
         .{
+            .name = "self uninstall removes dangling shims",
+            .run = test_uninstall_removes_dangling_shims,
+        },
+        .{
+            .name = "self uninstall rewrites a symlinked profile in place",
+            .run = test_uninstall_rewrites_symlinked_profile,
+        },
+        .{
             .name = "self uninstall keeps a non-empty config dir",
             .run = test_uninstall_keeps_nonempty_config,
         },
@@ -1387,6 +1395,73 @@ fn test_uninstall_json_rewrites_profile(suite: *const Suite, sandbox: []const u8
     try assert_contains(outcome.stdout, ".zshrc", "json names the rewritten profile");
 }
 
+/// A dangling shim — the shape left behind when zvm moved out of
+/// `~/.local/bin` — used to survive a check that follows symlinks.
+fn test_uninstall_removes_dangling_shims(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+
+    // `zig` points nowhere while `zls` still resolves: both halves covered.
+    var missing_buffer: [sandbox_path_max]u8 = undefined;
+    const missing = try join_sandbox_path(&missing_buffer, sandbox, "gone/zvm");
+    try sandbox_dir.symLink(io, missing, ".zm/bin/zig", .{});
+    try sandbox_dir.symLink(io, binary, ".zm/bin/zls", .{});
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a dangling shim");
+
+    try assert_sandbox_path_missing(suite, sandbox, ".zm", "dangling shim takes the root with it");
+    try assert_contains(outcome.stdout, "Removed zvm data root", "root reported as removed");
+    try assert_not_contains(outcome.stdout, "Kept the directory", "nothing was kept");
+}
+
+/// A profile symlinked into a dotfiles repo: the rewrite has to follow the
+/// link rather than replace it with a plain copy.
+fn test_uninstall_rewrites_symlinked_profile(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+
+    try sandbox_dir.createDirPath(io, "dotfiles");
+    try sandbox_dir.writeFile(io, .{ .sub_path = "dotfiles/zshrc", .data = profile_fixture });
+
+    var target_buffer: [sandbox_path_max]u8 = undefined;
+    const target = try join_sandbox_path(&target_buffer, sandbox, "dotfiles/zshrc");
+    try sandbox_dir.symLink(io, target, ".zshrc", .{});
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a symlinked profile");
+
+    // The repo's file lost the PATH line...
+    const written = try sandbox_dir.readFileAlloc(
+        io,
+        "dotfiles/zshrc",
+        suite.gpa,
+        .limited(stdio_limit_bytes),
+    );
+    defer suite.gpa.free(written);
+    try assert_not_contains(written, ".zm/bin", "symlink target lost the PATH line");
+    try assert_contains(written, "alias zvmtest=", "symlink target kept unrelated lines");
+
+    // ...and `.zshrc` is still the link that pointed at it.
+    var link_buffer: [sandbox_path_max]u8 = undefined;
+    const link_length = try sandbox_dir.readLink(io, ".zshrc", &link_buffer);
+    try assert_contains(link_buffer[0..link_length], "dotfiles/zshrc", "profile is still a symlink");
+}
+
 /// `ZVM_HOME` is taken verbatim, so the data root may be a prefix zvm shares
 /// with other software — `~/.local` is the obvious one, since that is where
 /// zvm used to install. Uninstall must take only what zvm created.
@@ -1409,6 +1484,18 @@ fn test_uninstall_keeps_unrelated_prefix_contents(
     try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/share/doc/other.txt", .data = "x" });
     try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/bin/other-tool", .data = "x" });
     try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/version/zig/0.13.0/marker", .data = "x" });
+
+    // The profile must spell the bin directory the way zvm resolves it, real
+    // path and all, or the assertion never reaches the predicate.
+    var bin_storage: [sandbox_path_max]u8 = undefined;
+    const bin_length = try sandbox_dir.realPathFile(io, "prefix/bin", &bin_storage);
+    var profile_storage: [sandbox_path_max + 64]u8 = undefined;
+    const shared_profile = try std.fmt.bufPrint(
+        &profile_storage,
+        "# my shell config\nexport PATH=\"{s}:$PATH\"\nexport EDITOR=vim\n",
+        .{bin_storage[0..bin_length]},
+    );
+    try sandbox_dir.writeFile(io, .{ .sub_path = ".zshrc", .data = shared_profile });
 
     var binary_buffer: [sandbox_path_max]u8 = undefined;
     const binary = try place_binary_in(suite, sandbox, "prefix/bin", &binary_buffer);
@@ -1436,6 +1523,13 @@ fn test_uninstall_keeps_unrelated_prefix_contents(
     try assert_sandbox_path_exists(suite, sandbox, "prefix/lib/libother.so", "foreign lib kept");
     try assert_sandbox_path_exists(suite, sandbox, "prefix/share/doc/other.txt", "foreign doc kept");
     try assert_sandbox_path_exists(suite, sandbox, "prefix/bin/other-tool", "foreign binary kept");
+
+    // The shared PATH line survives and is reported instead.
+    const profile = try read_profile(suite, sandbox);
+    defer suite.gpa.free(profile);
+    try std.testing.expectEqualStrings(shared_profile, profile);
+    try assert_contains(outcome.stderr, "Manual step", "shared PATH line is reported, not deleted");
+    try assert_contains(outcome.stderr, "finish the steps above", "closing line asks for follow-up");
 
     try assert_contains(outcome.stdout, "Kept the directory", "report explains the kept root");
 }

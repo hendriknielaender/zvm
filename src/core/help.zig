@@ -313,9 +313,11 @@ const uninstall_help_text =
     \\
     \\    Shell profiles are rewritten through a temporary file and an atomic
     \\    rename, keeping file permissions, and only lines naming zvm's bin
-    \\    directory are dropped. Pass --no-modify-path to be told which files
-    \\    to edit instead. --json changes the shape of the output, never what
-    \\    the command does.
+    \\    directory are dropped — and only where zvm has that directory to
+    \\    itself, so a shared prefix keeps its PATH line. A symlinked profile
+    \\    is rewritten through the link. Pass --no-modify-path to be told
+    \\    which files to edit instead. --json changes the shape of the output,
+    \\    never what the command does.
     \\
     \\    The binary is deleted last, so an interrupted uninstall always leaves
     \\    a working zvm behind to finish the job. On Windows the running binary

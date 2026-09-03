@@ -211,6 +211,9 @@ const Artefacts = struct {
     /// The operator's home directory, canonicalised. Shell profiles hang off
     /// it; resolved here so the safety guard and the profile scan agree.
     home: []const u8,
+    /// Whether `bin_dir` holds nothing but zvm's own entries. Answered before
+    /// anything is deleted, while the evidence is still there.
+    bin_dir_is_exclusive: bool,
 };
 
 const Report = struct {
@@ -392,7 +395,44 @@ fn resolve_artefacts(ctx: *context.CliContext, storage: *ArtefactStorage) !Artef
         .config = config,
         .binary = binary,
         .home = home,
+        .bin_dir_is_exclusive = bin_dir_holds_only_zvm(ctx.io, bin_dir),
     };
+}
+
+/// Whether `<root>/bin` holds only zvm's own entries, which decides whether
+/// its PATH line is zvm's. Missing counts as ours, unreadable as shared.
+fn bin_dir_holds_only_zvm(io: std.Io, bin_dir: []const u8) bool {
+    assert(bin_dir.len > 0);
+
+    var dir = std.Io.Dir.openDirAbsolute(io, bin_dir, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return true,
+        else => return false,
+    };
+    defer dir.close(io);
+
+    // Entry names are unique, so one entry more than zvm has names already
+    // proves one of them is somebody else's.
+    const entries_maximum = bin_entries.len + 1;
+    var seen: usize = 0;
+    var iterator = dir.iterate();
+    while (iterator.next(io) catch return false) |entry| {
+        seen += 1;
+        if (seen > entries_maximum) return false;
+        if (!bin_entry_belongs_to_zvm(entry.name)) return false;
+    }
+
+    assert(seen <= entries_maximum);
+    return true;
+}
+
+fn bin_entry_belongs_to_zvm(name: []const u8) bool {
+    assert(name.len > 0);
+
+    if (paths.path_equal(name, paths.zvm_binary_name)) return true;
+    for (bin_entries) |entry| {
+        if (paths.path_equal(name, entry)) return true;
+    }
+    return false;
 }
 
 /// Rewrite `path` inside `storage` as its real path.
@@ -596,13 +636,13 @@ fn remove_root_entries(ctx: *context.CliContext, artefacts: Artefacts) !Outcome 
     for (root_entries) |entry| {
         var path_storage: [limits.path_length_maximum]u8 = undefined;
         const path = try join_path(&path_storage, artefacts.root, entry);
-        _ = try delete_tree(ctx, path);
+        try delete_tree(ctx, path);
     }
 
     for (bin_entries) |entry| {
         var path_storage: [limits.path_length_maximum]u8 = undefined;
         const path = try join_path(&path_storage, artefacts.bin_dir, entry);
-        _ = try delete_tree(ctx, path);
+        try delete_tree(ctx, path);
     }
 
     return .cleared;
@@ -691,8 +731,6 @@ fn remove_binary(ctx: *context.CliContext, binary: []const u8) !Outcome {
     assert(binary.len > 0);
     assert(std.fs.path.dirname(binary) != null);
 
-    if (!util_tool.does_path_exist(ctx.io, binary)) return .absent;
-
     std.Io.Dir.deleteFileAbsolute(ctx.io, binary) catch |err| switch (err) {
         error.FileNotFound => return .absent,
         // Windows refuses to unlink a running image, and a read-only install
@@ -713,16 +751,15 @@ fn remove_binary(ctx: *context.CliContext, binary: []const u8) !Outcome {
     return .removed;
 }
 
-fn delete_tree(ctx: *context.CliContext, path: []const u8) !Outcome {
+/// Delete one entry zvm owns. Not gated on an existence check: `access`
+/// follows symlinks, so a shim whose target is gone would survive as absent.
+fn delete_tree(ctx: *context.CliContext, path: []const u8) !void {
     assert(path.len > 0);
     assert(std.fs.path.dirname(path) != null);
-
-    if (!util_tool.does_path_exist(ctx.io, path)) return .absent;
 
     try std.Io.Dir.cwd().deleteTree(ctx.io, path);
 
     assert(!util_tool.does_path_exist(ctx.io, path));
-    return .removed;
 }
 
 /// Join one path component onto a directory.
@@ -795,7 +832,12 @@ fn apply_profiles(
             continue;
         };
 
-        profiles.outcomes[index] = rewrite_profile(ctx.io, profile, artefacts.bin_dir);
+        profiles.outcomes[index] = rewrite_profile(
+            ctx.io,
+            profile,
+            artefacts.bin_dir,
+            artefacts.bin_dir_is_exclusive,
+        );
     }
 }
 
@@ -817,18 +859,35 @@ fn build_profile_path(storage: []u8, home: []const u8, candidate: []const u8) ![
 /// Filters into a sibling temp file and renames it over the original, so an
 /// interrupted uninstall leaves either the old profile or the new one — never
 /// a half-written shell config that breaks every terminal the operator opens.
-fn rewrite_profile(io: std.Io, profile: []const u8, bin_dir: []const u8) ProfileOutcome {
+fn rewrite_profile(
+    io: std.Io,
+    profile: []const u8,
+    bin_dir: []const u8,
+    bin_dir_is_exclusive: bool,
+) ProfileOutcome {
     assert(profile.len > 0);
     assert(bin_dir.len > 0);
+
+    // Rewrite the file the shell reads: renaming over a symlinked profile
+    // would replace the link and leave the target's PATH line in place.
+    var target_storage: [limits.path_length_maximum]u8 = undefined;
+    const target = canonicalize(io, &target_storage, profile);
+    assert(target.len > 0);
 
     var temp_storage: [limits.path_length_maximum]u8 = undefined;
     const temp_path = std.fmt.bufPrint(
         &temp_storage,
         "{s}{s}",
-        .{ profile, profile_temp_suffix },
+        .{ target, profile_temp_suffix },
     ) catch return .needs_manual_edit;
 
-    const removed = filter_profile_into(io, profile, temp_path, bin_dir) catch {
+    const removed = filter_profile_into(
+        io,
+        target,
+        temp_path,
+        bin_dir,
+        bin_dir_is_exclusive,
+    ) catch {
         discard_temp(io, temp_path);
         return .needs_manual_edit;
     };
@@ -841,7 +900,7 @@ fn rewrite_profile(io: std.Io, profile: []const u8, bin_dir: []const u8) Profile
         return .needs_manual_edit;
     }
 
-    std.Io.Dir.renameAbsolute(temp_path, profile, io) catch {
+    std.Io.Dir.renameAbsolute(temp_path, target, io) catch {
         discard_temp(io, temp_path);
         return .needs_manual_edit;
     };
@@ -860,6 +919,7 @@ fn filter_profile_into(
     profile: []const u8,
     temp_path: []const u8,
     bin_dir: []const u8,
+    bin_dir_is_exclusive: bool,
 ) !usize {
     assert(profile.len > 0);
     assert(temp_path.len > profile.len);
@@ -888,7 +948,7 @@ fn filter_profile_into(
     while (try reader.interface.takeDelimiter('\n')) |line| {
         consumed += line.len + 1;
 
-        if (line_belongs_to_zvm(line, bin_dir)) {
+        if (line_belongs_to_zvm(line, bin_dir, bin_dir_is_exclusive)) {
             removed += 1;
             continue;
         }
@@ -915,10 +975,13 @@ fn filter_profile_into(
 /// is worth looking at. This function decides what gets deleted from a file
 /// zvm does not own, so it matches only path-shaped references: a bare "zvm"
 /// needle would also take out `alias zvmtest=...`.
-fn line_belongs_to_zvm(line: []const u8, bin_dir: []const u8) bool {
+///
+/// The bin directory counts only where zvm has it to itself; on a shared
+/// prefix that line belongs to everything else installed there.
+fn line_belongs_to_zvm(line: []const u8, bin_dir: []const u8, bin_dir_is_exclusive: bool) bool {
     assert(bin_dir.len > 0);
 
-    if (std.mem.indexOf(u8, line, bin_dir) != null) return true;
+    if (bin_dir_is_exclusive and std.mem.indexOf(u8, line, bin_dir) != null) return true;
     if (std.mem.indexOf(u8, line, profile_path_needle) != null) return true;
     if (std.mem.indexOf(u8, line, profile_comment_needle) != null) return true;
     return false;
@@ -1014,11 +1077,12 @@ fn emit_plan(
         util_output.emit(.info, "  {s}  {s:<10}  {s}", .{ marker, "PATH line", profile });
     }
 
-    if (builtin.os.tag == .windows) emit_windows_path_notice(artefacts.bin_dir);
-
-    // Only `--dry-run` ends here; the confirmation flow says it once, in the
-    // final report, rather than twice around the prompt.
-    if (purpose == .preview) emit_no_profile_hint(artefacts, profiles);
+    // Only `--dry-run` ends here; the confirmation flow says these once, in
+    // the final report, rather than twice around the prompt.
+    if (purpose == .preview) {
+        if (builtin.os.tag == .windows) emit_windows_path_notice(artefacts.bin_dir);
+        emit_no_profile_hint(artefacts, profiles);
+    }
 }
 
 fn emit_path_line(ctx: *context.CliContext, label: []const u8, path: []const u8) void {
@@ -1050,8 +1114,8 @@ fn emit_report(
         .cleared => util_output.emit(
             .success,
             "Removed zvm's files from {s}\n" ++
-                "  Kept the directory: it holds {d} entries zvm did not create.",
-            .{ artefacts.root, report.root_entries_kept },
+                "  Kept the directory: it holds {d} {s} zvm did not create.",
+            .{ artefacts.root, report.root_entries_kept, entry_noun(report.root_entries_kept) },
         ),
         .retained => util_output.emit(
             .warning,
@@ -1106,6 +1170,10 @@ fn emit_report(
     }
 
     util_output.emit(.success, "zvm has been uninstalled.", .{});
+}
+
+fn entry_noun(count: u16) []const u8 {
+    return if (count == 1) "entry" else "entries";
 }
 
 fn emit_profile_results(artefacts: Artefacts, profiles: *const Profiles) void {
@@ -1282,17 +1350,84 @@ test "root_entries covers every directory zvm creates under the root" {
 
 test "line_belongs_to_zvm matches only path-shaped references" {
     const bin_dir = "/custom/root/bin";
+    const exclusive = true;
 
-    try std.testing.expect(line_belongs_to_zvm("export PATH=\"" ++ bin_dir ++ ":$PATH\"", bin_dir));
-    try std.testing.expect(line_belongs_to_zvm("export PATH=\"$HOME/.zm/bin:$PATH\"", bin_dir));
-    try std.testing.expect(line_belongs_to_zvm("set -gx PATH $HOME/.zm/bin $PATH", bin_dir));
-    try std.testing.expect(line_belongs_to_zvm("# zvm config directory: /x/.config/.zm", bin_dir));
+    try std.testing.expect(
+        line_belongs_to_zvm("export PATH=\"" ++ bin_dir ++ ":$PATH\"", bin_dir, exclusive),
+    );
+    try std.testing.expect(
+        line_belongs_to_zvm("export PATH=\"$HOME/.zm/bin:$PATH\"", bin_dir, exclusive),
+    );
+    try std.testing.expect(
+        line_belongs_to_zvm("set -gx PATH $HOME/.zm/bin $PATH", bin_dir, exclusive),
+    );
+    try std.testing.expect(
+        line_belongs_to_zvm("# zvm config directory: /x/.config/.zm", bin_dir, exclusive),
+    );
 
     // Negative space: lines that merely mention zvm are not ours to delete.
-    try std.testing.expect(!line_belongs_to_zvm("alias zvmtest='echo hi'", bin_dir));
-    try std.testing.expect(!line_belongs_to_zvm("# installed zvm last week", bin_dir));
-    try std.testing.expect(!line_belongs_to_zvm("export PATH=\"/opt/bin:$PATH\"", bin_dir));
-    try std.testing.expect(!line_belongs_to_zvm("", bin_dir));
+    try std.testing.expect(!line_belongs_to_zvm("alias zvmtest='echo hi'", bin_dir, exclusive));
+    try std.testing.expect(!line_belongs_to_zvm("# installed zvm last week", bin_dir, exclusive));
+    try std.testing.expect(
+        !line_belongs_to_zvm("export PATH=\"/opt/bin:$PATH\"", bin_dir, exclusive),
+    );
+    try std.testing.expect(!line_belongs_to_zvm("", bin_dir, exclusive));
+}
+
+test "line_belongs_to_zvm leaves a shared prefix on the PATH" {
+    // `ZVM_HOME=/usr/local` makes zvm's bin directory the one every other
+    // tool on the machine is installed into. Its PATH line predates zvm.
+    const bin_dir = "/usr/local/bin";
+    const shared = false;
+
+    try std.testing.expect(
+        !line_belongs_to_zvm("export PATH=\"/usr/local/bin:$PATH\"", bin_dir, shared),
+    );
+    try std.testing.expect(
+        !line_belongs_to_zvm("set -gx PATH /usr/local/bin $PATH", bin_dir, shared),
+    );
+
+    // A line zvm can name on its own is still zvm's, wherever the root points.
+    try std.testing.expect(
+        line_belongs_to_zvm("export PATH=\"$HOME/.zm/bin:$PATH\"", bin_dir, shared),
+    );
+    try std.testing.expect(
+        line_belongs_to_zvm("# zvm config directory: /x/.config/.zm", bin_dir, shared),
+    );
+}
+
+test "bin_dir_holds_only_zvm separates a zvm bin dir from a shared prefix" {
+    if (builtin.os.tag == .windows) return;
+
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(io, "own/bin");
+    try tmp.dir.writeFile(io, .{ .sub_path = "own/bin/zvm", .data = "x" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "own/bin/zig", .data = "x" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "own/bin/zls", .data = "x" });
+
+    try tmp.dir.createDirPath(io, "prefix/bin");
+    try tmp.dir.writeFile(io, .{ .sub_path = "prefix/bin/zvm", .data = "x" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "prefix/bin/ripgrep", .data = "x" });
+
+    var storage: [limits.path_length_maximum]u8 = undefined;
+
+    const own_length = try tmp.dir.realPathFile(io, "own/bin", &storage);
+    try std.testing.expect(bin_dir_holds_only_zvm(io, storage[0..own_length]));
+
+    const prefix_length = try tmp.dir.realPathFile(io, "prefix/bin", &storage);
+    try std.testing.expect(!bin_dir_holds_only_zvm(io, storage[0..prefix_length]));
+
+    // A directory that was never created holds nothing that is not ours.
+    var missing_storage: [limits.path_length_maximum]u8 = undefined;
+    const missing = try std.fmt.bufPrint(
+        &missing_storage,
+        "{s}/nowhere",
+        .{storage[0..prefix_length]},
+    );
+    try std.testing.expect(bin_dir_holds_only_zvm(io, missing));
 }
 
 test "Profiles records outcomes against the candidate list" {
@@ -1326,6 +1461,7 @@ test "collect_profile_paths groups by outcome into one arena" {
         .config = null,
         .binary = "/home/u/.zm/bin/zvm",
         .home = "/home/u",
+        .bin_dir_is_exclusive = true,
     };
 
     var arena = ProfilePathArena{};
@@ -1361,7 +1497,7 @@ fn filter_profile_for_test(
     var temp_storage: [limits.path_length_maximum]u8 = undefined;
     const temp = try std.fmt.bufPrint(&temp_storage, "{s}.out", .{source});
 
-    _ = try filter_profile_into(io, source, temp, bin_dir);
+    _ = try filter_profile_into(io, source, temp, bin_dir, true);
 
     const file = try std.Io.Dir.openFileAbsolute(io, temp, .{ .mode = .read_only });
     defer file.close(io);

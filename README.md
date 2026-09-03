@@ -275,6 +275,11 @@ interrupted run never leaves a truncated shell config. Only path-shaped
 references are removed — a line such as `alias zvmtest=...` is left alone.
 Pass `--no-modify-path` to be told which files to edit instead.
 
+A `PATH` line is only zvm's to delete where zvm has that bin directory to
+itself, so a shared prefix such as `/usr/local` keeps its line and gets a manual
+step instead. A profile symlinked into a dotfiles repository is rewritten
+through the link, so `~/.zshrc` stays a symlink.
+
 **Only zvm's own installation.** `self uninstall` and `self update` act only on
 a zvm that zvm's installer created — the binary must be exactly
 `$ZVM_HOME/bin/zvm`. A zvm anywhere else was put there by someone else (a
