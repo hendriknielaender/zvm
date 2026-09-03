@@ -1211,6 +1211,15 @@ fn test_uninstall_removes_all(suite: *const Suite, sandbox: []const u8) !void {
     );
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "--yes self uninstall");
+    try assert_sandbox_path_missing(suite, sandbox, ".zm/version", "installed versions removed");
+
+    // Windows cannot unlink a running image, so the binary and the root that
+    // holds it are reported for the operator rather than deleted.
+    if (builtin.os.tag == .windows) {
+        try assert_contains(outcome.stderr, "Could not delete the running zvm binary", "binary reported");
+        try assert_contains(outcome.stderr, "the running binary is inside it", "root reason is right");
+        return;
+    }
 
     var root_buffer: [sandbox_path_max]u8 = undefined;
     const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
@@ -1594,7 +1603,9 @@ fn test_uninstall_reports_undeletable_binary(suite: *const Suite, sandbox: []con
     const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
 
     const io = suite.process_init.io;
-    var bin_dir = try Io.Dir.cwd().openDir(io, std.fs.path.dirname(binary).?, .{});
+    // Iterating, because Linux opens a non-iterating dir handle with O_PATH,
+    // which fchmod rejects with EBADF.
+    var bin_dir = try Io.Dir.cwd().openDir(io, std.fs.path.dirname(binary).?, .{ .iterate = true });
     defer bin_dir.close(io);
 
     try bin_dir.setPermissions(io, @enumFromInt(0o555));
