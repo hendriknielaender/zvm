@@ -32,6 +32,11 @@ const stdio_limit_bytes: usize = 1 * 1024 * 1024;
 const online_zig_version: []const u8 = "0.13.0";
 const e2e_download_timeout_seconds: []const u8 = "60";
 
+/// Mirrors `limits.io_buffer_size_maximum`. The harness drives the binary as
+/// a subprocess and deliberately imports nothing from src, so the value is
+/// restated here to keep the completion-script truncation guard honest.
+const emitter_buffer_size_bytes: usize = 4096;
+
 const HarnessArgs = struct {
     zvm_bin: []const u8,
     online: bool,
@@ -194,12 +199,44 @@ fn run_zvm(
     cwd_path: []const u8,
     arguments: []const []const u8,
 ) !Outcome {
+    return run_zvm_binary(suite, suite.args.zvm_bin, sandbox, cwd_path, arguments);
+}
+
+/// Run an arbitrary zvm binary. `uninstall` deletes the executable it runs
+/// from, so those tests drive a sandbox-local copy instead of the shared
+/// build artifact every other test depends on.
+fn run_zvm_binary(
+    suite: *const Suite,
+    binary: []const u8,
+    sandbox: []const u8,
+    cwd_path: []const u8,
+    arguments: []const []const u8,
+) !Outcome {
+    return run_zvm_with_env(suite, binary, sandbox, cwd_path, arguments, null);
+}
+
+/// One extra environment entry, applied after the sandbox overrides so a
+/// test can reinstate a variable the harness deliberately clears.
+const EnvOverride = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
+fn run_zvm_with_env(
+    suite: *const Suite,
+    binary: []const u8,
+    sandbox: []const u8,
+    cwd_path: []const u8,
+    arguments: []const []const u8,
+    env_override: ?EnvOverride,
+) !Outcome {
     assert(arguments.len > 0);
     assert(arguments.len < argv_max);
     assert(sandbox.len > 0);
+    assert(binary.len > 0);
 
     var argv_storage: [argv_max][]const u8 = undefined;
-    argv_storage[0] = suite.args.zvm_bin;
+    argv_storage[0] = binary;
     for (arguments, 0..) |argument, i| {
         argv_storage[i + 1] = argument;
     }
@@ -208,6 +245,10 @@ fn run_zvm(
     var env_map = try clone_parent_env(suite);
     defer env_map.deinit();
     try apply_sandbox_overrides(&env_map, sandbox);
+    if (env_override) |override| {
+        assert(override.key.len > 0);
+        try env_map.put(override.key, override.value);
+    }
 
     const result = try std.process.run(suite.gpa, suite.process_init.io, .{
         .argv = argv,
@@ -317,6 +358,57 @@ fn run_offline_suite(
         .{ .name = "remove active Zig", .run = test_remove_active_zig },
         .{ .name = "remove active ZLS", .run = test_remove_active_zls },
         .{ .name = "use creates shims", .run = test_use_creates_shims },
+        .{ .name = "self uninstall dry-run keeps everything", .run = test_uninstall_dry_run },
+        .{ .name = "self uninstall removes root and binary", .run = test_uninstall_removes_all },
+        .{ .name = "self uninstall json requires yes", .run = test_uninstall_json_requires_yes },
+        .{
+            .name = "self uninstall json rewrites the profile too",
+            .run = test_uninstall_json_rewrites_profile,
+        },
+        .{
+            .name = "self uninstall keeps a shared prefix intact",
+            .run = test_uninstall_keeps_unrelated_prefix_contents,
+        },
+        .{
+            .name = "self uninstall removes dangling shims",
+            .run = test_uninstall_removes_dangling_shims,
+        },
+        .{
+            .name = "self uninstall rewrites a symlinked profile in place",
+            .run = test_uninstall_rewrites_symlinked_profile,
+        },
+        .{
+            .name = "self uninstall keeps a non-empty config dir",
+            .run = test_uninstall_keeps_nonempty_config,
+        },
+        .{
+            .name = "self uninstall refuses a symlinked install",
+            .run = test_uninstall_refuses_symlinked_install,
+        },
+        .{
+            .name = "self uninstall reports an undeletable binary",
+            .run = test_uninstall_reports_undeletable_binary,
+        },
+        .{
+            .name = "self uninstall refuses a foreign binary",
+            .run = test_uninstall_refuses_foreign_binary,
+        },
+        .{
+            .name = "self update refuses a foreign binary",
+            .run = test_update_refuses_foreign_binary,
+        },
+        .{ .name = "self uninstall rewrites shell profile", .run = test_uninstall_rewrites_profile },
+        .{ .name = "self uninstall --no-modify-path", .run = test_uninstall_no_modify_path },
+        .{ .name = "self uninstall rejects version", .run = test_uninstall_rejects_version },
+        .{ .name = "self uninstall guards ZVM_HOME", .run = test_uninstall_guards_root_override },
+        .{
+            .name = "self uninstall guards ZVM_CONFIG_HOME",
+            .run = test_uninstall_guards_config_override,
+        },
+        .{ .name = "bare uninstall is refused as ambiguous", .run = test_uninstall_is_ambiguous },
+        .{ .name = "self without a verb is refused", .run = test_self_requires_verb },
+        .{ .name = "self unknown verb suggests", .run = test_self_unknown_verb_suggests },
+        .{ .name = "self help documents the namespace", .run = test_self_help },
         .{ .name = "ZVM_HOME override appears in env", .run = test_zvm_home_override },
         .{ .name = "auto-detect parses build.zig.zon", .run = test_auto_detect_parses_zon },
         .{ .name = "stderr has no ANSI escapes when not a TTY", .run = test_non_tty_stderr_no_ansi },
@@ -456,6 +548,36 @@ fn assert_path_missing(suite: *const Suite, path: []const u8, label: []const u8)
     return error.PathStillExists;
 }
 
+/// `assert_path_exists` for a path spelled relative to the sandbox, which is
+/// how the uninstall cases name the trees they check.
+fn assert_sandbox_path_exists(
+    suite: *const Suite,
+    sandbox: []const u8,
+    relative: []const u8,
+    label: []const u8,
+) !void {
+    var buffer: [sandbox_path_max]u8 = undefined;
+    const path = try join_sandbox_path(&buffer, sandbox, relative);
+    try assert_path_exists(suite, path, label);
+}
+
+fn assert_sandbox_path_missing(
+    suite: *const Suite,
+    sandbox: []const u8,
+    relative: []const u8,
+    label: []const u8,
+) !void {
+    var buffer: [sandbox_path_max]u8 = undefined;
+    const path = try join_sandbox_path(&buffer, sandbox, relative);
+    try assert_path_missing(suite, path, label);
+}
+
+fn join_sandbox_path(buffer: []u8, sandbox: []const u8, relative: []const u8) ![]const u8 {
+    assert(sandbox.len > 0);
+    assert(relative.len > 0);
+    return std.fmt.bufPrint(buffer, "{s}{c}{s}", .{ sandbox, std.fs.path.sep, relative });
+}
+
 fn assert_env_config_dir(stdout: []const u8, sandbox: []const u8, label: []const u8) !void {
     try assert_contains(stdout, "zvm config directory:", label);
     if (builtin.os.tag == .windows) {
@@ -548,6 +670,24 @@ fn test_completions_powershell(suite: *const Suite, sandbox: []const u8) !void {
     defer outcome.deinit(suite.gpa);
     try assert_exit_zero(outcome, "completions powershell");
     try assert_contains(outcome.stdout, "Register-ArgumentCompleter", "powershell registration");
+    try assert_contains(outcome.stdout, "'self' {", "powershell self verb block");
+
+    // This is zvm's largest stdout payload and it outgrew the emitter's
+    // 4 KiB buffer once `self` was added. A fixed-buffer writer drops such
+    // a payload whole, so assert a marker past that boundary rather than
+    // the header, which survives either way.
+    const tail_marker = "'completions' {";
+    const tail_offset = std.mem.indexOf(u8, outcome.stdout, tail_marker) orelse {
+        std.debug.print("    powershell script is missing its final block\n", .{});
+        return error.ContentMissing;
+    };
+    if (tail_offset <= emitter_buffer_size_bytes) {
+        std.debug.print(
+            "    powershell tail marker at {d} no longer guards the {d}-byte buffer\n",
+            .{ tail_offset, emitter_buffer_size_bytes },
+        );
+        return error.GuardNoLongerMeaningful;
+    }
 }
 
 fn test_invalid_command(suite: *const Suite, sandbox: []const u8) !void {
@@ -973,6 +1113,647 @@ fn test_zvm_home_override(suite: *const Suite, sandbox: []const u8) !void {
         .{ sandbox, std.fs.path.sep },
     );
     try assert_contains(outcome.stdout, expected_bin, "env bash bin path matches override");
+}
+
+/// Copy the built zvm into the sandbox and return its path. Uninstall
+/// deletes the binary it runs from; the shared build artifact must survive
+/// for the rest of the suite.
+/// Place zvm where its installers put it: `<ZVM_HOME>/bin/zvm`. `self
+/// uninstall` and `self update` refuse any other location, so tests that
+/// exercise them have to install the way a user would.
+fn place_sandbox_binary(
+    suite: *const Suite,
+    sandbox: []const u8,
+    buffer: []u8,
+) ![]const u8 {
+    return place_binary_in(suite, sandbox, ".zm/bin", buffer);
+}
+
+/// Copy the built zvm into `<sandbox>/<relative_dir>` and return its path.
+/// An empty `relative_dir` places it at the sandbox root.
+fn place_binary_in(
+    suite: *const Suite,
+    sandbox: []const u8,
+    relative_dir: []const u8,
+    buffer: []u8,
+) ![]const u8 {
+    assert(sandbox.len > 0);
+
+    const io = suite.process_init.io;
+    const binary_name = if (builtin.os.tag == .windows) "zvm.exe" else "zvm";
+
+    var dir_buffer: [sandbox_path_max]u8 = undefined;
+    var dir_path = sandbox;
+    if (relative_dir.len > 0) {
+        dir_path = try std.fmt.bufPrint(
+            &dir_buffer,
+            "{s}{c}{s}",
+            .{ sandbox, std.fs.path.sep, relative_dir },
+        );
+        var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+        defer sandbox_dir.close(io);
+        try sandbox_dir.createDirPath(io, relative_dir);
+    }
+
+    const binary_path = try std.fmt.bufPrint(
+        buffer,
+        "{s}{c}{s}",
+        .{ dir_path, std.fs.path.sep, binary_name },
+    );
+    try Io.Dir.cwd().copyFile(
+        suite.args.zvm_bin,
+        .cwd(),
+        binary_path,
+        io,
+        .{ .replace = true, .permissions = .executable_file },
+    );
+    return binary_path;
+}
+
+fn test_uninstall_dry_run(suite: *const Suite, sandbox: []const u8) !void {
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "self", "uninstall", "--dry-run" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "self uninstall --dry-run");
+    try assert_contains(outcome.stdout, "would remove", "dry-run wording");
+    try assert_contains(outcome.stdout, ".zm", "dry-run lists data root");
+
+    // A preview must not touch the file system.
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
+    try assert_path_exists(suite, root, "dry-run keeps data root");
+    try assert_path_exists(suite, binary, "dry-run keeps binary");
+}
+
+fn test_uninstall_removes_all(suite: *const Suite, sandbox: []const u8) !void {
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+    try place_installed_version(suite, sandbox, "zls", "0.13.0");
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--yes", "self", "uninstall" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall");
+    try assert_sandbox_path_missing(suite, sandbox, ".zm/version", "installed versions removed");
+
+    // Windows cannot unlink a running image, so the binary and the root that
+    // holds it are reported for the operator rather than deleted.
+    if (builtin.os.tag == .windows) {
+        try assert_contains(outcome.stderr, "Could not delete the running zvm binary", "binary reported");
+        try assert_contains(outcome.stderr, "the running binary is inside it", "root reason is right");
+        return;
+    }
+
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
+    try assert_path_missing(suite, root, "uninstall removes data root");
+    try assert_path_missing(suite, binary, "uninstall removes its own binary");
+}
+
+/// A zvm outside `<ZVM_HOME>/bin` was placed there by something else — a
+/// package manager, a distro, a hand-built copy. Removing the data root
+/// behind that owner's back would leave it believing zvm is installed, so
+/// both self commands refuse.
+fn assert_self_command_refuses_foreign_binary(
+    suite: *const Suite,
+    sandbox: []const u8,
+    arguments: []const []const u8,
+    label: []const u8,
+) !void {
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_binary_in(suite, sandbox, "Cellar/zvm/1.2.0/bin", &binary_buffer);
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, arguments);
+    defer outcome.deinit(suite.gpa);
+
+    try assert_exit_non_zero(outcome, label);
+    try assert_contains(outcome.stderr, "is disabled for this zvm installation", "refusal explains");
+    try assert_contains(outcome.stderr, "zvm installs to", "refusal names the expected path");
+    try assert_path_exists(suite, binary, "foreign binary is kept");
+
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
+    try assert_path_exists(suite, root, "refused command keeps the data root");
+}
+
+fn test_uninstall_refuses_foreign_binary(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+    try assert_self_command_refuses_foreign_binary(
+        suite,
+        sandbox,
+        &.{ "--yes", "self", "uninstall" },
+        "self uninstall from outside the install location",
+    );
+}
+
+fn test_update_refuses_foreign_binary(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+    // Also proves the guard runs before any network access: the offline
+    // suite would otherwise hang or fail on the release lookup.
+    try assert_self_command_refuses_foreign_binary(
+        suite,
+        sandbox,
+        &.{ "self", "update" },
+        "self update from outside the install location",
+    );
+}
+
+/// A profile with one zvm PATH line, one zvm comment, and two lines that must
+/// survive — including `zvmtest`, which a naive "zvm" match would delete.
+const profile_fixture =
+    \\# my shell config
+    \\alias zvmtest='echo keep me'
+    \\# zvm config directory: /somewhere/.config/.zm
+    \\export PATH="$HOME/.zm/bin:$PATH"
+    \\export EDITOR=vim
+    \\
+;
+
+fn place_profile(suite: *const Suite, sandbox: []const u8) !void {
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+    try sandbox_dir.writeFile(suite.process_init.io, .{
+        .sub_path = ".zshrc",
+        .data = profile_fixture,
+    });
+}
+
+fn read_profile(suite: *const Suite, sandbox: []const u8) ![]u8 {
+    var sandbox_dir = try Io.Dir.cwd().openDir(suite.process_init.io, sandbox, .{});
+    defer sandbox_dir.close(suite.process_init.io);
+    return sandbox_dir.readFileAlloc(
+        suite.process_init.io,
+        ".zshrc",
+        suite.gpa,
+        .limited(stdio_limit_bytes),
+    );
+}
+
+fn test_uninstall_rewrites_profile(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    try place_profile(suite, sandbox);
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--yes", "self", "uninstall" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall rewriting a profile");
+
+    const profile = try read_profile(suite, sandbox);
+    defer suite.gpa.free(profile);
+
+    // Only zvm's own lines go. Everything else, including a line that merely
+    // contains "zvm", has to survive: this is a file zvm does not own.
+    try assert_not_contains(profile, ".zm/bin", "zvm PATH line removed");
+    try assert_not_contains(profile, "zvm config directory", "zvm comment removed");
+    try assert_contains(profile, "alias zvmtest=", "unrelated zvm-ish line kept");
+    try assert_contains(profile, "export EDITOR=vim", "unrelated line kept");
+    try assert_contains(profile, "# my shell config", "leading comment kept");
+
+    // The rewrite is a temp file plus a rename; the temp must not survive.
+    var temp_buffer: [sandbox_path_max]u8 = undefined;
+    const temp = try std.fmt.bufPrint(
+        &temp_buffer,
+        "{s}{c}.zshrc.zvm-uninstall",
+        .{ sandbox, std.fs.path.sep },
+    );
+    try assert_path_missing(suite, temp, "profile temp file cleaned up");
+}
+
+fn test_uninstall_no_modify_path(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    try place_profile(suite, sandbox);
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--yes", "self", "uninstall", "--no-modify-path" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall --no-modify-path");
+    // An outstanding action for the operator is a warning, and warnings go to
+    // stderr so stdout stays clean for piped consumers.
+    try assert_contains(outcome.stderr, "Manual step", "reports the profile instead");
+
+    const profile = try read_profile(suite, sandbox);
+    defer suite.gpa.free(profile);
+    try std.testing.expectEqualStrings(profile_fixture, profile);
+}
+
+/// `--json` may change how a result is printed and nothing else. The profile
+/// rewrite used to sit inside the human-readable branch, so a JSON uninstall
+/// silently left the PATH line in place.
+fn test_uninstall_json_rewrites_profile(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    try place_profile(suite, sandbox);
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--json", "--yes", "self", "uninstall" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--json --yes self uninstall");
+
+    const profile = try read_profile(suite, sandbox);
+    defer suite.gpa.free(profile);
+    try assert_not_contains(profile, ".zm/bin", "json mode removes the PATH line too");
+    try assert_contains(profile, "alias zvmtest=", "json mode keeps unrelated lines");
+
+    // And says so, so automation is not left guessing which files moved.
+    try assert_contains(outcome.stdout, "\"profiles_rewritten\":[", "json names the profiles");
+    try assert_contains(outcome.stdout, ".zshrc", "json names the rewritten profile");
+}
+
+/// A dangling shim — the shape left behind when zvm moved out of
+/// `~/.local/bin` — used to survive a check that follows symlinks.
+fn test_uninstall_removes_dangling_shims(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+
+    // `zig` points nowhere while `zls` still resolves: both halves covered.
+    var missing_buffer: [sandbox_path_max]u8 = undefined;
+    const missing = try join_sandbox_path(&missing_buffer, sandbox, "gone/zvm");
+    try sandbox_dir.symLink(io, missing, ".zm/bin/zig", .{});
+    try sandbox_dir.symLink(io, binary, ".zm/bin/zls", .{});
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a dangling shim");
+
+    try assert_sandbox_path_missing(suite, sandbox, ".zm", "dangling shim takes the root with it");
+    try assert_contains(outcome.stdout, "Removed zvm data root", "root reported as removed");
+    try assert_not_contains(outcome.stdout, "Kept the directory", "nothing was kept");
+}
+
+/// A profile symlinked into a dotfiles repo: the rewrite has to follow the
+/// link rather than replace it with a plain copy.
+fn test_uninstall_rewrites_symlinked_profile(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+
+    try sandbox_dir.createDirPath(io, "dotfiles");
+    try sandbox_dir.writeFile(io, .{ .sub_path = "dotfiles/zshrc", .data = profile_fixture });
+
+    var target_buffer: [sandbox_path_max]u8 = undefined;
+    const target = try join_sandbox_path(&target_buffer, sandbox, "dotfiles/zshrc");
+    try sandbox_dir.symLink(io, target, ".zshrc", .{});
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a symlinked profile");
+
+    // The repo's file lost the PATH line...
+    const written = try sandbox_dir.readFileAlloc(
+        io,
+        "dotfiles/zshrc",
+        suite.gpa,
+        .limited(stdio_limit_bytes),
+    );
+    defer suite.gpa.free(written);
+    try assert_not_contains(written, ".zm/bin", "symlink target lost the PATH line");
+    try assert_contains(written, "alias zvmtest=", "symlink target kept unrelated lines");
+
+    // ...and `.zshrc` is still the link that pointed at it.
+    var link_buffer: [sandbox_path_max]u8 = undefined;
+    const link_length = try sandbox_dir.readLink(io, ".zshrc", &link_buffer);
+    try assert_contains(link_buffer[0..link_length], "dotfiles/zshrc", "profile is still a symlink");
+}
+
+/// `ZVM_HOME` is taken verbatim, so the data root may be a prefix zvm shares
+/// with other software — `~/.local` is the obvious one, since that is where
+/// zvm used to install. Uninstall must take only what zvm created.
+fn test_uninstall_keeps_unrelated_prefix_contents(
+    suite: *const Suite,
+    sandbox: []const u8,
+) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+
+    // A prefix laid out the way `~/.local` or `/usr/local` is.
+    try sandbox_dir.createDirPath(io, "prefix/bin");
+    try sandbox_dir.createDirPath(io, "prefix/lib");
+    try sandbox_dir.createDirPath(io, "prefix/share/doc");
+    try sandbox_dir.createDirPath(io, "prefix/version/zig/0.13.0");
+    try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/lib/libother.so", .data = "x" });
+    try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/share/doc/other.txt", .data = "x" });
+    try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/bin/other-tool", .data = "x" });
+    try sandbox_dir.writeFile(io, .{ .sub_path = "prefix/version/zig/0.13.0/marker", .data = "x" });
+
+    // The profile must spell the bin directory the way zvm resolves it, real
+    // path and all, or the assertion never reaches the predicate.
+    var bin_storage: [sandbox_path_max]u8 = undefined;
+    const bin_length = try sandbox_dir.realPathFile(io, "prefix/bin", &bin_storage);
+    var profile_storage: [sandbox_path_max + 64]u8 = undefined;
+    const shared_profile = try std.fmt.bufPrint(
+        &profile_storage,
+        "# my shell config\nexport PATH=\"{s}:$PATH\"\nexport EDITOR=vim\n",
+        .{bin_storage[0..bin_length]},
+    );
+    try sandbox_dir.writeFile(io, .{ .sub_path = ".zshrc", .data = shared_profile });
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_binary_in(suite, sandbox, "prefix/bin", &binary_buffer);
+
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}prefix", .{ sandbox, std.fs.path.sep });
+
+    var outcome = try run_zvm_with_env(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--yes", "self", "uninstall" },
+        .{ .key = "ZVM_HOME", .value = root },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a shared prefix root");
+
+    // What zvm created is gone.
+    try assert_sandbox_path_missing(suite, sandbox, "prefix/version", "zvm versions removed");
+    try assert_sandbox_path_missing(suite, sandbox, "prefix/bin/zvm", "zvm binary removed");
+
+    // What zvm never created is untouched, including the root itself.
+    try assert_sandbox_path_exists(suite, sandbox, "prefix", "shared prefix kept");
+    try assert_sandbox_path_exists(suite, sandbox, "prefix/lib/libother.so", "foreign lib kept");
+    try assert_sandbox_path_exists(suite, sandbox, "prefix/share/doc/other.txt", "foreign doc kept");
+    try assert_sandbox_path_exists(suite, sandbox, "prefix/bin/other-tool", "foreign binary kept");
+
+    // The shared PATH line survives and is reported instead.
+    const profile = try read_profile(suite, sandbox);
+    defer suite.gpa.free(profile);
+    try std.testing.expectEqualStrings(shared_profile, profile);
+    try assert_contains(outcome.stderr, "Manual step", "shared PATH line is reported, not deleted");
+    try assert_contains(outcome.stderr, "finish the steps above", "closing line asks for follow-up");
+
+    try assert_contains(outcome.stdout, "Kept the directory", "report explains the kept root");
+}
+
+/// `<root>/bin/zvm` may be a symlink to a binary outside the root. Both paths
+/// then resolve to one file while the running binary is not under the root at
+/// all, which used to satisfy the guard and trip an assertion during removal.
+fn test_uninstall_refuses_symlinked_install(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    const io = suite.process_init.io;
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const outside = try place_binary_in(suite, sandbox, "opt/bin", &binary_buffer);
+
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+    try sandbox_dir.createDirPath(io, ".zm/bin");
+    try sandbox_dir.symLink(io, outside, ".zm/bin/zvm", .{});
+
+    var outcome = try run_zvm_binary(suite, outside, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+
+    try assert_exit_non_zero(outcome, "self uninstall through a symlinked install location");
+    try assert_contains(outcome.stderr, "is disabled for this zvm installation", "refusal explains");
+    try assert_sandbox_path_exists(suite, sandbox, ".zm/version", "refused uninstall keeps data");
+}
+
+/// zvm writes nothing into the config directory, so anything in it is the
+/// operator's and `ZVM_CONFIG_HOME` is as free-form as `ZVM_HOME`.
+fn test_uninstall_keeps_nonempty_config(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    const io = suite.process_init.io;
+    var sandbox_dir = try Io.Dir.cwd().openDir(io, sandbox, .{});
+    defer sandbox_dir.close(io);
+    try sandbox_dir.createDirPath(io, ".config/.zm");
+    try sandbox_dir.writeFile(io, .{ .sub_path = ".config/.zm/notes.txt", .data = "mine" });
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with a non-empty config dir");
+
+    try assert_sandbox_path_exists(suite, sandbox, ".config/.zm/notes.txt", "config file kept");
+}
+
+/// The branch Windows always takes: the running binary cannot be unlinked.
+/// Reproduced on Unix by making its directory unwritable, which is the only
+/// way this path gets exercised outside a Windows runner. What matters is that
+/// the data still goes, the binary is reported rather than silently skipped,
+/// and the root is kept because the binary is still inside it.
+fn test_uninstall_reports_undeletable_binary(suite: *const Suite, sandbox: []const u8) !void {
+    if (builtin.os.tag == .windows) return;
+
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    const io = suite.process_init.io;
+    // Iterating, because Linux opens a non-iterating dir handle with O_PATH,
+    // which fchmod rejects with EBADF.
+    var bin_dir = try Io.Dir.cwd().openDir(io, std.fs.path.dirname(binary).?, .{ .iterate = true });
+    defer bin_dir.close(io);
+
+    try bin_dir.setPermissions(io, @enumFromInt(0o555));
+    // Restored before the harness tears the sandbox down, which needs to write.
+    defer bin_dir.setPermissions(io, @enumFromInt(0o755)) catch {};
+
+    var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_zero(outcome, "--yes self uninstall with an undeletable binary");
+
+    try assert_contains(outcome.stderr, "Could not delete the running zvm binary", "binary reported");
+    try assert_contains(outcome.stderr, "finish the steps above", "closing line asks for follow-up");
+
+    // The root is kept because zvm is still in it, which is a different reason
+    // from "it holds somebody else's files" and must not borrow that wording.
+    try assert_contains(outcome.stderr, "the running binary is inside it", "root reason is right");
+    try assert_not_contains(outcome.stdout, "zvm did not create", "not reported as a shared root");
+
+    try assert_sandbox_path_missing(suite, sandbox, ".zm/version", "data removed anyway");
+    try assert_path_exists(suite, binary, "undeletable binary kept");
+}
+
+fn test_uninstall_json_requires_yes(suite: *const Suite, sandbox: []const u8) !void {
+    // JSON consumers cannot answer a prompt, so the destructive path must
+    // refuse rather than silently proceed.
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_sandbox_binary(suite, sandbox, &binary_buffer);
+
+    var outcome = try run_zvm_binary(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--json", "self", "uninstall" },
+    );
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "self uninstall --json without --yes");
+    try assert_contains(outcome.stdout, "--yes", "json refusal mentions --yes");
+
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
+    try assert_path_exists(suite, root, "refused uninstall keeps data root");
+}
+
+/// Both roots uninstall deletes recursively come from free-form environment
+/// overrides. Pointing one at the home directory must be refused before
+/// anything is unlinked, so a typo cannot erase a home directory.
+///
+/// The binary is installed at the location each case makes canonical, so the
+/// install-location guard passes and these tests reach the guard they mean to
+/// exercise.
+fn assert_uninstall_refuses_override(
+    suite: *const Suite,
+    sandbox: []const u8,
+    variable: []const u8,
+    binary_dir: []const u8,
+) !void {
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    var binary_buffer: [sandbox_path_max]u8 = undefined;
+    const binary = try place_binary_in(suite, sandbox, binary_dir, &binary_buffer);
+
+    var outcome = try run_zvm_with_env(
+        suite,
+        binary,
+        sandbox,
+        sandbox,
+        &.{ "--yes", "self", "uninstall" },
+        .{ .key = variable, .value = sandbox },
+    );
+    defer outcome.deinit(suite.gpa);
+
+    try assert_exit_non_zero(outcome, "self uninstall with override pointing at home");
+    try assert_contains(outcome.stderr, "refusing to uninstall", "guard explains the refusal");
+    try assert_contains(outcome.stderr, variable, "guard names the override");
+
+    // The guard runs before any deletion, so the sandbox must be intact.
+    try assert_path_exists(suite, sandbox, "refused uninstall keeps home directory");
+    try assert_path_exists(suite, binary, "refused uninstall keeps the binary");
+}
+
+fn test_uninstall_guards_root_override(suite: *const Suite, sandbox: []const u8) !void {
+    // ZVM_HOME=<sandbox> makes the root the home directory, so the canonical
+    // binary location is <sandbox>/bin/zvm.
+    try assert_uninstall_refuses_override(suite, sandbox, "ZVM_HOME", "bin");
+}
+
+fn test_uninstall_guards_config_override(suite: *const Suite, sandbox: []const u8) !void {
+    // ZVM_HOME keeps its sandbox default here; only the config dir is bad.
+    try assert_uninstall_refuses_override(suite, sandbox, "ZVM_CONFIG_HOME", ".zm/bin");
+}
+
+fn test_uninstall_rejects_version(suite: *const Suite, sandbox: []const u8) !void {
+    // `self uninstall 0.13.0` is a confusion with `remove`; say so.
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "self", "uninstall", "0.13.0" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "self uninstall with version argument");
+    try assert_contains(outcome.stderr, "zvm remove", "self uninstall points at remove");
+}
+
+fn test_uninstall_is_ambiguous(suite: *const Suite, sandbox: []const u8) !void {
+    // Bare `uninstall` must never delete anything: in every other version
+    // manager it removes a managed version, in zvm it would remove zvm.
+    try place_installed_version(suite, sandbox, "zig", "0.13.0");
+
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{"uninstall"});
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "bare uninstall");
+    try assert_contains(outcome.stderr, "ambiguous", "bare uninstall explains itself");
+    try assert_contains(outcome.stderr, "zvm self uninstall", "points at self uninstall");
+    try assert_contains(outcome.stderr, "zvm remove", "points at remove");
+
+    var root_buffer: [sandbox_path_max]u8 = undefined;
+    const root = try std.fmt.bufPrint(&root_buffer, "{s}{c}.zm", .{ sandbox, std.fs.path.sep });
+    try assert_path_exists(suite, root, "refused uninstall keeps data root");
+}
+
+fn test_self_requires_verb(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{"self"});
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "self without verb");
+    try assert_contains(outcome.stderr, "zvm self update", "lists update verb");
+    try assert_contains(outcome.stderr, "zvm self uninstall", "lists uninstall verb");
+}
+
+fn test_self_unknown_verb_suggests(suite: *const Suite, sandbox: []const u8) !void {
+    var outcome = try run_zvm(suite, sandbox, sandbox, &.{ "self", "uninstal" });
+    defer outcome.deinit(suite.gpa);
+    try assert_exit_non_zero(outcome, "self with unknown verb");
+    try assert_contains(outcome.stderr, "uninstall", "suggests the nearest verb");
+}
+
+fn test_self_help(suite: *const Suite, sandbox: []const u8) !void {
+    var flag_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "self", "--help" });
+    defer flag_outcome.deinit(suite.gpa);
+    try assert_exit_zero(flag_outcome, "self --help");
+    try assert_contains(flag_outcome.stdout, "self <VERB>", "self help shows usage");
+
+    var topic_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "help", "self" });
+    defer topic_outcome.deinit(suite.gpa);
+    try assert_exit_zero(topic_outcome, "help self");
+    try assert_contains(topic_outcome.stdout, "self <VERB>", "help self shows usage");
+
+    // The verb's own help must reach the uninstall topic, not the namespace.
+    var verb_outcome = try run_zvm(suite, sandbox, sandbox, &.{ "self", "uninstall", "--help" });
+    defer verb_outcome.deinit(suite.gpa);
+    try assert_exit_zero(verb_outcome, "self uninstall --help");
+    try assert_contains(verb_outcome.stdout, "--dry-run", "uninstall help shows its flag");
 }
 
 fn test_auto_detect_parses_zon(suite: *const Suite, sandbox: []const u8) !void {

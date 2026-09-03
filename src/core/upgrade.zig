@@ -10,6 +10,7 @@ const http_client = @import("../io/http_client.zig");
 const core_install = @import("install.zig");
 const limits = @import("../memory/limits.zig");
 const options = @import("options");
+const paths = @import("../platform/paths.zig");
 const assert = std.debug.assert;
 
 const log = std.log.scoped(.upgrade);
@@ -34,6 +35,13 @@ pub fn upgrade(
 ) !void {
     _ = command;
 
+    var self_storage: [limits.path_length_maximum]u8 = undefined;
+    const self_len = try std.process.executablePath(ctx.io, &self_storage);
+    const self_path = self_storage[0..self_len];
+    assert(self_path.len > 0);
+
+    guard_self_update_allowed(ctx, self_path);
+
     var tag_storage: [tag_max_length]u8 = undefined;
     const latest_tag = try fetch_latest_tag(ctx, &tag_storage, progress_node);
 
@@ -55,11 +63,6 @@ pub fn upgrade(
     var platform_pool_buffer = try ctx.scratch(.path);
     defer platform_pool_buffer.release();
     const platform_str = try core_install.get_platform_string_into_buffer(false, platform_pool_buffer);
-
-    var self_storage: [limits.path_length_maximum]u8 = undefined;
-    const self_len = try std.process.executablePath(ctx.io, &self_storage);
-    const self_path = self_storage[0..self_len];
-    assert(self_path.len > 0);
 
     var archive_name_storage: [limits.path_length_maximum]u8 = undefined;
     const archive_name = try build_archive_name(&archive_name_storage, latest_tag, platform_str);
@@ -98,6 +101,42 @@ pub fn upgrade(
     try replace_self_binary(ctx, self_path, new_binary_path);
 
     util_output.emit(.success, "Upgraded zvm to {s}.", .{latest_tag});
+}
+
+/// Refuse to overwrite a binary zvm did not install. Checked before any
+/// download so the refusal costs no network round trip.
+fn guard_self_update_allowed(ctx: *context.CliContext, self_path: []const u8) void {
+    assert(self_path.len > 0);
+
+    // A root we cannot resolve is a root we cannot vouch for, so refuse
+    // rather than overwrite a binary that may belong to someone else.
+    var root_storage: [limits.path_length_maximum]u8 = undefined;
+    const root = paths.get_zvm_root(&root_storage, ctx.get_home_dir()) catch
+        util_output.exit_with(
+            .invalid_arguments,
+            "refusing to self-update: cannot resolve the zvm root (check ZVM_HOME)",
+            .{},
+        );
+
+    if (paths.binary_is_self_installed(ctx.io, self_path, root)) return;
+
+    var expected_storage: [limits.path_length_maximum]u8 = undefined;
+    const expected = paths.get_self_install_path(&expected_storage, root) catch
+        util_output.exit_with(
+            .invalid_arguments,
+            "refusing to self-update: cannot resolve the zvm install path under '{s}'",
+            .{root},
+        );
+
+    util_output.exit_with(
+        .invalid_arguments,
+        "self-update is disabled for this zvm installation:\n" ++
+            "  running binary:  {s}\n" ++
+            "  zvm installs to: {s}\n\n" ++
+            "  zvm only updates an installation it created. If a package manager\n" ++
+            "  installed this zvm, update it with that manager, e.g. 'brew upgrade zvm'.",
+        .{ self_path, expected },
+    );
 }
 
 pub fn run(

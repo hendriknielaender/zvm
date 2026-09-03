@@ -329,7 +329,15 @@ fn read_zvm_debug_env() bool {
 }
 
 test {
+    // Zig only analyzes tests in files reachable from the root's test
+    // references, so every module whose tests should run must be listed here.
+    _ = @import("cli/spec.zig");
     _ = @import("cli/validation_test.zig");
+    _ = @import("core/completions.zig");
+    _ = @import("core/help.zig");
+    _ = @import("core/uninstall.zig");
+    _ = @import("platform/paths.zig");
+    _ = @import("util/output/json.zig");
 }
 
 fn get_progress_item_count(command: validation.ValidatedCommand) u16 {

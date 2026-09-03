@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 
 pub const Command = enum {
     install,
@@ -13,6 +14,7 @@ pub const Command = enum {
     version,
     help,
     upgrade,
+    uninstall,
 
     pub fn parse(name: []const u8) ?Command {
         inline for (command_specs, 0..) |command_spec, index| {
@@ -34,7 +36,79 @@ pub const CommandSpec = struct {
     name: []const u8,
     alias: ?[]const u8 = null,
     description: []const u8,
+    /// Reachable only through the `self` namespace. Hidden commands stay
+    /// parseable — help topics and option validation resolve through the
+    /// same specs — but are kept out of help listings and completions so
+    /// the surface advertises exactly one spelling per operation.
+    hidden: bool = false,
 };
+
+/// The `self` namespace groups operations on the zvm installation itself.
+///
+/// Why a namespace: every other version manager spells "remove a managed
+/// version" as `uninstall <version>` (nvm, pyenv, asdf, fnm, volta, mise).
+/// A top-level `zvm uninstall` would read as that to most operators while
+/// deleting zvm instead. `zvm self <verb>` states the target in the command,
+/// following rustup, uv, and rye.
+pub const self_command_name = "self";
+
+pub const SelfVerb = struct {
+    name: []const u8,
+    /// Accepted alternate spelling. Not advertised, so the surface stays
+    /// unambiguous while long-standing muscle memory keeps working.
+    alias: ?[]const u8 = null,
+    /// Command this verb resolves to. `zvm self <verb>` and the flat
+    /// spelling share one implementation and one argument parser.
+    command: Command,
+    description: []const u8,
+};
+
+pub const self_verbs = [_]SelfVerb{
+    .{
+        .name = "update",
+        .alias = "upgrade",
+        .command = .upgrade,
+        .description = "Update zvm to the latest released version",
+    },
+    .{
+        .name = "uninstall",
+        .command = .uninstall,
+        .description = "Remove zvm itself and all of its artefacts",
+    },
+};
+
+/// Resolve a `self` verb to the command it runs.
+pub fn parse_self_verb(name: []const u8) ?Command {
+    assert(name.len > 0);
+
+    for (self_verbs) |verb| {
+        if (std.mem.eql(u8, name, verb.name)) return verb.command;
+        if (verb.alias) |alias| {
+            if (std.mem.eql(u8, name, alias)) return verb.command;
+        }
+    }
+    return null;
+}
+
+/// How a resolvable command name may actually be typed.
+///
+/// A hidden command parses but is not a spelling the operator may use: bare
+/// `uninstall` resolves only to a refusal. Diagnostics that name a command —
+/// "did you mean" above all — have to offer the form that works, or they send
+/// the operator straight into the next error.
+pub fn surface_spelling(name: []const u8) []const u8 {
+    assert(name.len > 0);
+
+    inline for (self_verbs) |verb| {
+        const verb_spec = comptime verb.command.spec();
+        if (comptime verb_spec.hidden) {
+            if (std.mem.eql(u8, name, verb_spec.name)) {
+                return self_command_name ++ " " ++ verb.name;
+            }
+        }
+    }
+    return name;
+}
 
 pub const CLIArgs = union(enum) {
     install: VersionToolArgs,
@@ -49,6 +123,7 @@ pub const CLIArgs = union(enum) {
     version: void,
     help: HelpArgs,
     upgrade: void,
+    uninstall: UninstallArgs,
 };
 
 pub const VersionToolArgs = struct {
@@ -67,6 +142,11 @@ pub const ListRemoteArgs = struct {
 
 pub const CleanArgs = struct {
     all: bool = false,
+};
+
+pub const UninstallArgs = struct {
+    dry_run: bool = false,
+    no_modify_path: bool = false,
 };
 
 pub const EnvArgs = struct {
@@ -95,7 +175,12 @@ pub const command_specs = [_]CommandSpec{
     .{ .name = "completions", .description = "Generate shell completion scripts" },
     .{ .name = "version", .description = "Show zvm version" },
     .{ .name = "help", .description = "Show help" },
-    .{ .name = "upgrade", .description = "Upgrade zvm" },
+    .{ .name = "upgrade", .description = "Upgrade zvm (alias for 'zvm self update')" },
+    .{
+        .name = "uninstall",
+        .description = "Remove zvm itself and all of its artefacts",
+        .hidden = true,
+    },
 };
 
 pub const global_option_names = [_][]const u8{
@@ -120,8 +205,13 @@ pub const shell_names = [_][]const u8{
     "powershell",
 };
 
+/// Every name a user may type as the first word, including aliases, hidden
+/// commands, and the `self` namespace. Used for "did you mean" suggestions,
+/// so it must cover spellings that resolve to something — even the hidden
+/// ones, whose diagnostics point at the supported form.
 const command_names_count = blk: {
-    var count: usize = 0;
+    // +1 for the `self` namespace, which is not a CommandSpec.
+    var count: usize = 1;
     for (command_specs) |command_spec| {
         count += 1;
         if (command_spec.alias != null) count += 1;
@@ -141,17 +231,77 @@ fn build_command_names() [command_names_count][]const u8 {
                 index += 1;
             }
         }
+        names[index] = self_command_name;
+        index += 1;
+        assert(index == command_names_count);
         return names;
     }
 }
 
-fn build_primary_command_names() [command_specs.len][]const u8 {
+/// Advertised top-level commands: what help and completions list. Hidden
+/// commands are excluded; the `self` namespace stands in for them.
+const primary_command_count = blk: {
+    var count: usize = 1; // `self`
+    for (command_specs) |command_spec| {
+        if (!command_spec.hidden) count += 1;
+    }
+    break :blk count;
+};
+
+fn build_primary_command_names() [primary_command_count][]const u8 {
     comptime {
-        var names: [command_specs.len][]const u8 = undefined;
-        for (command_specs, 0..) |command_spec, index| {
+        var names: [primary_command_count][]const u8 = undefined;
+        var index: usize = 0;
+        for (command_specs) |command_spec| {
+            if (command_spec.hidden) continue;
             names[index] = command_spec.name;
+            index += 1;
+        }
+        names[index] = self_command_name;
+        index += 1;
+        assert(index == primary_command_count);
+        return names;
+    }
+}
+
+fn build_self_verb_words() []const u8 {
+    comptime {
+        var words: []const u8 = "";
+        for (self_verbs, 0..) |verb, index| {
+            if (index > 0) words = words ++ " ";
+            words = words ++ verb.name;
+        }
+        return words;
+    }
+}
+
+fn build_self_verb_names() [self_verbs.len][]const u8 {
+    comptime {
+        var names: [self_verbs.len][]const u8 = undefined;
+        for (self_verbs, 0..) |verb, index| {
+            names[index] = verb.name;
         }
         return names;
+    }
+}
+
+/// The `self` verbs as a diagnostic lists them, one indented line each and
+/// derived from `self_verbs`. Adding a verb updates the message; the previous
+/// hand-written version indexed `self_verbs[0]` and `self_verbs[1]` and would
+/// have kept printing two of however many there were.
+fn build_self_verb_usage() []const u8 {
+    comptime {
+        var name_width: usize = 0;
+        for (self_verbs) |verb| name_width = @max(name_width, verb.name.len);
+
+        var text: []const u8 = "";
+        for (self_verbs) |verb| {
+            var padding: []const u8 = "";
+            for (verb.name.len..name_width) |_| padding = padding ++ " ";
+            text = text ++ "\n  zvm " ++ self_command_name ++ " " ++
+                verb.name ++ padding ++ "    " ++ verb.description;
+        }
+        return text;
     }
 }
 
@@ -159,6 +309,9 @@ pub const command_names = build_command_names();
 pub const primary_command_names = build_primary_command_names();
 pub const primary_command_words = build_primary_command_words();
 pub const shell_words = build_shell_words();
+pub const self_verb_names = build_self_verb_names();
+pub const self_verb_words = build_self_verb_words();
+pub const self_verb_usage = build_self_verb_usage();
 
 fn build_primary_command_words() []const u8 {
     comptime {
@@ -298,8 +451,13 @@ test "command name arrays are derived from command specs" {
     var primary_index: usize = 0;
     var name_index: usize = 0;
     for (command_specs) |command_spec| {
-        try std.testing.expectEqualStrings(command_spec.name, primary_command_names[primary_index]);
-        primary_index += 1;
+        if (!command_spec.hidden) {
+            try std.testing.expectEqualStrings(
+                command_spec.name,
+                primary_command_names[primary_index],
+            );
+            primary_index += 1;
+        }
 
         try std.testing.expectEqualStrings(command_spec.name, command_names[name_index]);
         name_index += 1;
@@ -308,8 +466,41 @@ test "command name arrays are derived from command specs" {
             name_index += 1;
         }
     }
-    try std.testing.expectEqual(primary_command_names.len, primary_index);
-    try std.testing.expectEqual(command_names.len, name_index);
+
+    // Both arrays end with the `self` namespace, which has no CommandSpec.
+    try std.testing.expectEqualStrings(self_command_name, primary_command_names[primary_index]);
+    try std.testing.expectEqualStrings(self_command_name, command_names[name_index]);
+    try std.testing.expectEqual(primary_command_names.len, primary_index + 1);
+    try std.testing.expectEqual(command_names.len, name_index + 1);
+}
+
+test "hidden commands stay parseable but are not advertised" {
+    // `uninstall` still resolves so its help topic and option validation
+    // work, but the surface only advertises `zvm self uninstall`.
+    try std.testing.expectEqual(Command.uninstall, Command.parse("uninstall").?);
+    try std.testing.expect(Command.uninstall.spec().hidden);
+
+    for (primary_command_names) |name| {
+        try std.testing.expect(!std.mem.eql(u8, name, "uninstall"));
+    }
+}
+
+test "self verbs resolve to the commands they run" {
+    try std.testing.expectEqual(Command.uninstall, parse_self_verb("uninstall").?);
+    try std.testing.expectEqual(Command.upgrade, parse_self_verb("update").?);
+    // `upgrade` is accepted but not advertised, so `zvm upgrade` muscle
+    // memory keeps working inside the namespace too.
+    try std.testing.expectEqual(Command.upgrade, parse_self_verb("upgrade").?);
+    try std.testing.expect(parse_self_verb("nonsense") == null);
+}
+
+test "every self verb resolves to a real command spec" {
+    for (self_verbs) |verb| {
+        try std.testing.expect(verb.name.len > 0);
+        try std.testing.expect(verb.description.len > 0);
+        try std.testing.expect(verb.command.spec().name.len > 0);
+    }
+    try std.testing.expectEqualStrings("update uninstall", self_verb_words);
 }
 
 test "valued command options require attached syntax" {

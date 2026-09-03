@@ -10,6 +10,7 @@ const list = @import("list.zig");
 const list_mirrors = @import("list_mirrors.zig");
 const list_remote = @import("list_remote.zig");
 const remove_installed = @import("remove_installed.zig");
+const uninstall = @import("uninstall.zig");
 const upgrade = @import("upgrade.zig");
 const validation = @import("../cli/validation.zig");
 const version = @import("version.zig");
@@ -36,6 +37,7 @@ const dispatch = [_]Dispatch{
     .{ .tag = .env, .module = env },
     .{ .tag = .completions, .module = completions },
     .{ .tag = .upgrade, .module = upgrade },
+    .{ .tag = .uninstall, .module = uninstall },
 };
 
 comptime {

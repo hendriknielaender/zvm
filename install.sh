@@ -108,7 +108,20 @@ zvm_uri="$github_repo/$release_path/$target-zvm.$archive_ext"
 # macos/linux cross-compat mktemp
 # https://unix.stackexchange.com/questions/30091/fix-or-alternative-for-mktemp-in-os-x
 tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t 'zvm')
-install_dir=${HOME}/.local/bin
+
+# zvm installs itself into its own data root, alongside the zig/zls shims, so
+# a single PATH entry covers everything and `zvm self uninstall` can tell an
+# installation it created from one a package manager placed elsewhere.
+# Resolution order mirrors platform/paths.zig:get_zvm_root.
+if [[ -n ${ZVM_HOME:-} ]]; then
+    zvm_root=$ZVM_HOME
+elif [[ -n ${XDG_DATA_HOME:-} ]]; then
+    zvm_root=$XDG_DATA_HOME/.zm
+else
+    zvm_root=${HOME}/.local/share/.zm
+fi
+install_dir=$zvm_root/bin
+legacy_binary=${HOME}/.local/bin/zvm
 
 if [[ $target == *"windows"* ]]; then
     curl --fail --location --progress-bar --output "$tmpdir/zvm.zip" "$zvm_uri" ||
@@ -140,6 +153,17 @@ else
     mv "$tmpdir/zvm" "$install_dir/zvm"
 fi
 success "$version_label installed to $install_dir/zvm"
+
+# Older installs put zvm in ~/.local/bin. Leaving it there would shadow the
+# new binary whenever ~/.local/bin comes first in PATH, and `zvm self
+# uninstall` would refuse it as an installation it did not create.
+if [[ -f $legacy_binary && $legacy_binary != "$install_dir/zvm" ]]; then
+    if rm -f "$legacy_binary" 2>/dev/null; then
+        info "Removed the previous zvm from $legacy_binary."
+    else
+        info "Could not remove the previous zvm at $legacy_binary; delete it manually."
+    fi
+fi
 
 # Check if install directory is in PATH
 if [[ ":$PATH:" != *":$install_dir:"* ]]; then

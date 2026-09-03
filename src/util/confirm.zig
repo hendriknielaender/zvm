@@ -5,7 +5,6 @@
 //! --yes for automation. Non-TTY input is rejected up front because reading
 //! /dev/null hangs forever in CI and mis-reads piped scripts.
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const signals = @import("../platform/signals.zig");
 
@@ -31,35 +30,14 @@ pub const ConfirmError = error{
 /// Detect whether stdin is connected to a terminal.
 /// Why: prompting a non-TTY stdin (pipes, CI logs, scripts) either hangs
 /// forever or mis-reads scripted input as confirmation.
-pub fn stdin_is_terminal() bool {
-    if (builtin.os.tag == .windows) {
-        return is_windows_console_handle(std_windows_input_handle);
-    }
-    return is_posix_fd_terminal(std.posix.STDIN_FILENO);
-}
-
-fn is_posix_fd_terminal(fd: std.posix.fd_t) bool {
-    assert(fd >= 0);
-    // tcgetattr fails with ENOTTY when fd is not a terminal.
-    _ = std.posix.tcgetattr(fd) catch return false;
-    return true;
-}
-
-/// Windows STD_INPUT_HANDLE = (DWORD)-10, per winbase.h.
-const std_windows_input_handle: std.os.windows.DWORD = @bitCast(@as(i32, -10));
-
-extern "kernel32" fn GetStdHandle(nStdHandle: std.os.windows.DWORD) callconv(.winapi) ?std.os.windows.HANDLE;
-extern "kernel32" fn GetConsoleMode(
-    hConsoleHandle: ?std.os.windows.HANDLE,
-    lpMode: *std.os.windows.DWORD,
-) callconv(.winapi) std.os.windows.BOOL;
-
-fn is_windows_console_handle(n_std_handle: std.os.windows.DWORD) bool {
-    const handle = GetStdHandle(n_std_handle) orelse return false;
-    assert(@intFromPtr(handle) != 0);
-    if (@intFromPtr(handle) == @intFromPtr(std.os.windows.INVALID_HANDLE_VALUE)) return false;
-    var mode: std.os.windows.DWORD = 0;
-    return GetConsoleMode(handle, &mode) != .FALSE;
+///
+/// Delegates to `std.Io.File.isTty` rather than calling `tcgetattr`: that
+/// syscall only maps ENOTTY, so a `/dev/null` stdin returns ENODEV on macOS
+/// and std prints a stack trace through `unexpectedErrno` before the caller
+/// ever sees the error. Failure to classify means "not a terminal", which
+/// refuses rather than prompts.
+pub fn stdin_is_terminal(io: std.Io) bool {
+    return std.Io.File.stdin().isTty(io) catch false;
 }
 
 /// Prompt the operator to confirm a destructive action.
@@ -80,7 +58,7 @@ pub fn confirm_destructive(
     assert(prompt.len <= max_prompt_length_bytes);
 
     if (no_input) return error.RequiresConfirmation;
-    if (!stdin_is_terminal()) return error.RequiresConfirmation;
+    if (!stdin_is_terminal(io)) return error.RequiresConfirmation;
 
     // The prompt goes to stderr so stdout stays clean for piped consumers.
     var stderr_buffer: [max_prompt_length_bytes + 16]u8 = undefined;

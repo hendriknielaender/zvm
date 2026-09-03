@@ -124,8 +124,8 @@ const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
-        const writer: *std.Io.Writer = &writer_state;
+        var file_writer = self.stdout_writer();
+        const writer = &file_writer.interface;
 
         writer.writeAll("{\"") catch return;
         writer.writeAll(field_name_text) catch return;
@@ -140,7 +140,7 @@ const OutputEmitter = struct {
         }
 
         writer.writeAll("]}\n") catch return;
-        self.flush_stdout_buffer(writer_state.buffered());
+        writer.flush() catch return;
     }
 
     fn emit_json_object(self: *OutputEmitter, fields: []const JsonField) void {
@@ -149,8 +149,8 @@ const OutputEmitter = struct {
 
         if (self.config.mode != .machine_json) return;
 
-        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
-        const writer: *std.Io.Writer = &writer_state;
+        var file_writer = self.stdout_writer();
+        const writer = &file_writer.interface;
 
         writer.writeAll("{") catch return;
 
@@ -165,7 +165,23 @@ const OutputEmitter = struct {
         }
 
         writer.writeAll("}\n") catch return;
-        self.flush_stdout_buffer(writer_state.buffered());
+        writer.flush() catch return;
+    }
+
+    /// A stdout writer that drains `stdout_buffer` to the file whenever it
+    /// fills. Why not a fixed buffer: payloads such as completion scripts
+    /// and help topics grow with every command added, and a fixed writer
+    /// fails the whole write once they pass the buffer size — silently in
+    /// JSON mode, and on an assertion in human mode.
+    ///
+    /// Streaming, not positional: each call builds a fresh writer, and a
+    /// positional one would restart at offset 0 and overwrite earlier output
+    /// whenever stdout is a regular file.
+    fn stdout_writer(self: *OutputEmitter) std.Io.File.Writer {
+        return std.Io.File.stdout().writerStreaming(
+            std.Io.Threaded.global_single_threaded.io(),
+            &self.stdout_buffer,
+        );
     }
 
     fn emit_json_object_value(
@@ -177,7 +193,6 @@ const OutputEmitter = struct {
         switch (value) {
             .string => |string| {
                 if (string) |text| {
-                    assert(text.len <= io_buffer_size_bytes);
                     json.write_json_string(writer, text) catch return;
                 } else {
                     writer.writeAll("null") catch return;
@@ -201,7 +216,6 @@ const OutputEmitter = struct {
 
     fn emit_text(self: *OutputEmitter, text: []const u8) void {
         assert(text.len > 0);
-        assert(text.len <= io_buffer_size_bytes);
 
         switch (self.config.mode) {
             .silent_errors_only => return,
@@ -330,13 +344,13 @@ const OutputEmitter = struct {
     }
 
     fn write_plain_to_stdout(self: *OutputEmitter, text: []const u8) void {
-        var writer_state: std.Io.Writer = .fixed(&self.stdout_buffer);
-        const writer: *std.Io.Writer = &writer_state;
+        var file_writer = self.stdout_writer();
+        const writer = &file_writer.interface;
 
         writer.writeAll(text) catch return;
         if (!has_trailing_newline(text)) writer.writeByte('\n') catch return;
 
-        self.flush_stdout_buffer(writer_state.buffered());
+        writer.flush() catch return;
     }
 
     fn write_plain_to_stderr(self: *OutputEmitter, tag: []const u8, text: []const u8) void {

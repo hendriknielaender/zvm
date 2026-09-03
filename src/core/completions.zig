@@ -22,6 +22,7 @@ const zsh_script =
     \\  'completions:Generate shell completion script'
     \\  'list-mirrors:List community download mirrors'
     \\  'upgrade:Upgrade zvm'
+    \\  'self:Manage the zvm installation itself'
     \\  'version:Show zvm version'
     \\  'help:Show help message'
     \\)
@@ -52,6 +53,12 @@ const zsh_script =
     \\      clean)
     \\        _arguments \
     \\          '--all[Also remove unused versions]'
+    \\        ;;
+    \\      self)
+    \\        _arguments \
+    \\          '1:verb:(update uninstall)' \
+    \\          '--dry-run[For uninstall, list artefacts without deleting anything]' \
+    \\          '--no-modify-path[For uninstall, leave shell profiles alone]'
     \\        ;;
     \\      env)
     \\        _arguments \
@@ -95,6 +102,15 @@ const bash_script =
     \\                ;;
     \\            clean)
     \\                COMPREPLY=( $( compgen -W "--all" -- "$cur" ) )
+    \\                ;;
+    \\            self)
+    \\                if [[ $cword -eq 2 ]]; then
+    \\                    COMPREPLY=( $( compgen -W "
+++ cli_spec.self_verb_words ++
+    \\" -- "$cur" ) )
+    \\                elif [[ ${words[2]} == "uninstall" ]]; then
+    \\                    COMPREPLY=( $( compgen -W "--dry-run --no-modify-path" -- "$cur" ) )
+    \\                fi
     \\                ;;
     \\            env)
     \\                if [[ $cur == --shell=* ]]; then
@@ -154,6 +170,7 @@ const fish_script =
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'completions' -d 'Generate shell completion script'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'list-mirrors' -d 'List community download mirrors'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'upgrade' -d 'Upgrade zvm'
+    \\complete -c zvm -n '__zvm_no_subcommand' -a 'self' -d 'Manage the zvm installation itself'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'version' -d 'Show zvm version'
     \\complete -c zvm -n '__zvm_no_subcommand' -a 'help' -d 'Show help message'
     \\
@@ -164,6 +181,9 @@ const fish_script =
     \\complete -c zvm -n '__zvm_using_command list' -l all -d 'List Zig and ZLS versions together'
     \\complete -c zvm -n '__zvm_using_command list-remote' -l zls -d 'List ZLS versions instead of Zig'
     \\complete -c zvm -n '__zvm_using_command clean' -l all -d 'Also remove unused versions'
+    \\complete -c zvm -n '__zvm_using_command self' -xa 'update uninstall'
+    \\complete -c zvm -n '__zvm_using_command self' -l dry-run -d 'For uninstall, list artefacts without deleting anything'
+    \\complete -c zvm -n '__zvm_using_command self' -l no-modify-path -d 'For uninstall, leave shell profiles alone'
     \\complete -c zvm -n '__zvm_using_command env' -a '--shell=bash --shell=zsh --shell=fish --shell=powershell' -d 'Specify shell'
     \\complete -c zvm -n '__zvm_using_command completions' -xa '
 ++ cli_spec.shell_words ++
@@ -190,6 +210,7 @@ const powershell_script =
     \\        @{ Name = 'completions'; Description = 'Generate shell completion script' }
     \\        @{ Name = 'list-mirrors';Description = 'List community download mirrors' }
     \\        @{ Name = 'upgrade';     Description = 'Upgrade zvm' }
+    \\        @{ Name = 'self';        Description = 'Manage the zvm installation itself' }
     \\        @{ Name = 'version';     Description = 'Show zvm version' }
     \\        @{ Name = 'help';        Description = 'Show help message' }
     \\    )
@@ -231,6 +252,21 @@ const powershell_script =
     \\        'clean' {
     \\            return @([System.Management.Automation.CompletionResult]::new(
     \\                '--all', '--all', 'ParameterName', 'Also remove unused versions'))
+    \\        }
+    \\        'self' {
+    \\            if ($effectiveCount -le 3) {
+    \\                return @('update', 'uninstall') |
+    \\                    Where-Object { $_ -like "$wordToComplete*" } |
+    \\                    ForEach-Object {
+    \\                        [System.Management.Automation.CompletionResult]::new(
+    \\                            $_, $_, 'ParameterValue', "zvm self $_")
+    \\                    }
+    \\            }
+    \\            return @(
+    \\                [System.Management.Automation.CompletionResult]::new(
+    \\                    '--dry-run', '--dry-run', 'ParameterName', 'For uninstall, list artefacts only'),
+    \\                [System.Management.Automation.CompletionResult]::new(
+    \\                    '--no-modify-path', '--no-modify-path', 'ParameterName', 'Leave shell profiles alone'))
     \\        }
     \\        'env' {
     \\            if ($wordToComplete -like '--shell=*') {
@@ -314,6 +350,56 @@ test "completion scripts include every primary command from cli spec" {
         for (scripts) |script| {
             try std.testing.expect(std.mem.indexOf(u8, script, command_name) != null);
         }
+    }
+}
+
+test "zsh continuations are single backslashes" {
+    // `\\` at the end of a zsh line is an escaped backslash, not a line
+    // continuation: `_arguments` gets a stray `\` argument and the following
+    // line is executed as its own command. `zsh -n` parses such a script
+    // happily, so nothing but this catches it before a user tabs.
+    try std.testing.expect(std.mem.indexOf(u8, zsh_script, "\\\\\n") == null);
+}
+
+test "every self verb and its flags reach all four completion scripts" {
+    const Expectation = struct {
+        script: []const u8,
+        dry_run: []const u8,
+        no_modify_path: []const u8,
+    };
+
+    const expectations = [_]Expectation{
+        .{
+            .script = zsh_script,
+            .dry_run = "--dry-run",
+            .no_modify_path = "--no-modify-path",
+        },
+        .{
+            .script = bash_script,
+            .dry_run = "--dry-run",
+            .no_modify_path = "--no-modify-path",
+        },
+        // fish declares a long option by name, without its dashes.
+        .{
+            .script = fish_script,
+            .dry_run = "-l dry-run",
+            .no_modify_path = "-l no-modify-path",
+        },
+        .{
+            .script = powershell_script,
+            .dry_run = "--dry-run",
+            .no_modify_path = "--no-modify-path",
+        },
+    };
+
+    for (expectations) |expected| {
+        for (cli_spec.self_verbs) |verb| {
+            try std.testing.expect(std.mem.indexOf(u8, expected.script, verb.name) != null);
+        }
+        try std.testing.expect(std.mem.indexOf(u8, expected.script, expected.dry_run) != null);
+        try std.testing.expect(
+            std.mem.indexOf(u8, expected.script, expected.no_modify_path) != null,
+        );
     }
 }
 
