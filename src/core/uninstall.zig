@@ -1326,7 +1326,7 @@ fn emit_json_report(artefacts: Artefacts, report: Report, profiles: *const Profi
 }
 
 comptime {
-    assert(@typeInfo(Outcome).@"enum".fields.len == 4);
+    assert(@typeInfo(Outcome).@"enum".field_names.len == 4);
     assert(@sizeOf(Report) <= 8);
     assert(@sizeOf(Profiles) <= 32);
 }

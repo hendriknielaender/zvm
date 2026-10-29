@@ -2,11 +2,12 @@
     .name = .zvm,
     .version = "1.3.0",
     .fingerprint = 0xec41f701eac68f7f,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zine = .{
-            .url = "git+https://github.com/kristoff-it/zine#acf07577b158475c7d54f3461c3348b8a0a6a6d3",
-            .hash = "zine-0.11.2-ou6nIAVkLQEFYFBWLqQ1Jxyub0CG5kObgTQaeSq9cI9W",
+            .url = "git+https://github.com/kristoff-it/zine#6c9782957f46cf1162aa6fe8e881162b2d31480e",
+            .hash = "zine-0.14.1-ou6nIJKIFwBEjCLNI4Hryh9YWa73Rm_DCsypWHbEp5l8",
+            .lazy = true,
         },
     },
     .paths = .{

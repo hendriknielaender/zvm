@@ -44,7 +44,7 @@ pub const MessageLevel = enum {
     }
 
     comptime {
-        assert(@typeInfo(MessageLevel).@"enum".fields.len == 5);
+        assert(@typeInfo(MessageLevel).@"enum".field_names.len == 5);
         assert(MessageLevel.success.to_string().len <= 16);
         assert(MessageLevel.error_fatal.to_string().len <= 16);
     }
@@ -109,7 +109,7 @@ const OutputEmitter = struct {
     ) noreturn {
         assert(code != .success);
         self.emit_message(.error_fatal, message, args);
-        std.process.exit(@intFromEnum(code));
+        std.process.exit(@backingInt(code));
     }
 
     fn emit_json_array(
@@ -423,8 +423,8 @@ fn get_color_code(level: MessageLevel) []const u8 {
 }
 
 comptime {
-    for (@typeInfo(MessageLevel).@"enum".fields) |field| {
-        const level: MessageLevel = @enumFromInt(field.value);
+    for (@typeInfo(MessageLevel).@"enum".field_values) |field_value| {
+        const level: MessageLevel = @fromBackingInt(@intCast(field_value));
         const color = get_color_code(level);
         assert(color.len >= 4);
         assert(color.len <= 8);

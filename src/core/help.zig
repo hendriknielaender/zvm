@@ -84,9 +84,9 @@ const install_help_text =
     \\    --zls                   Install ZLS instead of Zig
     \\
     \\EXAMPLES:
-    \\    zvm install 0.16.0
+    \\    zvm install 0.17.0
     \\    zvm i master
-    \\    zvm install --zls 0.16.0
+    \\    zvm install --zls 0.17.0
     \\
 ;
 
@@ -108,8 +108,8 @@ const remove_help_text =
     \\    --no-input              Fail instead of prompting (use with --yes for automation)
     \\
     \\EXAMPLES:
-    \\    zvm remove 0.16.0
-    \\    zvm --yes rm 0.16.0
+    \\    zvm remove 0.17.0
+    \\    zvm --yes rm 0.17.0
     \\    zvm rm --zls master
     \\
 ;
@@ -126,7 +126,7 @@ const use_help_text =
     \\    --zls                   Select ZLS instead of Zig
     \\
     \\EXAMPLES:
-    \\    zvm use 0.16.0
+    \\    zvm use 0.17.0
     \\    zvm u --zls master
     \\
 ;
@@ -432,8 +432,8 @@ pub fn progress_items(command: validation.ValidatedCommand.HelpCommand) u16 {
 }
 
 test "every help topic resolves to usable text" {
-    inline for (@typeInfo(validation.HelpTopic).@"enum".fields) |field| {
-        const topic: validation.HelpTopic = @enumFromInt(field.value);
+    inline for (@typeInfo(validation.HelpTopic).@"enum".field_values) |field_value| {
+        const topic: validation.HelpTopic = @fromBackingInt(@intCast(field_value));
         try std.testing.expect(topic_name(topic).len > 0);
         try std.testing.expect(std.mem.indexOf(u8, topic_text(topic), "USAGE:") != null);
     }

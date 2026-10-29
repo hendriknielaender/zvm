@@ -13,7 +13,7 @@ pub const OutputMode = enum {
     plain,
 
     comptime {
-        const mode_count = @typeInfo(OutputMode).@"enum".fields.len;
+        const mode_count = @typeInfo(OutputMode).@"enum".field_names.len;
         assert(mode_count == 4);
         assert(mode_count >= 2);
         assert(mode_count <= 8);
@@ -36,7 +36,7 @@ pub const ColorMode = enum {
     }
 
     comptime {
-        assert(@typeInfo(ColorMode).@"enum".fields.len == 3);
+        assert(@typeInfo(ColorMode).@"enum".field_names.len == 3);
     }
 };
 
@@ -75,7 +75,7 @@ pub fn resolve_color_mode(
     is_terminal: bool,
     term_is_dumb: bool,
 ) ColorMode {
-    assert(@intFromEnum(flag) < 3);
+    assert(@backingInt(flag) < 3);
 
     if (flag == .always_use_color) return .always_use_color;
     if (flag == .never_use_color) return .never_use_color;
@@ -86,7 +86,7 @@ pub fn resolve_color_mode(
 
     const result: ColorMode = .always_use_color;
     assert(result != .auto);
-    assert(@intFromEnum(result) < 2);
+    assert(@backingInt(result) < 2);
     return result;
 }
 

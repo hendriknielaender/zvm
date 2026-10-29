@@ -32,7 +32,7 @@ pub const Signature = struct {
     trusted_comment: []const u8,
     global_signature: [64]u8,
     // Storage for trusted comment in static allocation.
-    trusted_comment_buffer: [limits.trusted_comment_length_maximum]u8 = [_]u8{0} ** limits.trusted_comment_length_maximum,
+    trusted_comment_buffer: [limits.trusted_comment_length_maximum]u8 = @splat(0),
     trusted_comment_len: usize = 0,
 
     pub fn deinit(self: *Signature) void {
@@ -306,10 +306,10 @@ pub fn verify_static_with_file(
 test "trusted comment file field is parsed as one token" {
     var signature = Signature{
         .signature_algorithm = "Ed".*,
-        .key_id = [_]u8{0} ** 8,
-        .signature = [_]u8{0} ** 64,
+        .key_id = @splat(0),
+        .signature = @splat(0),
         .trusted_comment = undefined,
-        .global_signature = [_]u8{0} ** 64,
+        .global_signature = @splat(0),
     };
 
     const comment = "timestamp:1710958613 file:zig-x86_64-linux-0.16.0.tar.xz hashed";
@@ -326,10 +326,10 @@ test "trusted comment file field is parsed as one token" {
 test "trusted comment file field requires token boundary" {
     var signature = Signature{
         .signature_algorithm = "Ed".*,
-        .key_id = [_]u8{0} ** 8,
-        .signature = [_]u8{0} ** 64,
+        .key_id = @splat(0),
+        .signature = @splat(0),
         .trusted_comment = undefined,
-        .global_signature = [_]u8{0} ** 64,
+        .global_signature = @splat(0),
     };
 
     const comment = "timestamp:1710958613 profile:ignored";
@@ -342,15 +342,15 @@ test "trusted comment file field requires token boundary" {
 
 test "verifier rejects mismatched key id before signature work" {
     const public_key = PublicKey{
-        .key_id = [_]u8{0} ** 8,
-        .key = [_]u8{0} ** 32,
+        .key_id = @splat(0),
+        .key = @splat(0),
     };
     var signature = Signature{
         .signature_algorithm = "Ed".*,
-        .key_id = [_]u8{1} ** 8,
-        .signature = [_]u8{0} ** 64,
+        .key_id = @splat(1),
+        .signature = @splat(0),
         .trusted_comment = &.{},
-        .global_signature = [_]u8{0} ** 64,
+        .global_signature = @splat(0),
     };
 
     try std.testing.expectError(

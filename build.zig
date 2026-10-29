@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const zon = @import("build.zig.zon");
-const zine = @import("zine");
 
 const Build = std.Build;
 
@@ -51,8 +50,7 @@ pub fn build(b: *Build) void {
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(b.getInstallStep());
 
-    if (b.args) |args|
-        run_exe.addArgs(args);
+    run_exe.addPassthruArgs();
 
     const run_step = b.step("run", "Run the application");
     run_step.dependOn(&run_exe.step);
@@ -159,6 +157,8 @@ pub fn build(b: *Build) void {
     ) orelse false;
 
     if (enable_site) {
+        // Zine is lazy so that plain `zig build` never fetches or compiles it.
+        const zine = b.lazyImport(@This(), "zine") orelse return;
         const use_system_zine = b.option(
             bool,
             "zine-system",

@@ -101,10 +101,10 @@ pub const VersionEntry = struct {
     occupied: bool = false,
 
     pub const VersionMetadata = struct {
-        date: [32]u8 = [_]u8{0} ** 32,
+        date: [32]u8 = @splat(0),
         date_length: u8 = 0,
         size: u64 = 0,
-        shasum: [64]u8 = [_]u8{0} ** 64,
+        shasum: [64]u8 = @splat(0),
     };
 
     pub fn set_name(self: *VersionEntry, name: []const u8) !void {

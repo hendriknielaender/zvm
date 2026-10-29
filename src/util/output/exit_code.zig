@@ -15,10 +15,10 @@ pub const ExitCode = enum(u8) {
     interrupted = 130,
 
     comptime {
-        assert(@intFromEnum(ExitCode.success) == 0);
-        assert(@intFromEnum(ExitCode.resource_exhausted) < 16);
-        assert(@intFromEnum(ExitCode.resource_exhausted) >= @intFromEnum(ExitCode.success));
-        assert(@intFromEnum(ExitCode.interrupted) == 130);
+        assert(@backingInt(ExitCode.success) == 0);
+        assert(@backingInt(ExitCode.resource_exhausted) < 16);
+        assert(@backingInt(ExitCode.resource_exhausted) >= @backingInt(ExitCode.success));
+        assert(@backingInt(ExitCode.interrupted) == 130);
     }
 
     /// Convert error union types to semantic exit codes.

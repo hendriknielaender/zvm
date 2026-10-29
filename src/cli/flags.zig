@@ -50,7 +50,7 @@ fn split_attached_value(flag: []const u8, arg: []const u8) ParseError![]const u8
 
 fn positional_start(comptime Args: type) usize {
     comptime {
-        const fields = std.meta.fields(Args);
+        const fields = cli_spec.struct_fields(Args);
         for (fields, 0..) |field, index| {
             if (std.mem.eql(u8, field.name, "--")) {
                 assert(field.type == void);
@@ -63,7 +63,7 @@ fn positional_start(comptime Args: type) usize {
 
 fn named_end(comptime Args: type) usize {
     comptime {
-        const fields = std.meta.fields(Args);
+        const fields = cli_spec.struct_fields(Args);
         for (fields, 0..) |field, index| {
             if (std.mem.eql(u8, field.name, "--")) {
                 assert(field.type == void);
@@ -74,16 +74,16 @@ fn named_end(comptime Args: type) usize {
     }
 }
 
-fn named_fields_sorted(comptime Args: type) []const std.builtin.Type.StructField {
+fn named_fields_sorted(comptime Args: type) []const cli_spec.Field {
     comptime {
-        const fields = std.meta.fields(Args);
+        const fields = cli_spec.struct_fields(Args);
         const end = named_end(Args);
         var result = fields[0..end].*;
 
         for (result[0..], 0..) |*field_right, right_index| {
             for (result[0..right_index]) |*field_left| {
                 if (field_left.name.len < field_right.name.len) {
-                    std.mem.swap(std.builtin.Type.StructField, field_left, field_right);
+                    std.mem.swap(cli_spec.Field, field_left, field_right);
                 }
             }
         }
@@ -110,7 +110,7 @@ fn assert_valid_args_type(comptime Args: type) void {
     comptime {
         assert(@typeInfo(Args) == .@"struct");
 
-        const fields = std.meta.fields(Args);
+        const fields = cli_spec.struct_fields(Args);
         const positional_first = positional_start(Args);
         const positional_count = fields.len - positional_first;
 
@@ -152,7 +152,7 @@ fn assert_valid_args_type(comptime Args: type) void {
 }
 
 fn assign_default_positionals(comptime Args: type, result: *Args, parsed_count: usize) ParseError!void {
-    const fields = comptime std.meta.fields(Args);
+    const fields = comptime cli_spec.struct_fields(Args);
     const positional_first = comptime positional_start(Args);
     inline for (fields, 0..) |field, index| {
         if (index >= positional_first and index - positional_first >= parsed_count) {
@@ -284,7 +284,7 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
     }
 
     if (comptime args_variadic(Args)) {
-        const fields = comptime std.meta.fields(Args);
+        const fields = comptime cli_spec.struct_fields(Args);
         const field = fields[comptime positional_start(Args)];
         if (extended_start) |start| {
             @field(result, field.name) = args[start..];
@@ -303,7 +303,7 @@ fn parse_args(comptime Args: type, args: []const []const u8) ParseError!Args {
 /// which consumes everything after the `--` terminator instead of individual
 /// positional fields.
 fn args_variadic(comptime Args: type) bool {
-    const fields = std.meta.fields(Args);
+    const fields = cli_spec.struct_fields(Args);
     const positional_first = positional_start(Args);
     const positional_len = fields.len - positional_first;
     return positional_len == 1 and fields[positional_first].type == []const []const u8;
@@ -318,7 +318,7 @@ fn parse_args_positional(
     positional_count: usize,
     arg: []const u8,
 ) ParseError!void {
-    const fields = comptime std.meta.fields(Args);
+    const fields = comptime cli_spec.struct_fields(Args);
     const positional_first = comptime positional_start(Args);
     const positional_len = comptime fields.len - positional_first;
 
@@ -337,8 +337,9 @@ fn parse_args_positional(
 
 fn union_payload(comptime Commands: type, comptime tag: std.meta.Tag(Commands)) type {
     const name = @tagName(tag);
-    inline for (@typeInfo(Commands).@"union".fields) |field| {
-        if (std.mem.eql(u8, field.name, name)) return field.type;
+    const info = @typeInfo(Commands).@"union";
+    inline for (info.field_names, info.field_types) |field_name, field_type| {
+        if (std.mem.eql(u8, field_name, name)) return field_type;
     }
     unreachable;
 }
