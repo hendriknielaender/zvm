@@ -1,6 +1,6 @@
 .{
     .name = .zvm,
-    .version = "1.3.0",
+    .version = "1.4.0",
     .fingerprint = 0xec41f701eac68f7f,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
