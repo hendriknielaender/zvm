@@ -111,8 +111,8 @@ zvm env --shell=powershell
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `install`, `i` | Install a Zig or ZLS version | `zvm install 0.16.0` |
-| `use`, `u` | Switch to a Zig or ZLS version | `zvm use 0.16.0` |
+| `install`, `i` | Install a Zig or ZLS version | `zvm install 0.17.0` |
+| `use`, `u` | Switch to a Zig or ZLS version | `zvm use 0.17.0` |
 | `list`, `ls` | List installed versions | `zvm list --all` |
 | `list-remote` | List available Zig or ZLS versions | `zvm list-remote --zls` |
 | `remove`, `rm` | Remove an installed version | `zvm --yes remove 0.15.2` |
@@ -123,8 +123,8 @@ zvm env --shell=powershell
 Common aliases are available for everyday commands:
 
 ```bash
-zvm i 0.16.0       # install
-zvm u 0.16.0       # use
+zvm i 0.17.0       # install
+zvm u 0.17.0       # use
 zvm ls --all       # list
 zvm rm 0.15.2      # remove
 ```
@@ -138,7 +138,7 @@ Create a `build.zig.zon` in your project root:
 .{
     .name = "my-project",
     .version = "0.1.0",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{},
 }
 ```
@@ -153,23 +153,23 @@ Now simply run `zig build` or any Zig command - zvm will:
 zig build
 zig run src/main.zig
 # Or specify version explicitly
-zig 0.16.0 build
+zig 0.17.0 build
 ```
 
 ### Installation Examples
 
 ```bash
 # Install a stable Zig release
-zvm install 0.16.0
+zvm install 0.17.0
 
 # Install quietly (errors only)
-zvm --quiet install 0.16.0
+zvm --quiet install 0.17.0
 
 # Install master/development build
 zvm install master
 
 # Install ZLS (Language Server)
-zvm install --zls 0.16.0
+zvm install --zls 0.17.0
 
 # Inspect available ZLS releases before installing
 zvm list-remote --zls
@@ -179,7 +179,7 @@ zvm list-remote --zls
 
 ```bash
 # Switch to specific version
-zvm use 0.16.0
+zvm use 0.17.0
 
 # List installed versions
 zvm list
@@ -318,7 +318,7 @@ zvm --plain list
 zvm --quiet install master
 
 # Verbose diagnostics on stderr
-zvm --verbose install 0.16.0
+zvm --verbose install 0.17.0
 
 # Trace HTTP/file-path details while debugging downloads
 zvm --trace install master
@@ -417,7 +417,7 @@ zvm completions fish > ~/.config/fish/completions/zvm.fish
 ## 🏗️ Building from Source
 
 ### Prerequisites
-- Zig 0.16.0 or later
+- Zig 0.17.0 or later
 
 ### Build Steps
 ```bash

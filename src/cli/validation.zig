@@ -323,7 +323,7 @@ comptime {
     assert(@sizeOf(CommandArgs.CompletionsArgs) <= 64);
     assert(@sizeOf(CommandArgs.CompletionsArgs) > 0);
 
-    assert(@typeInfo(CommandArgs).@"union".fields.len == 13);
+    assert(@typeInfo(CommandArgs).@"union".field_names.len == 13);
     assert(max_version_string_length == limits.version_string_length_maximum);
     assert(max_shell_name_length == 32);
     assert(max_help_topic_length == 32);
@@ -974,7 +974,7 @@ comptime {
     assert(@sizeOf(ValidatedCommand.UseCommand) <= 128);
     assert(@sizeOf(ValidatedCommand.UseCommand) >= 16);
 
-    assert(@typeInfo(ShellType).@"enum".fields.len == 4);
-    assert(@typeInfo(ToolType).@"enum".fields.len == 2);
-    assert(@typeInfo(VersionSpec).@"union".fields.len == 2);
+    assert(@typeInfo(ShellType).@"enum".field_names.len == 4);
+    assert(@typeInfo(ToolType).@"enum".field_names.len == 2);
+    assert(@typeInfo(VersionSpec).@"union".field_names.len == 2);
 }

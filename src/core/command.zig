@@ -41,7 +41,7 @@ const dispatch = [_]Dispatch{
 };
 
 comptime {
-    assert(dispatch.len == @typeInfo(Command).@"union".fields.len);
+    assert(dispatch.len == @typeInfo(Command).@"union".field_names.len);
 }
 
 pub fn progress_items(command: Command) u16 {

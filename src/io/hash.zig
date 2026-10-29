@@ -35,6 +35,6 @@ test "verify_hash basic test" {
 
     try std.testing.expect(verify_hash(sample_hash, sample_hash_hex));
 
-    const incorrect_hash: [64]u8 = [_]u8{'i'} ** 64;
+    const incorrect_hash: [64]u8 = @splat('i');
     try std.testing.expect(!verify_hash(sample_hash, incorrect_hash));
 }

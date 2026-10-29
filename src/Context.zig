@@ -11,7 +11,7 @@ pub const CliContext = struct {
     pools: memory.ObjectPools,
 
     /// Home directory buffer.
-    home_dir_buffer: [limits.home_dir_length_maximum]u8 = [_]u8{0} ** limits.home_dir_length_maximum,
+    home_dir_buffer: [limits.home_dir_length_maximum]u8 = @splat(0),
     home_dir_length: u32 = 0,
 
     /// Command line arguments (references into process_buffer).

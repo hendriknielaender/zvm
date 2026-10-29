@@ -258,7 +258,7 @@ const FetchTask = struct {
         try writer.flush();
 
         util_output.trace("response status={d} bytes={d}", .{
-            @intFromEnum(result.status),
+            @backingInt(result.status),
             writer_state.buffered().len,
         });
 
@@ -332,7 +332,7 @@ const DownloadTask = struct {
             return err;
         };
 
-        util_output.trace("response status={d}", .{@intFromEnum(result.status)});
+        util_output.trace("response status={d}", .{@backingInt(result.status)});
 
         if (result.status != .ok) {
             log.err("HTTP request failed with status: {}", .{result.status});
@@ -354,7 +354,7 @@ fn safe_fetch(client: *std.http.Client, options: std.http.Client.FetchOptions) a
     const method: std.http.Method = options.method orelse
         if (options.payload != null) .POST else .GET;
     const redirect_behavior: std.http.Client.Request.RedirectBehavior = options.redirect_behavior orelse
-        if (options.payload == null) @enumFromInt(3) else .unhandled;
+        if (options.payload == null) @fromBackingInt(@intCast(3)) else .unhandled;
 
     var request = try std.http.Client.request(client, method, uri, .{
         .redirect_behavior = redirect_behavior,

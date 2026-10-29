@@ -172,7 +172,7 @@ fn exec_tool_windows(io: std.Io, argv: []const []const u8) !void {
     const term = try child.wait(io);
     switch (term) {
         .exited => |code| std.process.exit(code),
-        else => std.process.exit(@intFromEnum(util_output.ExitCode.invalid_arguments)),
+        else => std.process.exit(@backingInt(util_output.ExitCode.invalid_arguments)),
     }
 }
 

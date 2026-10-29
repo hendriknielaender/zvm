@@ -1608,9 +1608,9 @@ fn test_uninstall_reports_undeletable_binary(suite: *const Suite, sandbox: []con
     var bin_dir = try Io.Dir.cwd().openDir(io, std.fs.path.dirname(binary).?, .{ .iterate = true });
     defer bin_dir.close(io);
 
-    try bin_dir.setPermissions(io, @enumFromInt(0o555));
+    try bin_dir.setPermissions(io, @fromBackingInt(@intCast(0o555)));
     // Restored before the harness tears the sandbox down, which needs to write.
-    defer bin_dir.setPermissions(io, @enumFromInt(0o755)) catch {};
+    defer bin_dir.setPermissions(io, @fromBackingInt(@intCast(0o755))) catch {};
 
     var outcome = try run_zvm_binary(suite, binary, sandbox, sandbox, &.{ "--yes", "self", "uninstall" });
     defer outcome.deinit(suite.gpa);

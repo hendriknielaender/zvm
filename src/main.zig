@@ -13,7 +13,7 @@ const metadata = @import("metadata.zig");
 const build_options = @import("options");
 
 const log = std.log.scoped(.zvm);
-const build_log_level: std.log.Level = @enumFromInt(@intFromEnum(build_options.log_level));
+const build_log_level: std.log.Level = @fromBackingInt(@intCast(@backingInt(build_options.log_level)));
 
 pub const std_options: std.Options = .{
     .log_level = build_log_level,
@@ -276,7 +276,7 @@ fn apply_final_output_config(
         if (read_zvm_debug_env()) .debug else .none;
     const verbose_from_flag = global_config.verbose;
     const verbose_effective: util_output.VerboseLevel =
-        if (@intFromEnum(verbose_from_flag) >= @intFromEnum(verbose_from_env))
+        if (@backingInt(verbose_from_flag) >= @backingInt(verbose_from_env))
             verbose_from_flag
         else
             verbose_from_env;
@@ -378,7 +378,7 @@ fn execute_command_or_exit(
     command_runner.run(ctx, command, progress_node) catch |err| {
         progress_node.end();
         if (err == error.Interrupted) {
-            std.process.exit(@intFromEnum(util_output.ExitCode.interrupted));
+            std.process.exit(@backingInt(util_output.ExitCode.interrupted));
         }
         // Surface a debugging hint only when verbose is off — otherwise the
         // operator already has the trace lines and a second nudge is noise.

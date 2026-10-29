@@ -1,6 +1,33 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+/// Struct field view rebuilt from the struct-of-arrays `@typeInfo` layout so
+/// the CLI parsers can keep iterating one field at a time.
+pub const Field = struct {
+    name: [:0]const u8,
+    type: type,
+    attrs: std.lang.Type.Struct.FieldAttributes,
+
+    pub fn defaultValue(comptime field: Field) ?field.type {
+        return field.attrs.defaultValue(field.type);
+    }
+};
+
+pub fn struct_fields(comptime T: type) []const Field {
+    comptime {
+        const info = @typeInfo(T).@"struct";
+        assert(info.field_names.len == info.field_types.len);
+        assert(info.field_names.len == info.field_attrs.len);
+
+        var result: [info.field_names.len]Field = undefined;
+        for (&result, info.field_names, info.field_types, info.field_attrs) |*field, name, field_type, attrs| {
+            field.* = .{ .name = name, .type = field_type, .attrs = attrs };
+        }
+        const frozen = result;
+        return &frozen;
+    }
+}
+
 pub const Command = enum {
     install,
     remove,
@@ -18,7 +45,7 @@ pub const Command = enum {
 
     pub fn parse(name: []const u8) ?Command {
         inline for (command_specs, 0..) |command_spec, index| {
-            const command: Command = @enumFromInt(index);
+            const command: Command = @fromBackingInt(@intCast(index));
             if (std.mem.eql(u8, name, command_spec.name)) return command;
             if (command_spec.alias) |alias| {
                 if (std.mem.eql(u8, name, alias)) return command;
@@ -28,7 +55,7 @@ pub const Command = enum {
     }
 
     pub fn spec(self: Command) CommandSpec {
-        return command_specs[@intFromEnum(self)];
+        return command_specs[@backingInt(self)];
     }
 };
 
@@ -352,8 +379,9 @@ pub fn option_suggestions(command_name: []const u8) ?[]const []const u8 {
 fn command_args_type(comptime command: Command) type {
     comptime {
         const command_name = @tagName(command);
-        for (@typeInfo(CLIArgs).@"union".fields) |field| {
-            if (std.mem.eql(u8, field.name, command_name)) return field.type;
+        const info = @typeInfo(CLIArgs).@"union";
+        for (info.field_names, info.field_types) |field_name, field_type| {
+            if (std.mem.eql(u8, field_name, command_name)) return field_type;
         }
         unreachable;
     }
@@ -374,7 +402,7 @@ fn flag_name(comptime field_name: []const u8) []const u8 {
 fn named_end(comptime Args: type) usize {
     comptime {
         if (Args == void) return 0;
-        const fields = std.meta.fields(Args);
+        const fields = struct_fields(Args);
         for (fields, 0..) |field, index| {
             if (std.mem.eql(u8, field.name, "--")) return index;
         }
@@ -382,7 +410,7 @@ fn named_end(comptime Args: type) usize {
     }
 }
 
-fn option_display(comptime field: std.builtin.Type.StructField) []const u8 {
+fn option_display(comptime field: Field) []const u8 {
     comptime {
         const flag = flag_name(field.name);
         return switch (@typeInfo(field.type)) {
@@ -396,7 +424,7 @@ fn option_display(comptime field: std.builtin.Type.StructField) []const u8 {
 fn valid_option_for(comptime Args: type, arg: []const u8) bool {
     if (comptime Args == void) return false;
 
-    inline for (comptime std.meta.fields(Args)[0..named_end(Args)]) |field| {
+    inline for (comptime struct_fields(Args)[0..named_end(Args)]) |field| {
         const flag = comptime flag_name(field.name);
         switch (@typeInfo(field.type)) {
             .bool => if (std.mem.eql(u8, arg, flag)) return true,
@@ -433,7 +461,7 @@ fn OptionSuggestions(comptime Args: type) type {
 fn build_option_suggestions(comptime Args: type) [named_option_count(Args)][]const u8 {
     comptime {
         var suggestions: [named_option_count(Args)][]const u8 = undefined;
-        for (std.meta.fields(Args)[0..named_end(Args)], 0..) |field, index| {
+        for (struct_fields(Args)[0..named_end(Args)], 0..) |field, index| {
             suggestions[index] = option_display(field);
         }
         return suggestions;
@@ -441,9 +469,9 @@ fn build_option_suggestions(comptime Args: type) [named_option_count(Args)][]con
 }
 
 comptime {
-    std.debug.assert(command_specs.len == @typeInfo(Command).@"enum".fields.len);
-    for (std.meta.fields(Command), 0..) |field, index| {
-        std.debug.assert(std.mem.eql(u8, field.name, @tagName(@as(Command, @enumFromInt(index)))));
+    std.debug.assert(command_specs.len == @typeInfo(Command).@"enum".field_names.len);
+    for (@typeInfo(Command).@"enum".field_names, 0..) |field_name, index| {
+        std.debug.assert(std.mem.eql(u8, field_name, @tagName(@as(Command, @fromBackingInt(@intCast(index))))));
     }
 }
 

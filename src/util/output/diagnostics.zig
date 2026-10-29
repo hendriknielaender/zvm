@@ -20,22 +20,22 @@ pub const VerboseLevel = enum(u8) {
     trace = 2,
 
     pub fn at_least(self: VerboseLevel, threshold: VerboseLevel) bool {
-        return @intFromEnum(self) >= @intFromEnum(threshold);
+        return @backingInt(self) >= @backingInt(threshold);
     }
 
     comptime {
-        assert(@typeInfo(VerboseLevel).@"enum".fields.len == 3);
-        assert(@intFromEnum(VerboseLevel.none) == 0);
-        assert(@intFromEnum(VerboseLevel.trace) == 2);
-        assert(@intFromEnum(VerboseLevel.debug) > @intFromEnum(VerboseLevel.none));
-        assert(@intFromEnum(VerboseLevel.trace) > @intFromEnum(VerboseLevel.debug));
+        assert(@typeInfo(VerboseLevel).@"enum".field_names.len == 3);
+        assert(@backingInt(VerboseLevel.none) == 0);
+        assert(@backingInt(VerboseLevel.trace) == 2);
+        assert(@backingInt(VerboseLevel.debug) > @backingInt(VerboseLevel.none));
+        assert(@backingInt(VerboseLevel.trace) > @backingInt(VerboseLevel.debug));
     }
 };
 
 var verbose_level_global: VerboseLevel = .none;
 
 pub fn set_verbose_level(level: VerboseLevel) void {
-    assert(@intFromEnum(level) <= @intFromEnum(VerboseLevel.trace));
+    assert(@backingInt(level) <= @backingInt(VerboseLevel.trace));
     verbose_level_global = level;
 }
 

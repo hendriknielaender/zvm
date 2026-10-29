@@ -514,11 +514,24 @@ fn install_release(
     // Failures only ever leave a staging tree behind; the final path is
     // written exclusively by the publish rename, so cleanup never needs
     // to touch a completed install.
-    errdefer |err| if (err == error.Interrupted) {
-        cleanup_interrupted_install(ctx, release.staging_path());
-    } else {
-        cleanup_staging_best_effort(ctx, release.staging_path());
+    install_release_staged(ctx, release, mirrors, root_node) catch |err| {
+        if (err == error.Interrupted) {
+            cleanup_interrupted_install(ctx, release.staging_path());
+        } else {
+            cleanup_staging_best_effort(ctx, release.staging_path());
+        }
+        return err;
     };
+}
+
+fn install_release_staged(
+    ctx: *context.CliContext,
+    release: *const Release,
+    mirrors: *const community_mirrors.UrlList,
+    root_node: Progress.Node,
+) !void {
+    assert(release.version().len > 0);
+    assert(release.staging_path().len > 0);
 
     var progress = InstallProgress.init(root_node);
     try signals.check();
